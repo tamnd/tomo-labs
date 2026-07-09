@@ -1,0 +1,5 @@
+# Run artifacts live under $HOME/data, outside the repo, so nothing to ignore
+# there. These are just the stray local build and editor droppings.
+proxy/proxy
+*.log
+.DS_Store
