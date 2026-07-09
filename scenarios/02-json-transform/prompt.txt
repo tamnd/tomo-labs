@@ -1,3 +1,4 @@
-Read users.json, which holds an array of objects each with a name and an age.
-Write adults.json containing only the users whose age is 18 or older, sorted by
-name in ascending order. Keep each object's shape unchanged.
+Read employees.json, an array of objects each with a name, a department, and a
+salary. Write engineering.json containing only the employees in the Engineering
+department, sorted by salary from highest to lowest. Keep each object's shape
+unchanged (name, department, salary).

@@ -1,2 +1,5 @@
-Add 17 and 25, then multiply the result by 2. Write only that final number to
-a file called result.txt, with no other text.
+A warehouse ships pallets of boxes. On Monday it ships 3 pallets, on Tuesday 5
+pallets, and every pallet holds 24 boxes. Each box holds 12 units. On Wednesday
+it ships an extra 100 loose units on their own. How many units did the warehouse
+ship in total across the three days? Write only that final number to a file
+called result.txt, with no other text.

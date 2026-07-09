@@ -1,1 +1,1 @@
-Fix a FizzBuzz that never prints FizzBuzz.
+Fix an off-by-one bug in a mean calculation.
