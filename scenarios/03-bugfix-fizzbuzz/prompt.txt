@@ -1,0 +1,4 @@
+fizzbuzz.py has a bug: for numbers divisible by both 3 and 5 it should print
+FizzBuzz, but it prints something else. Fix the bug so that running
+`python3 fizzbuzz.py` prints the correct FizzBuzz sequence for 1 to 20, one
+value per line.

@@ -1,0 +1,2 @@
+Add 17 and 25, then multiply the result by 2. Write only that final number to
+a file called result.txt, with no other text.

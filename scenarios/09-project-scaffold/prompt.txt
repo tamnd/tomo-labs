@@ -1,0 +1,5 @@
+Set up a small project in the current directory:
+- README.md with a title line.
+- main.py that prints exactly: hello from tomo
+- a Makefile with a run target that runs `python3 main.py`.
+Then run `make run` to confirm it prints the message.

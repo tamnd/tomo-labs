@@ -1,0 +1,2 @@
+Write a Go program in primes.go that prints every prime number below 50, one
+per line in increasing order. Build and run it to confirm it works.

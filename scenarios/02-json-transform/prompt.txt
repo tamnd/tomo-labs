@@ -1,0 +1,3 @@
+Read users.json, which holds an array of objects each with a name and an age.
+Write adults.json containing only the users whose age is 18 or older, sorted by
+name in ascending order. Keep each object's shape unchanged.
