@@ -25,6 +25,11 @@ export OPENAI_BASE_URL="${LAB_BASE_URL}"
 hermes config set model.provider custom  >/trace/setup.log 2>&1
 hermes config set model.base_url "${LAB_BASE_URL}" >>/trace/setup.log 2>&1
 hermes config set model.default "${LAB_MODEL}"     >>/trace/setup.log 2>&1
+# The custom provider does not read OPENAI_API_KEY, so the key has to live in the
+# config too. Without this the proxy forwards an empty bearer and the upstream
+# rejects the one real chat call with 401, which reads as a total failure even
+# though the model and proxy are fine.
+hermes config set model.api_key "${OPENCODE_API_KEY}" >>/trace/setup.log 2>&1
 
 # Render the effective config into the trace for the record, same as the other
 # tools do. Hermes keeps it under ~/.hermes/config.yaml.
