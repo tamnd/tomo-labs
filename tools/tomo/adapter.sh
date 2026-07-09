@@ -23,16 +23,26 @@ approvals=0
 # A fully autonomous policy: the container is the sandbox, so let the agent act
 # and measure whether it can finish the task. sandbox: none because we are
 # already inside a throwaway container.
+# tomo names a model as provider/model and sends the bare model id upstream.
+# LAB_MODEL is the bare upstream id (openclaw sends it as-is), so qualify it with
+# the provider name here. If the harness already handed us a qualified id, leave
+# it alone.
+case "$LAB_MODEL" in
+  */*) model="$LAB_MODEL" ;;
+  *)   model="opencode/$LAB_MODEL" ;;
+esac
+
 cat >/trace/config.yaml <<YAML
-default_model: ${LAB_MODEL}
+default_model: ${model}
 data_dir: /work/.tomodata
+workspace: /work
 providers:
   opencode:
     type: openai
     api_key: \${OPENCODE_API_KEY}
     base_url: ${LAB_BASE_URL}
 agent:
-  max_tokens: 2000
+  max_tokens: 4096
   max_turns: ${LAB_MAX_TURNS:-12}
 policy:
   read: allow
@@ -49,6 +59,16 @@ feed() {
   for ((i = 0; i < approvals; i++)); do echo y; done
   echo /exit
 }
+
+# Pin the agent to /work. The config above sets workspace: /work, so a tomo that
+# supports it roots the file and shell tools there and tells the model as much.
+# The symlinks are a belt-and-suspenders fallback for an older tomo binary that
+# predates the workspace setting and would otherwise invent a home to write in;
+# they can go once the released binary carries the feature.
+export HOME=/work
+mkdir -p /home
+ln -sfn /work /home/user
+ln -sfn /work /home/agent
 
 cd /work
 /usr/bin/time -v -o /trace/time.txt \
