@@ -62,6 +62,40 @@ Every run writes under `$HOME/data/<tool>/<scenario>/<timestamp>/`:
     result.json      the scored summary for the run: passed, attempts, tokens,
                      rss, latency, wall, disk, and install footprint
 
+## Results so far
+
+Both tools clear all ten scenarios against the same free deepseek model
+through the same trace proxy, so the differences below are the tools, not the
+model.
+The numbers are the latest run of each scenario, summed or averaged across the
+ten.
+
+| metric | tomo | openclaw | tomo / openclaw |
+| --- | --- | --- | --- |
+| scenarios passed | 10/10 | 10/10 | even |
+| total tokens | 60,915 | 585,354 | 0.10x |
+| avg time to first byte | 764ms | 1209ms | 0.63x |
+| install footprint | 21MB | 407MB | 0.05x |
+| peak memory | 49MB | 522MB | 0.09x |
+| image size | 915MB | 1301MB | 0.70x |
+
+A few of these deserve a note.
+
+Token use is the headline: tomo does the same ten tasks in about a tenth of the
+tokens, because it takes fewer, cleaner turns rather than re-reading its own
+context on every step.
+
+Install footprint, not image size, is the honest size axis.
+Image size is dominated by the shared base both tools sit on (Python, Node, a Go
+toolchain), so it says more about the base than the tool.
+The install layer is the tool's own bytes on top of that base: 21MB for tomo's
+single static binary against 407MB for openclaw's Node dependency tree.
+
+Time to first byte is bounded by the hosted model, which is the same upstream
+for both, so the 5x gap you might hope for is not on the table here.
+tomo is still faster because its prompts are shorter, so the model spends less
+time reading before it starts answering.
+
 ## The ten scenarios
 
 Ordinary tasks a capable agent should handle, each with a checker that grades
