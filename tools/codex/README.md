@@ -15,11 +15,14 @@ defined by exactly two files, the same two tomo has next door:
 What the adapter does, in order:
 
 1. It writes `~/.codex/config.toml` defining a custom `model_provider` named
-   `lab` whose `base_url` is `$LAB_BASE_URL` with `wire_api = "chat"`, and reads
-   the key from the `OPENCODE_API_KEY` env var via `env_key`. That URL is the
-   trace proxy, so codex's request/response and token usage get captured with no
-   cooperation from codex. The proxy forwards to the real upstream with the real
-   key.
+   `lab` whose `base_url` is `$LAB_BASE_URL` with `wire_api = "responses"`, and
+   reads the key from the `OPENCODE_API_KEY` env var via `env_key`. Recent codex
+   only speaks the OpenAI Responses wire, but the free deepseek model speaks chat
+   completions, so the proxy at that URL translates the Responses request into a
+   chat request and the chat response back into a Responses stream. codex talks
+   its native wire and never knows, and its request/response and token usage get
+   captured with no cooperation from codex. The proxy forwards to the real
+   upstream with the real key.
 2. `codex exec --sandbox danger-full-access --skip-git-repo-check "$prompt"` runs
    the task headless in one shot. `exec` never stops for an approval;
    `danger-full-access` drops the sandbox so the agent can act freely, codex's

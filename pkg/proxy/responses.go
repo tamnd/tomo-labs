@@ -29,10 +29,16 @@ func isResponses(r *http.Request) bool {
 	return r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/responses")
 }
 
-// chatPathOf maps a /responses path onto its /chat/completions sibling, keeping
-// any version prefix intact (so /v1/responses becomes /v1/chat/completions).
+// chatPathOf maps a translated wire's path onto its /chat/completions sibling,
+// keeping any version prefix intact (so /v1/responses and /v1/messages both
+// become /v1/chat/completions).
 func chatPathOf(p string) string {
-	return strings.TrimSuffix(p, "/responses") + "/chat/completions"
+	for _, suf := range []string{"/responses", "/messages"} {
+		if base, ok := strings.CutSuffix(p, suf); ok {
+			return base + "/chat/completions"
+		}
+	}
+	return p
 }
 
 // serveResponses drives one Responses-API call end to end: read, translate to

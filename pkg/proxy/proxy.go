@@ -93,15 +93,20 @@ func Run(ctx context.Context, opts Options) error {
 		},
 	}
 
-	// Most traffic passes straight through the reverse proxy. A Responses-API
-	// call is the exception: the upstream is chat-only, so the proxy translates it
-	// to chat and back rather than forwarding it verbatim.
+	// Most traffic passes straight through the reverse proxy. The foreign-wire
+	// calls are the exception: the upstream speaks chat completions, so an OpenAI
+	// Responses or an Anthropic Messages request gets translated to chat and back
+	// rather than forwarded verbatim. That way a tool speaks its native wire and
+	// still runs on the one shared model every tool is graded on.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isResponses(r) {
+		switch {
+		case isResponses(r):
 			t.serveResponses(w, r, target)
-			return
+		case isMessages(r):
+			t.serveMessages(w, r, target)
+		default:
+			rp.ServeHTTP(w, r)
 		}
-		rp.ServeHTTP(w, r)
 	})
 
 	log.Printf("trace proxy: %s -> %s, writing %s", opts.Addr, opts.Upstream, opts.TraceDir)
