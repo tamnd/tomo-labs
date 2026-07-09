@@ -55,6 +55,9 @@ func (l *Lab) Build(ctx context.Context, only string) error {
 		if err := l.captureImageSize(ctx, t); err != nil {
 			return err
 		}
+		if err := l.captureToolMeta(ctx, t); err != nil {
+			return err
+		}
 	}
 	return nil
 }

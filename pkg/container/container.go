@@ -187,6 +187,14 @@ func (c *CLI) ImageSize(ctx context.Context, ref string) int64 {
 	return n
 }
 
+// Output runs the runtime with the given args and returns its stdout, for the
+// short inspection commands the lab reads a value back from (an image's installed
+// package version, a binary's build metadata).
+func (c *CLI) Output(ctx context.Context, args ...string) (string, error) {
+	out, err := exec.CommandContext(ctx, c.Bin, args...).Output()
+	return string(out), err
+}
+
 // Logs returns a container's captured output, for surfacing why a sidecar never
 // became ready.
 func (c *CLI) Logs(ctx context.Context, name string) string {
