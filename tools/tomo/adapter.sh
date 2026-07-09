@@ -52,12 +52,13 @@ policy:
 sandbox: none
 YAML
 
-# stdin: the task, then the approval budget as y lines, then /exit.
+# stdin: just the approval budget as y lines. The task itself goes in as one
+# argument to `tomo -p`, so a multi-line prompt stays a single turn instead of
+# fragmenting into one turn per line the way the chat REPL reads it. Any gate
+# that escalates mid-run reads its answer from these lines.
 feed() {
-  printf '%s\n' "$prompt"
   local i
   for ((i = 0; i < approvals; i++)); do echo y; done
-  echo /exit
 }
 
 # Pin the agent to /work. The config above sets workspace: /work, so a tomo that
@@ -72,7 +73,7 @@ ln -sfn /work /home/agent
 
 cd /work
 /usr/bin/time -v -o /trace/time.txt \
-  tomo chat --config /trace/config.yaml \
+  tomo --config /trace/config.yaml -p "$prompt" \
   < <(feed) >/trace/stdout.log 2>/trace/stderr.log
 status=$?
 
