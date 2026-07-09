@@ -29,6 +29,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tamnd/tomo/pkg/wire"
 )
 
 // Options configures a proxy server. Zero values fall back to the environment
@@ -95,18 +97,27 @@ func Run(ctx context.Context, opts Options) error {
 
 	// Most traffic passes straight through the reverse proxy. The foreign-wire
 	// calls are the exception: the upstream speaks chat completions, so an OpenAI
-	// Responses or an Anthropic Messages request gets translated to chat and back
-	// rather than forwarded verbatim. That way a tool speaks its native wire and
-	// still runs on the one shared model every tool is graded on.
+	// Responses, an Anthropic Messages, or a Google Gemini request gets translated
+	// to chat and back rather than forwarded verbatim. That way a tool speaks its
+	// native wire and still runs on the one shared model every tool is graded on.
+	// The translation itself lives in tomo's pkg/wire; here we only orchestrate the
+	// forward and the trace capture.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case isResponses(r):
-			t.serveResponses(w, r, target)
-		case isMessages(r):
-			t.serveMessages(w, r, target)
-		default:
-			rp.ServeHTTP(w, r)
+		if r.Method == http.MethodPost {
+			switch {
+			case wire.IsResponsesPath(r.URL.Path):
+				t.serveResponses(w, r, target)
+				return
+			case wire.IsMessagesPath(r.URL.Path):
+				t.serveMessages(w, r, target)
+				return
+			}
+			if model, stream, ok := wire.IsGeminiPath(r.URL.Path); ok {
+				t.serveGemini(w, r, target, model, stream)
+				return
+			}
 		}
+		rp.ServeHTTP(w, r)
 	})
 
 	log.Printf("trace proxy: %s -> %s, writing %s", opts.Addr, opts.Upstream, opts.TraceDir)
