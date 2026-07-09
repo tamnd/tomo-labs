@@ -5,7 +5,7 @@
 
 **tomo-labs** puts coding agents through the same tasks on the same model and measures what actually happened, not what a leaderboard says happened. Every agent runs in its own throwaway container, every request and response it sends is captured verbatim, and every result is graded from the files it left on disk, not from what it claims to have done.
 
-[Install](#install) • [Quick start](#quick-start) • [Results](#results) • [The Hi! baseline](#the-hi-baseline) • [Scenarios](#the-scenarios) • [Adding a tool](#adding-a-tool)
+[Install](#install) • [Quick start](#quick-start) • [Results](#results) • [Scenarios](#the-scenarios) • [Adding a tool](#adding-a-tool)
 
 Agent benchmarks usually compare one thing everybody actually cares about (did it get the task done) by changing three things at once: the model, the prompt scaffolding, and the tool's own overhead. That is not a comparison, it is three experiments wearing one number. tomo-labs holds the model fixed. A trace proxy sits in front of every agent and forwards every request to the same free model with the same deterministic decoding settings, whatever wire dialect the agent's SDK speaks, OpenAI chat, Anthropic Messages, OpenAI Responses, or Gemini's API. What is left to differ is the agent: how many turns it needs, how many tokens it burns getting there, how much memory it holds, how big its install is. Seven agents run through the same harness today: tomo, codex, opencode, claude-code, openclaw, hermes, and gemini-cli. Adding one more is a `Dockerfile` and a small adapter script, not a fork of the harness.
 
@@ -101,27 +101,11 @@ Time to first byte is bounded by the hosted model, which is the same upstream fo
 
 hermes and gemini-cli's pass counts include runs recorded while their adapters were still broken. hermes shipped a custom provider that silently dropped the API key until its adapter learned to set it explicitly. gemini-cli needs `~/.gemini/settings.json` written with an explicit auth type, or its headless mode falls back to an interactive prompt that never resolves. Both wire translators work end to end now: hermes passes its scenarios cleanly, and gemini-cli's remaining failures are the model missing a step, not a wiring bug, it makes only 2 to 3 requests per scenario against 20 to 30 for tomo or hermes, so it rarely retries the way the others do.
 
-## The Hi! baseline
-
-Every scenario above mixes a tool's fixed round-trip cost into a real task, so there's no clean way to see what a tool spends just to say hi back. `00-hello` is that isolate: the prompt is `Hi!`, the checker always passes since there's no artifact to grade, and the metrics are the whole point.
-
-| tool | tokens | cached | ttfb | rss | wall | requests |
-| --- | --- | --- | --- | --- | --- | --- |
-| tomo | 1,153 | 1,024 | 761ms | 12MB | 2s | 2 |
-| gemini-cli | 8,001 | 2,048 | 1090ms | 363MB | 5s | 3 |
-| codex | 7,593 | 7,424 | 852ms | 92MB | 2s | 2 |
-| opencode | 7,260 | 7,168 | 779ms | 643MB | 3s | 3 |
-| openclaw | 16,770 | 7,552 | 1129ms | 362MB | 32s | 2 |
-| claude-code | 19,183 | 19,072 | 1105ms | 287MB | 2s | 3 |
-| hermes | 13,611 | — | 981ms | 122MB | 19s | 26 |
-
-tomo's floor is nearly ten times lower than the next tool because there's no framework prompt to send: its system prompt is short and its context loop doesn't re-send prior turns it doesn't need. Every other tool pays a fixed tax on turn one just for its own scaffolding, before the model has said anything back.
-
-hermes is the outlier worth explaining rather than dismissing: 26 requests to answer "Hi!" is not a fluke, it's how the tool's own turn loop is structured, and it shows up here in a way it doesn't in a task-shaped scenario where those requests would otherwise look like productive work. openclaw's 32-second wall time on a one-word reply is the same story from a different angle: most of that time is the tool's own startup, not the model.
+The `00-hello` scenario is a baseline, just the prompt `Hi!`, isolating the fixed round-trip cost every tool pays before it does any real work. See the [Hi! baseline results](https://github.com/tamnd/tomo#the-hi-baseline) in tomo's own README for that table; it lives there since it's the number tomo's README leads with.
 
 ## The scenarios
 
-Ordinary tasks a capable agent should handle, each with a checker that grades the result on disk rather than on what the model said, plus the baseline above:
+Ordinary tasks a capable agent should handle, each with a checker that grades the result on disk rather than on what the model said, plus the `00-hello` baseline above:
 
 | id | task |
 | --- | --- |
