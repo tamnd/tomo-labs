@@ -64,14 +64,31 @@ up the residual nondeterminism a model still shows even at temperature 0. A pass
 that needed more than one try is recorded as such, so the flakiness is measured
 rather than papered over.
 
+### Running a sweep in parallel
+
+`RunAll` fans a sweep out across a worker pool, `LAB_CONCURRENCY` deep (default
+3). Each worker gets its own `slot`: its own proxy container name and port,
+picked with `newSlot`, so two runs in flight never share a sidecar or bleed
+into each other's trace. `lab report --dry-run` and `lab -p` (an ad-hoc prompt
+run against every tool) go through the same `dispatch` and the same pool, so
+their timing is representative of a real sweep. The one thing that is not safe
+to parallelize is two separate `lab run` processes: each process owns the
+`tomolab-web` sidecar container by a fixed name, and a second process racing
+the first over that name will stop the first one's sidecar out from under it.
+Concurrency inside one process is fine; concurrency across processes is not.
+
 ### Why a proxy
 
 Token usage and the exact bytes sent and received are the same measurement for
-every agent, but no two agents expose them the same way, and some do not expose
-them at all. Putting a proxy on the network path makes the measurement the
-lab's job instead of the tool's. The tool points its OpenAI-compatible base URL
-at the proxy, the proxy forwards to the real upstream, and it tees a copy of
-each request and response into the trace as it goes. Streaming replies keep
+every agent, but no two agents expose them the same way, and some do not
+expose them at all, and not every agent even speaks the same wire dialect.
+Putting a proxy on the network path makes the measurement the lab's job
+instead of the tool's. The tool points its base URL at the proxy; the proxy
+tees a copy of each request and response into the trace, translates whatever
+dialect the tool's SDK speaks (OpenAI chat completions, Anthropic Messages,
+OpenAI Responses, or Gemini's API, using the shim in `pkg/proxy/shim.go` over
+[`tamnd/tomo/pkg/wire`](https://github.com/tamnd/tomo/tree/main/pkg/wire)),
+and forwards one chat-completions call upstream. Streaming replies keep
 streaming, because the proxy flushes as it copies rather than buffering. The
 `Authorization` header is never written, so a key a tool carried never lands in
 a trace.
@@ -153,6 +170,11 @@ A tool is two files under `tools/<name>/`:
 The adapter runs the task non-interactively, lets the agent act (the container
 is the sandbox), and wraps the run in `/usr/bin/time -v -o /trace/time.txt` so
 peak memory comes back. `tools/tomo/adapter.sh` is the worked example.
+
+Run `lab meta` after adding a tool to capture its version and release date into
+`tool.json`, checked against the tool's own npm or module registry rather than
+a version pinned by hand, so the results table never drifts from what actually
+ran.
 
 ## Adding a scenario
 
