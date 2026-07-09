@@ -8,6 +8,7 @@
 //	lab tools                   list wired tools
 //	lab scenarios               list scenarios
 //	lab report [--json]         summarize captured runs
+//	lab clean                   remove lab containers and dangling images
 //
 // It needs OPENCODE_API_KEY (or another OpenAI-compatible key, with LAB_UPSTREAM
 // and LAB_MODEL pointed to match). All logic lives in pkg/lab; this is a thin
@@ -52,6 +53,8 @@ func main() {
 		die(cmdScenarios(l))
 	case "report":
 		die(cmdReport(ctx, l, hasFlag(args, "--json")))
+	case "clean":
+		l.Clean(ctx)
 	default:
 		usage()
 		os.Exit(2)
@@ -125,7 +128,7 @@ func hasFlag(args []string, flag string) bool {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: lab {build|run|tools|scenarios|report} [args]")
+	fmt.Fprintln(os.Stderr, "usage: lab {build|run|tools|scenarios|report|clean} [args]")
 }
 
 func die(err error) {

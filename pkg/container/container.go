@@ -193,3 +193,13 @@ func (c *CLI) Logs(ctx context.Context, name string) string {
 	out, _ := exec.CommandContext(ctx, c.Bin, "logs", name).CombinedOutput()
 	return string(out)
 }
+
+// PruneImages deletes dangling images, the untagged <none> layers a rebuild
+// leaves behind when it retags a name onto fresh layers. The lab rebuilds the
+// base, proxy, and every tool image over and over, so without this each rebuild
+// orphans the previous copy and the machine's disk creeps up until it fills.
+// Failure is not fatal: pruning is hygiene, not correctness, so a prune that
+// errors on a busy machine should not sink a build or a run.
+func (c *CLI) PruneImages(ctx context.Context) {
+	_ = exec.CommandContext(ctx, c.Bin, "image", "prune", "-f").Run()
+}

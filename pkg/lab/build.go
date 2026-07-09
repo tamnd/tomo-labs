@@ -14,7 +14,13 @@ import (
 // only builds every tool; a name builds just that one. The proxy is built from
 // the module root so it can pull in its Go packages; everything else builds from
 // its own directory.
+//
+// Every image it retags leaves the previous copy behind as a dangling <none>
+// layer, so it prunes those once the build finishes. A build is a natural
+// checkpoint for that: it is the only thing that creates dangling images, and it
+// runs off the hot path of a scored run.
 func (l *Lab) Build(ctx context.Context, only string) error {
+	defer l.rt.PruneImages(ctx)
 	fmt.Fprintln(os.Stderr, "[build] base image ("+baseImage+")")
 	if err := l.rt.Build(ctx, container.BuildSpec{
 		Tag: baseImage, Context: filepath.Join(l.cfg.Root, "tools", "base"), Out: os.Stderr,
