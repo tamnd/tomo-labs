@@ -1,0 +1,10 @@
+title       = "tomo-labs"
+baseURL     = "https://tomo-labs.tamnd.com/"
+description = "tomo-labs runs coding agents through the same tasks on the same model and measures what actually happened. A trace proxy holds the model fixed across tomo, codex, opencode, claude-code, openclaw, hermes, and gemini-cli, and every result is graded from the files an agent left on disk."
+contentDir  = "content"
+outputDir   = "public"
+theme       = "tago-doks"
+syntaxHighlight = "true"
+
+[params]
+github = "https://github.com/tamnd/tomo-labs"
