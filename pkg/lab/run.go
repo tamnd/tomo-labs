@@ -77,7 +77,7 @@ func (l *Lab) RunOne(ctx context.Context, tool, scenarioName string) (*Result, e
 	}
 
 	m := readTrace(trace)
-	installKB, imageKB := l.imageKB(tool)
+	installKB, _ := l.imageKB(tool)
 	res := &Result{
 		Tool: tool, Scenario: scenarioName, Time: ts,
 		Model: l.cfg.Model, Runtime: l.rt.Bin,
@@ -85,10 +85,10 @@ func (l *Lab) RunOne(ctx context.Context, tool, scenarioName string) (*Result, e
 		Attempts: used, AttemptsMax: attempts,
 		WallSeconds: wall, ElapsedClock: m.ElapsedClock,
 		MaxRSSKB: m.MaxRSSKB, Requests: m.Requests,
-		Tokens: m.Tokens, Latency: m.Latency,
+		Tokens: m.Tokens, Latency: m.Latency, CostUSD: m.CostUSD,
 		DiskBeforeKB: diskBefore, DiskAfterKB: diskAfter, DiskDeltaKB: diskAfter - diskBefore,
-		InstallKB: installKB, ImageKB: imageKB,
-		Check: firstLineOf(reason),
+		InstallKB: installKB,
+		Check:     firstLineOf(reason),
 	}
 	if err := writeResult(filepath.Join(runDir, "result.json"), res); err != nil {
 		return nil, err

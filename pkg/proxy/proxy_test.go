@@ -56,3 +56,54 @@ func TestDeterminismOffIsPassthrough(t *testing.T) {
 		t.Errorf("apply with det off = %q, want unchanged", got)
 	}
 }
+
+// A plain OpenAI usage block yields the token counts, the nested cached-prompt
+// count, and the reported cost.
+func TestExtractUsageOpenAI(t *testing.T) {
+	body := []byte(`{"usage":{"prompt_tokens":100,"completion_tokens":40,"total_tokens":140,"prompt_tokens_details":{"cached_tokens":64},"cost":0.0123}}`)
+	u := extractUsage(body)
+	if u == nil {
+		t.Fatal("no usage extracted")
+	}
+	if u.PromptTokens != 100 || u.CompletionTokens != 40 || u.TotalTokens != 140 {
+		t.Errorf("tokens = %d/%d/%d, want 100/40/140", u.PromptTokens, u.CompletionTokens, u.TotalTokens)
+	}
+	if u.CachedTokens != 64 {
+		t.Errorf("cached = %d, want 64", u.CachedTokens)
+	}
+	if u.CostUSD != 0.0123 {
+		t.Errorf("cost = %v, want 0.0123", u.CostUSD)
+	}
+}
+
+// The Anthropic shape names cache read and write tokens flat, and extractUsage
+// maps them onto the same fields.
+func TestExtractUsageAnthropicCache(t *testing.T) {
+	body := []byte(`{"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"cache_read_input_tokens":80,"cache_creation_input_tokens":120}}`)
+	u := extractUsage(body)
+	if u == nil {
+		t.Fatal("no usage extracted")
+	}
+	if u.CachedTokens != 80 {
+		t.Errorf("cached = %d, want 80", u.CachedTokens)
+	}
+	if u.CacheWriteTokens != 120 {
+		t.Errorf("cache_write = %d, want 120", u.CacheWriteTokens)
+	}
+}
+
+// A streamed reply carries usage on the last data: line, and a provider that
+// reports no cache or cost leaves those fields zero rather than guessing.
+func TestExtractUsageStreamNoCache(t *testing.T) {
+	body := []byte("data: {\"choices\":[{}]}\n\ndata: {\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3,\"total_tokens\":10}}\n\ndata: [DONE]\n")
+	u := extractUsage(body)
+	if u == nil {
+		t.Fatal("no usage extracted")
+	}
+	if u.TotalTokens != 10 {
+		t.Errorf("total = %d, want 10", u.TotalTokens)
+	}
+	if u.CachedTokens != 0 || u.CacheWriteTokens != 0 || u.CostUSD != 0 {
+		t.Errorf("unreported cache/cost should stay zero, got %d/%d/%v", u.CachedTokens, u.CacheWriteTokens, u.CostUSD)
+	}
+}

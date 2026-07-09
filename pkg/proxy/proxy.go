@@ -269,33 +269,65 @@ func msSince(start, end time.Time) int64 {
 }
 
 type usageRecord struct {
-	Seq              int    `json:"seq"`
-	TS               string `json:"ts"`
-	Status           int    `json:"status"`
-	PromptTokens     int    `json:"prompt_tokens"`
-	CompletionTokens int    `json:"completion_tokens"`
-	TotalTokens      int    `json:"total_tokens"`
+	Seq              int     `json:"seq"`
+	TS               string  `json:"ts"`
+	Status           int     `json:"status"`
+	PromptTokens     int     `json:"prompt_tokens"`
+	CompletionTokens int     `json:"completion_tokens"`
+	TotalTokens      int     `json:"total_tokens"`
+	CachedTokens     int     `json:"cached_tokens,omitempty"`
+	CacheWriteTokens int     `json:"cache_write_tokens,omitempty"`
+	CostUSD          float64 `json:"cost_usd,omitempty"`
 }
 
 // extractUsage finds the usage block in a reply, whether it came back as one
 // JSON object or as a stream of SSE data: lines. It reads the last usage seen,
 // which is the authoritative one for a streamed completion.
+//
+// Beyond the plain token counts it pulls the two things a caller actually pays
+// on when the provider reports them: how many prompt tokens were served from a
+// cache (cheap) or written to one (a one-time surcharge), and the dollar cost of
+// the call. Providers spell these differently, so it reads both the OpenAI shape
+// (usage.prompt_tokens_details.cached_tokens, usage.cost) and the Anthropic shape
+// (cache_read_input_tokens, cache_creation_input_tokens), and leaves a field zero
+// when the provider is silent rather than inventing a number.
 func extractUsage(body []byte) *usageRecord {
 	var last *usageRecord
 	tryOne := func(chunk []byte) {
 		var v struct {
 			Usage *struct {
-				PromptTokens     int `json:"prompt_tokens"`
-				CompletionTokens int `json:"completion_tokens"`
-				TotalTokens      int `json:"total_tokens"`
+				PromptTokens        int     `json:"prompt_tokens"`
+				CompletionTokens    int     `json:"completion_tokens"`
+				TotalTokens         int     `json:"total_tokens"`
+				Cost                float64 `json:"cost"`
+				TotalCost           float64 `json:"total_cost"`
+				CacheReadInputToks  int     `json:"cache_read_input_tokens"`
+				CacheCreateInputTok int     `json:"cache_creation_input_tokens"`
+				PromptTokensDetails *struct {
+					CachedTokens int `json:"cached_tokens"`
+				} `json:"prompt_tokens_details"`
 			} `json:"usage"`
 		}
 		if json.Unmarshal(chunk, &v) == nil && v.Usage != nil {
-			last = &usageRecord{
-				PromptTokens:     v.Usage.PromptTokens,
-				CompletionTokens: v.Usage.CompletionTokens,
-				TotalTokens:      v.Usage.TotalTokens,
+			u := v.Usage
+			rec := &usageRecord{
+				PromptTokens:     u.PromptTokens,
+				CompletionTokens: u.CompletionTokens,
+				TotalTokens:      u.TotalTokens,
+				CacheWriteTokens: u.CacheCreateInputTok,
+				CostUSD:          u.Cost,
 			}
+			if rec.CostUSD == 0 {
+				rec.CostUSD = u.TotalCost
+			}
+			// cached prompt tokens: OpenAI nests them, Anthropic names them flat.
+			if u.PromptTokensDetails != nil {
+				rec.CachedTokens = u.PromptTokensDetails.CachedTokens
+			}
+			if u.CacheReadInputToks > 0 {
+				rec.CachedTokens = u.CacheReadInputToks
+			}
+			last = rec
 		}
 	}
 	trimmed := bytes.TrimSpace(body)

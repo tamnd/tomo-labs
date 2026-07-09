@@ -18,6 +18,7 @@ type traceMetrics struct {
 	ElapsedClock string
 	Requests     int
 	Tokens       Tokens
+	CostUSD      float64
 	Latency      Latency
 }
 
@@ -28,7 +29,7 @@ func readTrace(dir string) traceMetrics {
 	m := traceMetrics{}
 	m.MaxRSSKB, m.ElapsedClock = readTime(filepath.Join(dir, "time.txt"))
 	m.Requests = countLines(filepath.Join(dir, "requests.jsonl"))
-	m.Tokens = sumTokens(filepath.Join(dir, "usage.jsonl"))
+	m.Tokens, m.CostUSD = sumTokens(filepath.Join(dir, "usage.jsonl"))
 	m.Latency = latencyStats(filepath.Join(dir, "latency.jsonl"))
 	return m
 }
@@ -74,22 +75,32 @@ func countLines(path string) int {
 	return n
 }
 
-// sumTokens adds up the usage rows the proxy recorded, one per reply.
-func sumTokens(path string) Tokens {
+// sumTokens adds up the usage rows the proxy recorded, one per reply, and the
+// dollar cost alongside them. Cached and cache-write tokens and cost only appear
+// when the provider reported them, so they stay zero for a provider that does
+// not, which the report renders as blank rather than as a real zero.
+func sumTokens(path string) (Tokens, float64) {
 	var t Tokens
+	var cost float64
 	forEachJSON(path, func(b []byte) {
 		var r struct {
-			Prompt     int `json:"prompt_tokens"`
-			Completion int `json:"completion_tokens"`
-			Total      int `json:"total_tokens"`
+			Prompt     int     `json:"prompt_tokens"`
+			Completion int     `json:"completion_tokens"`
+			Total      int     `json:"total_tokens"`
+			Cached     int     `json:"cached_tokens"`
+			CacheWrite int     `json:"cache_write_tokens"`
+			Cost       float64 `json:"cost_usd"`
 		}
 		if json.Unmarshal(b, &r) == nil {
 			t.Prompt += r.Prompt
 			t.Completion += r.Completion
 			t.Total += r.Total
+			t.Cached += r.Cached
+			t.CacheWrite += r.CacheWrite
+			cost += r.Cost
 		}
 	})
-	return t
+	return t, cost
 }
 
 // latencyStats averages ttfb and total over the model calls the proxy timed. It

@@ -28,21 +28,33 @@ type Result struct {
 	Tokens  Tokens  `json:"tokens"`
 	Latency Latency `json:"latency_ms"`
 
+	// CostUSD is the dollar cost the provider billed for the run, summed over
+	// every completion. It is omitted when the provider does not report a cost,
+	// so a zero here means unknown, not free.
+	CostUSD float64 `json:"cost_usd,omitempty"`
+
 	DiskBeforeKB int `json:"disk_before_kb"`
 	DiskAfterKB  int `json:"disk_after_kb"`
 	DiskDeltaKB  int `json:"disk_delta_kb"`
 
+	// InstallKB is the tool's own bytes on top of the shared base image, the
+	// honest size axis. Whole-image size is dropped on purpose: it is dominated
+	// by the base every tool shares, so it measures the base, not the tool.
 	InstallKB int `json:"install_kb"`
-	ImageKB   int `json:"image_kb"`
 
 	Check string `json:"check"`
 }
 
-// Tokens is the model's token accounting summed over a run's completions.
+// Tokens is the model's token accounting summed over a run's completions. Cached
+// and CacheWrite are the prompt tokens the provider served from, or wrote to, a
+// prompt cache; both are omitted when the provider does not report caching, so a
+// zero means unreported rather than none.
 type Tokens struct {
 	Prompt     int `json:"prompt"`
 	Completion int `json:"completion"`
 	Total      int `json:"total"`
+	Cached     int `json:"cached,omitempty"`
+	CacheWrite int `json:"cache_write,omitempty"`
 }
 
 // Latency is the average model-call latency over a run, in milliseconds, with

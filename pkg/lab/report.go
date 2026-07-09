@@ -69,14 +69,15 @@ type ToolSummary struct {
 	Passed      int     `json:"passed"`
 	FirstTry    int     `json:"first_try"`
 	Retried     int     `json:"retried"`
-	AvgAttempts float64 `json:"avg_attempts"`
-	InstallMB   int     `json:"install_mb"`
-	ImageMB     int     `json:"image_mb"`
-	TotalTokens int     `json:"total_tokens"`
-	AvgTokens   int     `json:"avg_tokens"`
-	AvgRSSMB    int     `json:"avg_rss_mb"`
-	AvgTTFBMS   int     `json:"avg_ttfb_ms"`
-	AvgWallS    int     `json:"avg_wall_s"`
+	AvgAttempts  float64 `json:"avg_attempts"`
+	InstallMB    int     `json:"install_mb"`
+	TotalTokens  int     `json:"total_tokens"`
+	AvgTokens    int     `json:"avg_tokens"`
+	CachedTokens int     `json:"cached_tokens,omitempty"`
+	TotalCostUSD float64 `json:"total_cost_usd,omitempty"`
+	AvgRSSMB     int     `json:"avg_rss_mb"`
+	AvgTTFBMS    int     `json:"avg_ttfb_ms"`
+	AvgWallS     int     `json:"avg_wall_s"`
 }
 
 // Report reads every result.json under the data dir and aggregates it per tool.
@@ -112,7 +113,8 @@ func summarize(results []*Result) []ToolSummary {
 	var out []ToolSummary
 	for tool, rs := range byTool {
 		s := ToolSummary{Tool: tool, Runs: len(rs)}
-		var tokens, rss, ttfb, wall, attempts, timed int
+		var tokens, cached, rss, ttfb, wall, attempts, timed int
+		var cost float64
 		for _, r := range rs {
 			if r.Passed {
 				s.Passed++
@@ -126,20 +128,23 @@ func summarize(results []*Result) []ToolSummary {
 				s.Retried++
 			}
 			tokens += r.Tokens.Total
+			cached += r.Tokens.Cached
+			cost += r.CostUSD
 			rss += r.MaxRSSKB
 			wall += r.WallSeconds
 			if r.Latency.Calls > 0 {
 				ttfb += r.Latency.AvgTTFB
 				timed++
 			}
-			// Install and image footprint is a property of the tool, not the run,
-			// so the last one seen wins; they are all the same.
+			// Install footprint is a property of the tool, not the run, so the
+			// last one seen wins; they are all the same.
 			s.InstallMB = r.InstallKB / 1024
-			s.ImageMB = r.ImageKB / 1024
 		}
 		n := len(rs)
 		s.TotalTokens = tokens
 		s.AvgTokens = tokens / n
+		s.CachedTokens = cached
+		s.TotalCostUSD = cost
 		s.AvgRSSMB = rss / n / 1024
 		s.AvgWallS = wall / n
 		s.AvgAttempts = float64(attempts) / float64(n)
@@ -156,11 +161,30 @@ func summarize(results []*Result) []ToolSummary {
 // comparison.
 func WriteTable(w io.Writer, sums []ToolSummary) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "TOOL\tRUNS\tPASS\t1ST-TRY\tRETRIED\tAVG-TRIES\tTOKENS\tAVG-TOK\tRSS-MB\tTTFB-MS\tWALL-S\tINSTALL-MB\tIMAGE-MB")
+	fmt.Fprintln(tw, "TOOL\tRUNS\tPASS\t1ST-TRY\tRETRIED\tAVG-TRIES\tTOKENS\tAVG-TOK\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tINSTALL-MB")
 	for _, s := range sums {
-		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%.2f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%.2f\t%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\n",
 			s.Tool, s.Runs, s.Passed, s.FirstTry, s.Retried, s.AvgAttempts,
-			s.TotalTokens, s.AvgTokens, s.AvgRSSMB, s.AvgTTFBMS, s.AvgWallS, s.InstallMB, s.ImageMB)
+			s.TotalTokens, s.AvgTokens, blankZero(s.CachedTokens), blankCost(s.TotalCostUSD),
+			s.AvgRSSMB, s.AvgTTFBMS, s.AvgWallS, s.InstallMB)
 	}
 	tw.Flush()
+}
+
+// blankZero renders an unreported count as a dash, so a provider that never
+// reports prompt caching reads as unknown rather than as a real zero.
+func blankZero(n int) string {
+	if n == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+// blankCost renders an unreported cost as a dash and otherwise a dollar figure
+// with enough precision to show a fraction of a cent.
+func blankCost(c float64) string {
+	if c == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%.4f", c)
 }
