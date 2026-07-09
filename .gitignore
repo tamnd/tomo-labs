@@ -3,3 +3,4 @@
 proxy/proxy
 *.log
 .DS_Store
+bin/
