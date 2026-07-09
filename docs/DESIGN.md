@@ -13,19 +13,28 @@ launch that agent.
 
 ## The pieces
 
-    lab.sh                the orchestrator, and the only thing you run
-    lib/runtime.sh        picks docker or podman, once
-    proxy/                the trace tap: a reverse proxy that records traffic
+    cmd/lab               the harness CLI, and the thing you run
+    cmd/proxy             the trace proxy binary
+    pkg/lab               the harness as a library: build, run, report
+    pkg/proxy             the trace tap: a reverse proxy that records traffic
+    pkg/container         a typed wrapper over the docker or podman CLI
     tools/base/           the shared runtime image every tool builds on
     tools/<tool>/         one tool: a Dockerfile and an adapter.sh
     scenarios/<id>/       one task: prompt.txt, setup.sh, check.sh
     webroot/              static pages served to scenarios that fetch
 
+The harness is one Go module. `pkg/lab` holds all the orchestration logic and
+`cmd/lab` is a thin front end over it, so a sweep can be driven from Go directly
+as well as from the command line. `pkg/container` shells out to whichever
+runtime is present rather than pulling in a container SDK, which keeps the module
+dependency-free and every runtime call bounded by a context.
+
 ### A run, start to finish
 
-For one (tool, scenario) pair, `lab.sh` does this:
+For one (tool, scenario) pair, `RunOne` does this:
 
-1. Make `$HOME/data/<tool>/<scenario>/<timestamp>/` with `work/` and `trace/`.
+1. Make `$HOME/data/<tool>/<scenario>/<timestamp>/`. Each try gets its own
+   `attempt-N/` with `work/` and `trace/` under it.
 2. Run the scenario's `setup.sh` on the host to lay fixtures into `work/`.
 3. Start the trace proxy with `trace/` mounted in, and wait for it to answer.
 4. If the scenario needs a web page, start the static sidecar too.
@@ -35,10 +44,25 @@ For one (tool, scenario) pair, `lab.sh` does this:
 6. Stop the sidecars.
 7. Run the scenario's `check.sh` on the host against `work/`, which passes or
    fails by exit code.
-8. Read the numbers back out of `trace/` and write `result.json`.
+8. If it failed and tries remain, go back to step 1's next `attempt-N/`. If it
+   passed, or the last try is spent, stop.
+9. Read the numbers back out of the last try's `trace/` and write `result.json`
+   at the run root, recording how many tries the pass took.
 
 Sidecars are per run, so one run's trace never bleeds into another's, and a
 crashed container never blocks the next run.
+
+### Keeping a run stable
+
+A benchmark is only fair if a rerun means the same thing, and a hosted model is
+not naturally repeatable. Two general levers, neither one tuned to a scenario,
+close most of the gap. The proxy forces greedy decoding onto every completion
+request (temperature 0, top_p 1, a fixed seed), so client-side sampling variance
+is gone and every tool is judged under one decoding regime. On top of that the
+harness runs up to `LAB_ATTEMPTS` tries and stops at the first pass, which soaks
+up the residual nondeterminism a model still shows even at temperature 0. A pass
+that needed more than one try is recorded as such, so the flakiness is measured
+rather than papered over.
 
 ### Why a proxy
 
@@ -70,6 +94,12 @@ the number can be recomputed later. Nothing is lost.
   disk is visible.
 - Requests: how many model calls the agent made to finish, a rough read on how
   much back-and-forth the task took.
+- Latency: per call, the time to first byte and the total, averaged over the
+  run's completions. The proxy times these, so the number is the same
+  measurement for every tool.
+- Install footprint: the tool image's on-disk size and the slice that is the
+  tool itself sitting on the shared base, captured at build time. A heavier
+  agent is a real cost, so it is an axis of the comparison.
 
 ## The trace schema
 
@@ -83,14 +113,19 @@ the number can be recomputed later. Nothing is lost.
       "runtime": "podman",
       "passed": true,
       "exit_code": 0,
+      "attempts": 1,
+      "attempts_max": 3,
       "wall_seconds": 8,
       "elapsed_clock": "0:07.13",
       "max_rss_kb": 12896,
       "requests": 4,
       "tokens": { "prompt": 3363, "completion": 384, "total": 3747 },
+      "latency_ms": { "avg_ttfb": 706, "avg_total": 1974, "calls": 4 },
       "disk_before_kb": 0,
       "disk_after_kb": 8,
       "disk_delta_kb": 8,
+      "install_kb": 21831,
+      "image_kb": 936845,
       "check": "final number is correct"
     }
 
