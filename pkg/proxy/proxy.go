@@ -67,6 +67,9 @@ func Run(ctx context.Context, opts Options) error {
 		lat:    mustAppend(filepath.Join(opts.TraceDir, "latency.jsonl")),
 		starts: map[int]time.Time{},
 		det:    loadDeterminism(),
+		// No overall timeout: an agent turn can stream for minutes, so lean on the
+		// request context (cancelled when the tool gives up) instead.
+		client: &http.Client{},
 	}
 	if t.det != nil {
 		log.Printf("determinism: forcing %s on every completion request", t.det)
@@ -90,8 +93,19 @@ func Run(ctx context.Context, opts Options) error {
 		},
 	}
 
+	// Most traffic passes straight through the reverse proxy. A Responses-API
+	// call is the exception: the upstream is chat-only, so the proxy translates it
+	// to chat and back rather than forwarding it verbatim.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isResponses(r) {
+			t.serveResponses(w, r, target)
+			return
+		}
+		rp.ServeHTTP(w, r)
+	})
+
 	log.Printf("trace proxy: %s -> %s, writing %s", opts.Addr, opts.Upstream, opts.TraceDir)
-	srv := &http.Server{Addr: opts.Addr, Handler: rp, ReadHeaderTimeout: 15 * time.Second}
+	srv := &http.Server{Addr: opts.Addr, Handler: handler, ReadHeaderTimeout: 15 * time.Second}
 	go func() {
 		<-ctx.Done()
 		_ = srv.Close()
@@ -113,6 +127,7 @@ type tap struct {
 	lat    *os.File
 	starts map[int]time.Time
 	det    *determinism
+	client *http.Client // used by the wire translators, which forward on their own
 }
 
 func (t *tap) next() int {
@@ -259,6 +274,21 @@ type latRecord struct {
 	TotalMS int64  `json:"total_ms"`
 }
 
+// recordLatency writes one latency row for a call the wire translators forwarded
+// themselves, since those bypass the reverse proxy's ModifyResponse hook. It also
+// clears the pending start so the starts map does not leak.
+func (t *tap) recordLatency(seq int, start, done, first time.Time, path string, status int) {
+	if start.IsZero() {
+		return
+	}
+	rec := latRecord{Seq: seq, TS: nowStamp(), Path: path, Status: status, TotalMS: msSince(start, done)}
+	if !first.IsZero() {
+		rec.TTFBMS = msSince(start, first)
+	}
+	t.writeJSON(t.lat, rec)
+	t.takeStart(seq)
+}
+
 // msSince reports whole milliseconds between two instants, guarding the case
 // where the end was never stamped (returns 0 rather than a negative number).
 func msSince(start, end time.Time) int64 {
@@ -303,6 +333,7 @@ func extractUsage(body []byte) *usageRecord {
 				TotalCost           float64 `json:"total_cost"`
 				CacheReadInputToks  int     `json:"cache_read_input_tokens"`
 				CacheCreateInputTok int     `json:"cache_creation_input_tokens"`
+				PromptCacheHitToks  int     `json:"prompt_cache_hit_tokens"`
 				PromptTokensDetails *struct {
 					CachedTokens int `json:"cached_tokens"`
 				} `json:"prompt_tokens_details"`
@@ -320,12 +351,16 @@ func extractUsage(body []byte) *usageRecord {
 			if rec.CostUSD == 0 {
 				rec.CostUSD = u.TotalCost
 			}
-			// cached prompt tokens: OpenAI nests them, Anthropic names them flat.
+			// cached prompt tokens: OpenAI nests them, Anthropic names them flat,
+			// DeepSeek reports the hit count under its own name.
 			if u.PromptTokensDetails != nil {
 				rec.CachedTokens = u.PromptTokensDetails.CachedTokens
 			}
 			if u.CacheReadInputToks > 0 {
 				rec.CachedTokens = u.CacheReadInputToks
+			}
+			if u.PromptCacheHitToks > 0 {
+				rec.CachedTokens = u.PromptCacheHitToks
 			}
 			last = rec
 		}

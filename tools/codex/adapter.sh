@@ -16,10 +16,11 @@ prompt="$(cat /scenario/prompt.txt)"
 
 # Define a custom model provider named lab whose base_url is the trace proxy, so
 # every request/response and its token usage get captured with no cooperation
-# from codex. wire_api chat targets the /v1/chat/completions shape the free
-# deepseek model speaks; env_key names the environment variable codex reads the
-# key from, and the proxy forwards to the real upstream with it. Config lives at
-# $CODEX_HOME/config.toml, which defaults to ~/.codex.
+# from codex. Current codex only speaks wire_api responses, and our free deepseek
+# model is chat-only upstream, so the proxy translates responses to chat and back
+# at its edge; codex talks its native wire and never knows. env_key names the
+# environment variable codex reads the key from, and the proxy forwards to the
+# real upstream with it. Config lives at $CODEX_HOME/config.toml, default ~/.codex.
 mkdir -p "$HOME/.codex"
 cat >"$HOME/.codex/config.toml" <<TOML
 model = "${LAB_MODEL}"
@@ -29,7 +30,7 @@ model_provider = "lab"
 name = "lab"
 base_url = "${LAB_BASE_URL}"
 env_key = "OPENCODE_API_KEY"
-wire_api = "chat"
+wire_api = "responses"
 TOML
 cp "$HOME/.codex/config.toml" /trace/config.toml 2>/dev/null || true
 
