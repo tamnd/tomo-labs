@@ -1,88 +1,87 @@
 # tomo-labs
 
-A small harness for running an AI agent through real tasks and measuring how it
-did, with every trace captured so a run can be inspected later, not just scored.
+[![Go Reference](https://pkg.go.dev/badge/github.com/tamnd/tomo-labs.svg)](https://pkg.go.dev/github.com/tamnd/tomo-labs)
+[![Go Report Card](https://goreportcard.com/badge/github.com/tamnd/tomo-labs)](https://goreportcard.com/report/github.com/tamnd/tomo-labs)
 
-It runs each agent in a throwaway container, routes its model traffic through a
-proxy that records request and response bodies and token usage, and grades the
-work the agent left behind with a deterministic checker. Six tools are wired up
-today: tomo, codex, opencode, claude-code, openclaw, hermes, and gemini-cli.
-Each is its own folder under `tools/` and reuses everything else unchanged, so
-adding one more is a Dockerfile and an adapter script, not a fork of the
-harness.
+**tomo-labs** puts coding agents through the same tasks on the same model and measures what actually happened, not what a leaderboard says happened. Every agent runs in its own throwaway container, every request and response it sends is captured verbatim, and every result is graded from the files it left on disk, not from what it claims to have done.
 
-The proxy speaks whatever wire each tool's SDK expects (OpenAI chat, the
-Anthropic Messages API, the Responses API, or Gemini's API) and translates it
-to one deterministic chat-completions call upstream, so every tool hits the
-same free model through the same path and the comparison is fair.
+[Install](#install) • [Quick start](#quick-start) • [Results](#results) • [The Hi! baseline](#the-hi-baseline) • [Scenarios](#the-scenarios) • [Adding a tool](#adding-a-tool)
 
-The harness is a Go program. The `lab` command builds the images, runs the
-scenarios, and reports; the same code is importable as a library under
-`pkg/lab` if you want to drive a sweep from your own Go. The trace proxy is the
-second binary, `cmd/proxy`, sharing the module.
+Agent benchmarks usually compare one thing everybody actually cares about (did it get the task done) by changing three things at once: the model, the prompt scaffolding, and the tool's own overhead. That is not a comparison, it is three experiments wearing one number. tomo-labs holds the model fixed. A trace proxy sits in front of every agent and forwards every request to the same free model with the same deterministic decoding settings, whatever wire dialect the agent's SDK speaks, OpenAI chat, Anthropic Messages, OpenAI Responses, or Gemini's API. What is left to differ is the agent: how many turns it needs, how many tokens it burns getting there, how much memory it holds, how big its install is. Seven agents run through the same harness today: tomo, codex, opencode, claude-code, openclaw, hermes, and gemini-cli. Adding one more is a `Dockerfile` and a small adapter script, not a fork of the harness.
 
-## What you need
+## Install
 
-- Go 1.26.5 to build and run the harness.
-- podman or docker. The harness detects which is present and uses it; set
-  `LAB_RUNTIME` to force one. On this machine podman runs through the
-  Apple-native `applehv` machine.
-- A key for an OpenAI-compatible endpoint. The default targets the OpenCode Zen
-  free tier, whose deepseek model does tool calling:
+```sh
+git clone https://github.com/tamnd/tomo-labs
+cd tomo-labs
+go build -o bin/lab ./cmd/lab
+```
 
-      export OPENCODE_API_KEY=...
+Or run it straight from source with `go run ./cmd/lab ...`, which every example below uses.
 
-## Use it
+You'll need:
 
-    go run ./cmd/lab build            # base, proxy, and every wired tool image
-    go run ./cmd/lab run tomo         # run tomo through every scenario
-    go run ./cmd/lab run tomo 03-bugfix-fizzbuzz   # or one scenario
-    go run ./cmd/lab -p "explain this repo in one line"  # one ad-hoc prompt,
-                                       # every tool, in parallel
-    go run ./cmd/lab meta             # capture each tool's version and release date
-    go run ./cmd/lab report           # summarize the captured runs as a table
-    go run ./cmd/lab report --json    # the same summary as JSON
+- Go 1.26.5
+- podman or docker (the harness detects which is present; set `LAB_RUNTIME` to force one)
+- a key for an OpenAI-compatible endpoint. The default targets the OpenCode Zen free tier, whose deepseek model does tool calling:
 
-    go run ./cmd/lab tools            # list wired tools
-    go run ./cmd/lab scenarios        # list scenarios
+  ```sh
+  export OPENCODE_API_KEY=...
+  ```
 
-Install it as a binary with `go install ./cmd/lab` and call `lab` directly.
+## Quick start
 
-Two things keep a run from swinging on the model's luck, and both are general,
-not tuned to any scenario. The proxy forces greedy decoding (temperature 0,
-top_p 1, a fixed seed) onto every completion request, so a repeat run sees the
-same sampling. On top of that the harness gives each scenario up to
-`LAB_ATTEMPTS` tries (default 3) and stops at the first pass, which absorbs the
-run-to-run nondeterminism a hosted model still shows even under greedy decoding.
-`result.json` records how many tries a pass took, so flakiness stays visible
-instead of hidden.
+```sh
+go run ./cmd/lab build            # base, proxy, and every wired tool image
+go run ./cmd/lab run tomo         # run tomo through every scenario
+go run ./cmd/lab report           # summarize every captured run as a table
+```
+
+That's the whole loop: build the images once, run whichever agent you want against whichever scenario you want, then read the report. A few more useful shapes:
+
+```sh
+go run ./cmd/lab run tomo 03-bugfix-fizzbuzz     # just one scenario
+go run ./cmd/lab -p "explain this repo in one line"   # one ad-hoc prompt, every
+                                                        # tool, in parallel
+go run ./cmd/lab meta                             # capture each tool's version
+                                                    # and release date
+go run ./cmd/lab report --json                    # the same summary as JSON
+go run ./cmd/lab tools                            # list wired tools
+go run ./cmd/lab scenarios                        # list scenarios
+```
+
+Two things keep a run from swinging on the model's luck, and neither is tuned to any one scenario. The proxy forces greedy decoding (temperature 0, top_p 1, a fixed seed) onto every completion request, so a repeat run sees the same sampling. On top of that the harness gives each scenario up to `LAB_ATTEMPTS` tries (default 3) and stops at the first pass, absorbing the run-to-run nondeterminism a hosted model still shows even under greedy decoding. `result.json` records how many tries a pass took, so flakiness stays visible instead of hidden.
+
+Runs go through a worker pool, `LAB_CONCURRENCY` deep (default 3), each with its own proxy container and port, so a full sweep is bounded by the slowest few runs rather than the sum of all of them.
+
+## What a run leaves behind
 
 Every run writes under `$HOME/data/<tool>/<scenario>/<timestamp>/`:
 
-    attempt-N/
-      work/          the tree the agent worked in, exactly as it left it
-      trace/
-        config.yaml    the config the tool ran with
-        requests.jsonl one line per model request, body included, key redacted
-        resp-N.txt     the raw response for request N, streamed or not
-        usage.jsonl    token usage per response
-        latency.jsonl  per-call time to first byte and total
-        stdout.log     what the tool printed
-        time.txt       GNU time report, including peak memory
-    result.json      the scored summary for the run: passed, attempts, tokens,
-                     rss, latency, wall, disk, and install footprint
+```
+attempt-N/
+  work/            the tree the agent worked in, exactly as it left it
+  trace/
+    config.yaml      the config the tool ran with
+    requests.jsonl    one line per model request, body included, key redacted
+    resp-N.txt        the raw response for request N, streamed or not
+    usage.jsonl       token usage per response
+    latency.jsonl     per-call time to first byte and total
+    stdout.log        what the tool printed
+    time.txt          GNU time report, including peak memory
+result.json        the scored summary: passed, attempts, tokens, rss,
+                   latency, wall time, disk, install footprint
+```
 
-## Results so far
+Nothing is summarized away. If a number in the report table looks wrong, the request that produced it is sitting right there in plain text.
 
-Six tools against the same free deepseek model through the same trace proxy,
-so the differences below are the tools, not the model.
-`lab report` reads every captured run, so a tool's row reflects its full
-history, including scenarios it failed before an adapter fix, not just a
-single clean sweep.
+## Results
+
+Seven tools against the same free deepseek model through the same trace proxy, so what differs below is the tool, not the model. `lab report` reads every run ever captured, so a tool's row is its full history, including scenarios it failed before an adapter bug got fixed, not just one clean sweep.
 
 | tool | version | released | pass | avg tokens | avg ttfb | install |
 | --- | --- | --- | --- | --- | --- | --- |
-| tomo | v0.2.2-...c1a34b365454 | 2026-07-09 | 11/11 | 5,379 | 751ms | 21MB |
+| tomo | v0.2.2-0.20260709142456-c1a34b365454 | 2026-07-09 | 11/11 | 5,379 | 751ms | 21MB |
 | codex | 0.143.0 | 2026-07-08 | 12/12 | 15,105 | 902ms | 423MB |
 | opencode | 1.17.16 | 2026-07-09 | 11/11 | 26,227 | 820ms | 420MB |
 | claude-code | 2.1.205 | 2026-07-08 | 12/13 | 63,747 | 1205ms | 322MB |
@@ -90,42 +89,39 @@ single clean sweep.
 | hermes | 0.18.2 | 2026-07-08 | 14/24 | 25,834 | 1015ms | 221MB |
 | gemini-cli | 0.50.0 | 2026-07-08 | 8/14 | 6,885 | 897ms | 181MB |
 
-Run `lab report` for the full table (cache hit rate, cost, RSS, wall time), or
-`lab report --json` for the raw numbers.
+Every version above is that tool's latest published release as of the run, checked against its npm/module registry directly, not a stale pin. `lab meta` captures the version and release date after every build so the table never drifts from what actually ran; run `lab report` yourself for the full columns (cache hit rate, cost, RSS, wall time).
 
 A few of these deserve a note.
 
-Token use is the headline: tomo does the same tasks in a fraction of the
-tokens of every other tool here, because it takes fewer, cleaner turns rather
-than re-reading its own context on every step.
+Token use is the headline: tomo does the same tasks in a fraction of the tokens of every other tool here, because it takes fewer, cleaner turns rather than re-reading its own context on every step.
 
-Install footprint, not image size, is the honest size axis.
-Image size is dominated by the shared base every tool sits on (Python, Node, a
-Go toolchain), so it says more about the base than the tool.
-The install layer is the tool's own bytes on top of that base: 21MB for
-tomo's single static binary against hundreds of megabytes for a Node
-dependency tree.
+Install footprint, not image size, is the honest size axis. Image size is dominated by the shared base every tool sits on (Python, Node, a Go toolchain), so it says more about the base than the tool. The install layer is the tool's own bytes on top of that base: 21MB for tomo's single static binary against hundreds of megabytes for a Node dependency tree.
 
-Time to first byte is bounded by the hosted model, which is the same upstream
-for every tool, so the gap you might hope for is not on the table here.
-tomo is still fastest because its prompts are shorter, so the model spends
-less time reading before it starts answering.
+Time to first byte is bounded by the hosted model, which is the same upstream for every tool, so the gap you might hope for is not on the table here. tomo is still fastest because its prompts are shorter, so the model spends less time reading before it starts answering.
 
-hermes and gemini-cli's pass counts include the runs recorded while their
-adapters were still broken: hermes shipped a custom provider that dropped the
-API key until its adapter learned to set it explicitly, and gemini-cli needs
-`~/.gemini/settings.json` written with an explicit auth type or its headless
-mode falls back to an interactive prompt that never resolves. Both wire
-translators work end to end now (hermes passes its scenarios cleanly;
-gemini-cli's remaining failures are the model missing a step, not a wiring
-bug: it makes only 2-3 requests per scenario against 20-30 for tomo or
-hermes, so it rarely retries the way the others do).
+hermes and gemini-cli's pass counts include runs recorded while their adapters were still broken. hermes shipped a custom provider that silently dropped the API key until its adapter learned to set it explicitly. gemini-cli needs `~/.gemini/settings.json` written with an explicit auth type, or its headless mode falls back to an interactive prompt that never resolves. Both wire translators work end to end now: hermes passes its scenarios cleanly, and gemini-cli's remaining failures are the model missing a step, not a wiring bug, it makes only 2 to 3 requests per scenario against 20 to 30 for tomo or hermes, so it rarely retries the way the others do.
+
+## The Hi! baseline
+
+Every scenario above mixes a tool's fixed round-trip cost into a real task, so there's no clean way to see what a tool spends just to say hi back. `00-hello` is that isolate: the prompt is `Hi!`, the checker always passes since there's no artifact to grade, and the metrics are the whole point.
+
+| tool | tokens | cached | ttfb | rss | wall | requests |
+| --- | --- | --- | --- | --- | --- | --- |
+| tomo | 1,153 | 1,024 | 761ms | 12MB | 2s | 2 |
+| gemini-cli | 8,001 | 2,048 | 1090ms | 363MB | 5s | 3 |
+| codex | 7,593 | 7,424 | 852ms | 92MB | 2s | 2 |
+| opencode | 7,260 | 7,168 | 779ms | 643MB | 3s | 3 |
+| openclaw | 16,770 | 7,552 | 1129ms | 362MB | 32s | 2 |
+| claude-code | 19,183 | 19,072 | 1105ms | 287MB | 2s | 3 |
+| hermes | 13,611 | — | 981ms | 122MB | 19s | 26 |
+
+tomo's floor is nearly ten times lower than the next tool because there's no framework prompt to send: its system prompt is short and its context loop doesn't re-send prior turns it doesn't need. Every other tool pays a fixed tax on turn one just for its own scaffolding, before the model has said anything back.
+
+hermes is the outlier worth explaining rather than dismissing: 26 requests to answer "Hi!" is not a fluke, it's how the tool's own turn loop is structured, and it shows up here in a way it doesn't in a task-shaped scenario where those requests would otherwise look like productive work. openclaw's 32-second wall time on a one-word reply is the same story from a different angle: most of that time is the tool's own startup, not the model.
 
 ## The scenarios
 
-Ordinary tasks a capable agent should handle, each with a checker that grades
-the result on disk rather than on what the model said, plus a baseline
-scenario that measures the fixed cost of one trivial round trip:
+Ordinary tasks a capable agent should handle, each with a checker that grades the result on disk rather than on what the model said, plus the baseline above:
 
 | id | task |
 | --- | --- |
@@ -143,19 +139,31 @@ scenario that measures the fixed cost of one trivial round trip:
 
 ## Adding a tool
 
-See `docs/DESIGN.md` for the architecture and the trace schema, and
-`tools/openclaw/README.md` for the two files a new tool needs. The short
-version: a `Dockerfile` on top of `tomolab-base`, and an `adapter.sh` that
-points the tool at `$LAB_BASE_URL` and runs the task in `/work`. The harness
-never reads a tool's code, only these two files, so every tool is on the same
-footing.
+See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and the trace schema, and [`tools/openclaw/README.md`](tools/openclaw/README.md) for the two files a new tool needs: a `Dockerfile` on top of `tomolab-base`, and an `adapter.sh` that points the tool at `$LAB_BASE_URL` and runs the task in `/work`. The harness never reads a tool's own code, only these two files, so every tool is on the same footing.
+
+## How it works
+
+```
+scenario prompt ─▶ tool container ─▶ trace proxy ─▶ upstream model
+   (/scenario)      (runs in /work)   (records +      (deterministic,
+                                        translates       same for
+                                        the wire)         every tool)
+                          │
+                          ▼
+                     work left in /work ─▶ checker ─▶ result.json
+```
+
+The proxy is the one piece every tool shares. It records every request and response verbatim, forces deterministic decoding, and translates whatever wire the tool's SDK speaks into one chat-completions call upstream, using the translators in [`tamnd/tomo/pkg/wire`](https://github.com/tamnd/tomo/tree/main/pkg/wire). A tool never talks to the real model directly, and never knows the proxy is anything other than the API it expects.
 
 ## Layout
 
-    cmd/lab      the harness CLI
-    cmd/proxy    the trace proxy binary
-    pkg/lab      the harness as a library: build, run, report
-    pkg/proxy    the trace proxy as a library
-    pkg/container a typed wrapper over the docker or podman CLI
-    scenarios    one directory per task: prompt, fixtures, checker
-    tools        one directory per tool: Dockerfile and adapter.sh
+```
+cmd/lab         the harness CLI
+cmd/proxy       the trace proxy binary
+pkg/lab         the harness as a library: build, run, report
+pkg/proxy       the trace proxy as a library
+pkg/container   a typed wrapper over the docker or podman CLI
+scenarios/      one directory per task: prompt, fixtures, checker
+tools/          one directory per tool: Dockerfile and adapter.sh
+docs/           DESIGN.md, the architecture and trace schema in full
+```
