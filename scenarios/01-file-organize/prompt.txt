@@ -1,0 +1,4 @@
+Organize the files in the current directory into subfolders by file extension.
+For each extension present, create a folder named exactly after that extension
+(so .log files go into a folder called log, .csv into csv, .txt into txt) and
+move each file into its folder. Do not change any file's contents.

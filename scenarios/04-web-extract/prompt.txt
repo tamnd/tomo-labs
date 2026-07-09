@@ -1,0 +1,3 @@
+Fetch http://tomolab-web/prices.html. It lists products with their prices.
+Write a file cheapest.txt whose only content is the name of the cheapest
+product.

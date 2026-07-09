@@ -1,0 +1,4 @@
+sales.csv has two columns, date and amount. Write summary.txt with exactly two
+lines:
+total: <the sum of all amounts>
+top: <the date with the single highest amount>

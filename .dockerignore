@@ -1,0 +1,12 @@
+# The proxy image builds from the repo root so it can pull in its Go packages.
+# Keep the build context to just what the compiler needs: no VCS history, no
+# scenario fixtures, no tool images, no editor droppings.
+.git
+scenarios
+tools
+webroot
+docs
+lab.sh
+lib
+*.log
+.DS_Store

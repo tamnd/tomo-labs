@@ -1,0 +1,4 @@
+Read employees.json, an array of objects each with a name, a department, and a
+salary. Write engineering.json containing only the employees in the Engineering
+department, sorted by salary from highest to lowest. Keep each object's shape
+unchanged (name, department, salary).

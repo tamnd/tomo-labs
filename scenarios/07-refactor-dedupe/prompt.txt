@@ -1,0 +1,3 @@
+util.js defines the same function twice. Remove the duplicate so the function
+is defined only once, without changing its behavior. Then run `node test.js`;
+it must print PASS.
