@@ -64,11 +64,11 @@ func (l *Lab) RunAll(ctx context.Context, tools, scenarios []string) ([]*Result,
 // ToolSummary is one tool's aggregate across every captured run, the row the
 // comparison table is built from.
 type ToolSummary struct {
-	Tool        string  `json:"tool"`
-	Runs        int     `json:"runs"`
-	Passed      int     `json:"passed"`
-	FirstTry    int     `json:"first_try"`
-	Retried     int     `json:"retried"`
+	Tool         string  `json:"tool"`
+	Runs         int     `json:"runs"`
+	Passed       int     `json:"passed"`
+	FirstTry     int     `json:"first_try"`
+	Retried      int     `json:"retried"`
 	AvgAttempts  float64 `json:"avg_attempts"`
 	InstallMB    int     `json:"install_mb"`
 	TotalTokens  int     `json:"total_tokens"`
