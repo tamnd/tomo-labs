@@ -52,7 +52,7 @@ A benchmark is only fair if a rerun means the same thing, and a hosted model is 
 - **Wall time**: measured by the orchestrator around the container, and by GNU time around the agent.
 - **Disk**: the size of the working tree before and after, so a task's footprint on disk is visible.
 - **Requests**: how many model calls the agent made to finish, a rough read on how much back-and-forth the task took.
-- **Latency**: per call, the time to first byte and the total, averaged over the run's completions. The proxy times these, so the number is the same measurement for every tool.
+- **Latency**: per call, the time to first byte and the total, averaged over the run's completions. The proxy times these, so the number is the same measurement for every tool. A 429 from the free tier's rate limit also carries a `Retry-After` header; the proxy reads it into `retry_after_s` on that call's latency row, so a rate-limited attempt shows up in the trace as a wait time instead of a bare failure.
 - **Install footprint**: the tool image's on-disk size and the slice that is the tool itself sitting on the shared base, captured at build time.
 
 See the full architecture and trace schema in [`docs/DESIGN.md`](https://github.com/tamnd/tomo-labs/blob/main/docs/DESIGN.md).

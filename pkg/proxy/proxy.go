@@ -206,6 +206,9 @@ func (t *tap) onResponse(resp *http.Response) error {
 	start, _ := t.takeStart(seq)
 	path := resp.Request.URL.Path
 	status := resp.StatusCode
+	// A 429 from the free tier carries how long to back off; capture it while the
+	// header is still in scope, since the body tee below only sees the body.
+	retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
 	// Tee the response body into a per-response file as the proxy copies it to
 	// the tool. This does not buffer the whole reply, so streaming still works.
 	respPath := filepath.Join(t.dir, "resp-"+strconv.Itoa(seq)+".txt")
@@ -226,7 +229,7 @@ func (t *tap) onResponse(resp *http.Response) error {
 		// total spans the whole reply, so a slow stream shows up as total-ttfb.
 		if !start.IsZero() {
 			rec := latRecord{Seq: seq, TS: nowStamp(), Path: path, Status: status,
-				TotalMS: msSince(start, tc.doneAt)}
+				TotalMS: msSince(start, tc.doneAt), RetryAfter: retryAfter}
 			if !tc.firstAt.IsZero() {
 				rec.TTFBMS = msSince(start, tc.firstAt)
 			}
@@ -282,27 +285,50 @@ func (tc *teeCloser) Close() error {
 }
 
 type latRecord struct {
-	Seq     int    `json:"seq"`
-	TS      string `json:"ts"`
-	Path    string `json:"path"`
-	Status  int    `json:"status"`
-	TTFBMS  int64  `json:"ttfb_ms"`
-	TotalMS int64  `json:"total_ms"`
+	Seq        int    `json:"seq"`
+	TS         string `json:"ts"`
+	Path       string `json:"path"`
+	Status     int    `json:"status"`
+	TTFBMS     int64  `json:"ttfb_ms"`
+	TotalMS    int64  `json:"total_ms"`
+	RetryAfter int    `json:"retry_after_s,omitempty"`
 }
 
 // recordLatency writes one latency row for a call the wire translators forwarded
 // themselves, since those bypass the reverse proxy's ModifyResponse hook. It also
-// clears the pending start so the starts map does not leak.
-func (t *tap) recordLatency(seq int, start, done, first time.Time, path string, status int) {
+// clears the pending start so the starts map does not leak. retryAfter is the
+// upstream's Retry-After header in seconds, or 0 when the call did not carry one.
+func (t *tap) recordLatency(seq int, start, done, first time.Time, path string, status, retryAfter int) {
 	if start.IsZero() {
 		return
 	}
-	rec := latRecord{Seq: seq, TS: nowStamp(), Path: path, Status: status, TotalMS: msSince(start, done)}
+	rec := latRecord{Seq: seq, TS: nowStamp(), Path: path, Status: status,
+		TotalMS: msSince(start, done), RetryAfter: retryAfter}
 	if !first.IsZero() {
 		rec.TTFBMS = msSince(start, first)
 	}
 	t.writeJSON(t.lat, rec)
 	t.takeStart(seq)
+}
+
+// parseRetryAfter reads a Retry-After header down to whole seconds. The header is
+// either a delay in seconds or an HTTP-date; zen sends delay-seconds, so that is
+// tried first, with the date form as a fallback for any upstream that uses it. An
+// empty or unparseable header reports 0, which the caller treats as "not given"
+// via omitempty.
+func parseRetryAfter(h string) int {
+	if h == "" {
+		return 0
+	}
+	if n, err := strconv.Atoi(strings.TrimSpace(h)); err == nil && n >= 0 {
+		return n
+	}
+	if t, err := http.ParseTime(h); err == nil {
+		if d := time.Until(t); d > 0 {
+			return int(d.Seconds())
+		}
+	}
+	return 0
 }
 
 // msSince reports whole milliseconds between two instants, guarding the case
