@@ -43,6 +43,16 @@ type Result struct {
 	InstallKB int `json:"install_kb"`
 
 	Check string `json:"check"`
+
+	// Ungraded marks a run with no checker, which is what an ad-hoc prompt run
+	// (lab -p) produces: there is no pass or fail, only the answer and the metrics.
+	// The scenario report skips these so a prompt run never counts as a failure.
+	Ungraded bool `json:"ungraded,omitempty"`
+
+	// Answer is the tool's final stdout, captured only for an ungraded prompt run
+	// so the comparison can show what each tool actually produced. It is trimmed to
+	// a sane length; the full stream stays in the trace.
+	Answer string `json:"answer,omitempty"`
 }
 
 // Tokens is the model's token accounting summed over a run's completions. Cached

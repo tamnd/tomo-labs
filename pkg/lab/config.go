@@ -16,10 +16,11 @@ type Config struct {
 	Upstream string // OpenAI-compatible base the proxy forwards to
 	APIKey   string // upstream key, forwarded to the tool, never written to a trace
 
-	MaxTurns  int // agent turn budget handed to the tool
-	Attempts  int // best-of-N: how many tries before a scenario is called failed
-	ProxyPort int // host port the proxy publishes for the readiness probe
-	KeepRuns  int // how many timestamped runs to keep per tool/scenario, 0 keeps all
+	MaxTurns    int // agent turn budget handed to the tool
+	Attempts    int // best-of-N: how many tries before a scenario is called failed
+	ProxyPort   int // host port the proxy publishes for the readiness probe (worker 0); later workers take the next ports
+	KeepRuns    int // how many timestamped runs to keep per tool/scenario, 0 keeps all
+	Concurrency int // how many tool/scenario runs to keep in flight at once
 
 	Network string // container network name
 
@@ -54,6 +55,7 @@ func DefaultConfig() Config {
 		Attempts:      envInt("LAB_ATTEMPTS", 3),
 		ProxyPort:     envInt("LAB_PROXY_PORT", 8899),
 		KeepRuns:      envInt("LAB_KEEP_RUNS", 5),
+		Concurrency:   envInt("LAB_CONCURRENCY", 3),
 		Network:       "tomolab",
 		Deterministic: env("LAB_DETERMINISTIC", "1") != "0",
 		Temperature:   env("LAB_TEMPERATURE", "0"),

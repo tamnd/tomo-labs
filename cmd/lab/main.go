@@ -5,8 +5,10 @@
 //
 //	lab build [tool]            build base, proxy, and tool images
 //	lab run [tool] [scenario]   run all, or one tool, or one pair
+//	lab -p "<prompt>" [tool...] run one ad-hoc prompt through every tool, or some
 //	lab tools                   list wired tools
 //	lab scenarios               list scenarios
+//	lab meta                    capture each tool's version and release date
 //	lab report [--json]         summarize captured runs
 //	lab clean                   remove lab containers and dangling images
 //
@@ -47,10 +49,14 @@ func main() {
 		die(l.Build(ctx, arg(args, 1)))
 	case "run":
 		die(cmdRun(ctx, l, arg(args, 1), arg(args, 2)))
+	case "-p", "--prompt", "prompt":
+		die(cmdPrompt(ctx, l, args[1:]))
 	case "tools":
 		die(cmdTools(l))
 	case "scenarios":
 		die(cmdScenarios(l))
+	case "meta":
+		die(l.RefreshMeta(ctx))
 	case "report":
 		die(cmdReport(ctx, l, hasFlag(args, "--json")))
 	case "clean":
@@ -71,6 +77,26 @@ func cmdRun(ctx context.Context, l *lab.Lab, tool, scenario string) error {
 	}
 	_, err := l.RunAll(ctx, tools, scenarios)
 	return err
+}
+
+// cmdPrompt runs one ad-hoc prompt through every tool, or through the tools named
+// after it, and prints the comparison. rest is everything after the -p flag: the
+// first element is the prompt, the rest are optional tool filters.
+func cmdPrompt(ctx context.Context, l *lab.Lab, rest []string) error {
+	if len(rest) == 0 || rest[0] == "" {
+		return fmt.Errorf("usage: lab -p \"<prompt>\" [tool...]")
+	}
+	prompt, tools := rest[0], rest[1:]
+	results, err := l.RunPrompt(ctx, prompt, tools)
+	if err != nil {
+		return err
+	}
+	if len(results) == 0 {
+		fmt.Fprintln(os.Stderr, "no tools ran")
+		return nil
+	}
+	lab.WritePromptReport(os.Stdout, prompt, results)
+	return nil
 }
 
 func cmdTools(l *lab.Lab) error {
@@ -128,7 +154,7 @@ func hasFlag(args []string, flag string) bool {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: lab {build|run|tools|scenarios|report|clean} [args]")
+	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|meta|report|clean} [args]")
 }
 
 func die(err error) {
