@@ -187,9 +187,27 @@ func (c *CLI) ImageSize(ctx context.Context, ref string) int64 {
 	return n
 }
 
+// Output runs the runtime with the given args and returns its stdout, for the
+// short inspection commands the lab reads a value back from (an image's installed
+// package version, a binary's build metadata).
+func (c *CLI) Output(ctx context.Context, args ...string) (string, error) {
+	out, err := exec.CommandContext(ctx, c.Bin, args...).Output()
+	return string(out), err
+}
+
 // Logs returns a container's captured output, for surfacing why a sidecar never
 // became ready.
 func (c *CLI) Logs(ctx context.Context, name string) string {
 	out, _ := exec.CommandContext(ctx, c.Bin, "logs", name).CombinedOutput()
 	return string(out)
+}
+
+// PruneImages deletes dangling images, the untagged <none> layers a rebuild
+// leaves behind when it retags a name onto fresh layers. The lab rebuilds the
+// base, proxy, and every tool image over and over, so without this each rebuild
+// orphans the previous copy and the machine's disk creeps up until it fills.
+// Failure is not fatal: pruning is hygiene, not correctness, so a prune that
+// errors on a busy machine should not sink a build or a run.
+func (c *CLI) PruneImages(ctx context.Context) {
+	_ = exec.CommandContext(ctx, c.Bin, "image", "prune", "-f").Run()
 }

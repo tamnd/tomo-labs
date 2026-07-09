@@ -67,9 +67,9 @@ func TestDirSizeKB(t *testing.T) {
 // retried, and the flakiness signal in average attempts.
 func TestSummarize(t *testing.T) {
 	results := []*Result{
-		{Tool: "tomo", Passed: true, Attempts: 1, AttemptsMax: 3, Tokens: Tokens{Total: 100}, MaxRSSKB: 1024 * 30, WallSeconds: 10, Latency: Latency{AvgTTFB: 200, Calls: 2}, InstallKB: 1024 * 40, ImageKB: 1024 * 120},
-		{Tool: "tomo", Passed: true, Attempts: 2, AttemptsMax: 3, Tokens: Tokens{Total: 200}, MaxRSSKB: 1024 * 50, WallSeconds: 20, Latency: Latency{AvgTTFB: 400, Calls: 3}, InstallKB: 1024 * 40, ImageKB: 1024 * 120},
-		{Tool: "openclaw", Passed: false, Attempts: 3, AttemptsMax: 3, Tokens: Tokens{Total: 300}, MaxRSSKB: 1024 * 200, WallSeconds: 30, Latency: Latency{}, InstallKB: 1024 * 300, ImageKB: 1024 * 500},
+		{Tool: "tomo", Passed: true, Attempts: 1, AttemptsMax: 3, Tokens: Tokens{Total: 100, Cached: 20}, CostUSD: 0.01, MaxRSSKB: 1024 * 30, WallSeconds: 10, Latency: Latency{AvgTTFB: 200, Calls: 2}, InstallKB: 1024 * 40},
+		{Tool: "tomo", Passed: true, Attempts: 2, AttemptsMax: 3, Tokens: Tokens{Total: 200, Cached: 30}, CostUSD: 0.02, MaxRSSKB: 1024 * 50, WallSeconds: 20, Latency: Latency{AvgTTFB: 400, Calls: 3}, InstallKB: 1024 * 40},
+		{Tool: "openclaw", Passed: false, Attempts: 3, AttemptsMax: 3, Tokens: Tokens{Total: 300}, MaxRSSKB: 1024 * 200, WallSeconds: 30, Latency: Latency{}, InstallKB: 1024 * 300},
 	}
 	sums := summarize(results)
 	if len(sums) != 2 {
@@ -98,8 +98,14 @@ func TestSummarize(t *testing.T) {
 	if tomo.AvgTTFBMS != 300 {
 		t.Errorf("tomo avg_ttfb = %d, want 300", tomo.AvgTTFBMS)
 	}
-	if tomo.InstallMB != 40 || tomo.ImageMB != 120 {
-		t.Errorf("tomo install/image mb = %d/%d, want 40/120", tomo.InstallMB, tomo.ImageMB)
+	if tomo.InstallMB != 40 {
+		t.Errorf("tomo install mb = %d, want 40", tomo.InstallMB)
+	}
+	if tomo.CachedTokens != 50 {
+		t.Errorf("tomo cached tokens = %d, want 50", tomo.CachedTokens)
+	}
+	if tomo.TotalCostUSD < 0.0299 || tomo.TotalCostUSD > 0.0301 {
+		t.Errorf("tomo total cost = %v, want ~0.03", tomo.TotalCostUSD)
 	}
 	// openclaw never produced a timed completion, so its latency stays zero
 	// instead of dividing by zero.

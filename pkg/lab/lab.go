@@ -44,9 +44,10 @@ func (l *Lab) Runtime() string { return l.rt.Bin }
 
 // Scenario is one task definition on disk.
 type Scenario struct {
-	Name string // directory name, e.g. 06-codegen-primes
-	Desc string // first line of the desc file, if any
-	dir  string
+	Name   string // directory name, e.g. 06-codegen-primes
+	Desc   string // first line of the desc file, if any
+	dir    string
+	graded bool // whether the scenario ships a check.sh to pass or fail against
 }
 
 // Tools lists the wired tools: every directory under tools/ that is not the
@@ -85,7 +86,10 @@ func (l *Lab) Scenarios() ([]Scenario, error) {
 		if !exists(filepath.Join(dir, "prompt.txt")) {
 			continue
 		}
-		out = append(out, Scenario{Name: e.Name(), Desc: firstLine(filepath.Join(dir, "desc")), dir: dir})
+		out = append(out, Scenario{
+			Name: e.Name(), Desc: firstLine(filepath.Join(dir, "desc")), dir: dir,
+			graded: exists(filepath.Join(dir, "check.sh")),
+		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
@@ -97,7 +101,10 @@ func (l *Lab) scenario(name string) (Scenario, error) {
 	if !exists(filepath.Join(dir, "prompt.txt")) {
 		return Scenario{}, fmt.Errorf("unknown scenario: %s", name)
 	}
-	return Scenario{Name: name, Desc: firstLine(filepath.Join(dir, "desc")), dir: dir}, nil
+	return Scenario{
+		Name: name, Desc: firstLine(filepath.Join(dir, "desc")), dir: dir,
+		graded: exists(filepath.Join(dir, "check.sh")),
+	}, nil
 }
 
 func exists(path string) bool {

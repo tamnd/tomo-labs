@@ -29,6 +29,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tamnd/tomo/pkg/wire"
 )
 
 // Options configures a proxy server. Zero values fall back to the environment
@@ -67,6 +69,9 @@ func Run(ctx context.Context, opts Options) error {
 		lat:    mustAppend(filepath.Join(opts.TraceDir, "latency.jsonl")),
 		starts: map[int]time.Time{},
 		det:    loadDeterminism(),
+		// No overall timeout: an agent turn can stream for minutes, so lean on the
+		// request context (cancelled when the tool gives up) instead.
+		client: &http.Client{},
 	}
 	if t.det != nil {
 		log.Printf("determinism: forcing %s on every completion request", t.det)
@@ -90,8 +95,33 @@ func Run(ctx context.Context, opts Options) error {
 		},
 	}
 
+	// Most traffic passes straight through the reverse proxy. The foreign-wire
+	// calls are the exception: the upstream speaks chat completions, so an OpenAI
+	// Responses, an Anthropic Messages, or a Google Gemini request gets translated
+	// to chat and back rather than forwarded verbatim. That way a tool speaks its
+	// native wire and still runs on the one shared model every tool is graded on.
+	// The translation itself lives in tomo's pkg/wire; here we only orchestrate the
+	// forward and the trace capture.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			switch {
+			case wire.IsResponsesPath(r.URL.Path):
+				t.serveResponses(w, r, target)
+				return
+			case wire.IsMessagesPath(r.URL.Path):
+				t.serveMessages(w, r, target)
+				return
+			}
+			if model, stream, ok := wire.IsGeminiPath(r.URL.Path); ok {
+				t.serveGemini(w, r, target, model, stream)
+				return
+			}
+		}
+		rp.ServeHTTP(w, r)
+	})
+
 	log.Printf("trace proxy: %s -> %s, writing %s", opts.Addr, opts.Upstream, opts.TraceDir)
-	srv := &http.Server{Addr: opts.Addr, Handler: rp, ReadHeaderTimeout: 15 * time.Second}
+	srv := &http.Server{Addr: opts.Addr, Handler: handler, ReadHeaderTimeout: 15 * time.Second}
 	go func() {
 		<-ctx.Done()
 		_ = srv.Close()
@@ -113,6 +143,7 @@ type tap struct {
 	lat    *os.File
 	starts map[int]time.Time
 	det    *determinism
+	client *http.Client // used by the wire translators, which forward on their own
 }
 
 func (t *tap) next() int {
@@ -259,6 +290,21 @@ type latRecord struct {
 	TotalMS int64  `json:"total_ms"`
 }
 
+// recordLatency writes one latency row for a call the wire translators forwarded
+// themselves, since those bypass the reverse proxy's ModifyResponse hook. It also
+// clears the pending start so the starts map does not leak.
+func (t *tap) recordLatency(seq int, start, done, first time.Time, path string, status int) {
+	if start.IsZero() {
+		return
+	}
+	rec := latRecord{Seq: seq, TS: nowStamp(), Path: path, Status: status, TotalMS: msSince(start, done)}
+	if !first.IsZero() {
+		rec.TTFBMS = msSince(start, first)
+	}
+	t.writeJSON(t.lat, rec)
+	t.takeStart(seq)
+}
+
 // msSince reports whole milliseconds between two instants, guarding the case
 // where the end was never stamped (returns 0 rather than a negative number).
 func msSince(start, end time.Time) int64 {
@@ -269,33 +315,70 @@ func msSince(start, end time.Time) int64 {
 }
 
 type usageRecord struct {
-	Seq              int    `json:"seq"`
-	TS               string `json:"ts"`
-	Status           int    `json:"status"`
-	PromptTokens     int    `json:"prompt_tokens"`
-	CompletionTokens int    `json:"completion_tokens"`
-	TotalTokens      int    `json:"total_tokens"`
+	Seq              int     `json:"seq"`
+	TS               string  `json:"ts"`
+	Status           int     `json:"status"`
+	PromptTokens     int     `json:"prompt_tokens"`
+	CompletionTokens int     `json:"completion_tokens"`
+	TotalTokens      int     `json:"total_tokens"`
+	CachedTokens     int     `json:"cached_tokens,omitempty"`
+	CacheWriteTokens int     `json:"cache_write_tokens,omitempty"`
+	CostUSD          float64 `json:"cost_usd,omitempty"`
 }
 
 // extractUsage finds the usage block in a reply, whether it came back as one
 // JSON object or as a stream of SSE data: lines. It reads the last usage seen,
 // which is the authoritative one for a streamed completion.
+//
+// Beyond the plain token counts it pulls the two things a caller actually pays
+// on when the provider reports them: how many prompt tokens were served from a
+// cache (cheap) or written to one (a one-time surcharge), and the dollar cost of
+// the call. Providers spell these differently, so it reads both the OpenAI shape
+// (usage.prompt_tokens_details.cached_tokens, usage.cost) and the Anthropic shape
+// (cache_read_input_tokens, cache_creation_input_tokens), and leaves a field zero
+// when the provider is silent rather than inventing a number.
 func extractUsage(body []byte) *usageRecord {
 	var last *usageRecord
 	tryOne := func(chunk []byte) {
 		var v struct {
 			Usage *struct {
-				PromptTokens     int `json:"prompt_tokens"`
-				CompletionTokens int `json:"completion_tokens"`
-				TotalTokens      int `json:"total_tokens"`
+				PromptTokens        int     `json:"prompt_tokens"`
+				CompletionTokens    int     `json:"completion_tokens"`
+				TotalTokens         int     `json:"total_tokens"`
+				Cost                float64 `json:"cost"`
+				TotalCost           float64 `json:"total_cost"`
+				CacheReadInputToks  int     `json:"cache_read_input_tokens"`
+				CacheCreateInputTok int     `json:"cache_creation_input_tokens"`
+				PromptCacheHitToks  int     `json:"prompt_cache_hit_tokens"`
+				PromptTokensDetails *struct {
+					CachedTokens int `json:"cached_tokens"`
+				} `json:"prompt_tokens_details"`
 			} `json:"usage"`
 		}
 		if json.Unmarshal(chunk, &v) == nil && v.Usage != nil {
-			last = &usageRecord{
-				PromptTokens:     v.Usage.PromptTokens,
-				CompletionTokens: v.Usage.CompletionTokens,
-				TotalTokens:      v.Usage.TotalTokens,
+			u := v.Usage
+			rec := &usageRecord{
+				PromptTokens:     u.PromptTokens,
+				CompletionTokens: u.CompletionTokens,
+				TotalTokens:      u.TotalTokens,
+				CacheWriteTokens: u.CacheCreateInputTok,
+				CostUSD:          u.Cost,
 			}
+			if rec.CostUSD == 0 {
+				rec.CostUSD = u.TotalCost
+			}
+			// cached prompt tokens: OpenAI nests them, Anthropic names them flat,
+			// DeepSeek reports the hit count under its own name.
+			if u.PromptTokensDetails != nil {
+				rec.CachedTokens = u.PromptTokensDetails.CachedTokens
+			}
+			if u.CacheReadInputToks > 0 {
+				rec.CachedTokens = u.CacheReadInputToks
+			}
+			if u.PromptCacheHitToks > 0 {
+				rec.CachedTokens = u.PromptCacheHitToks
+			}
+			last = rec
 		}
 	}
 	trimmed := bytes.TrimSpace(body)
