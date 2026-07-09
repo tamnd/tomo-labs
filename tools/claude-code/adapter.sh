@@ -25,6 +25,11 @@ export ANTHROPIC_AUTH_TOKEN="${OPENCODE_API_KEY}"
 export ANTHROPIC_MODEL="${LAB_MODEL}"
 export ANTHROPIC_SMALL_FAST_MODEL="${LAB_MODEL}"
 
+# Claude Code refuses --dangerously-skip-permissions when it runs as root, unless
+# it is told it is already inside a sandbox. Every tool here runs as root in a
+# throwaway container, which is exactly that sandbox, so set the escape hatch.
+export IS_SANDBOX=1
+
 # Keep the run offline except for the model: no update checks, telemetry, error
 # reports, or other nonessential traffic that would muddy the trace.
 export DISABLE_AUTOUPDATER=1
