@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"encoding/json"
+	"net/http"
 	"testing"
+	"time"
 )
 
 // A completion request gets the sampling knobs forced, whatever it sent, and
@@ -105,5 +107,25 @@ func TestExtractUsageStreamNoCache(t *testing.T) {
 	}
 	if u.CachedTokens != 0 || u.CacheWriteTokens != 0 || u.CostUSD != 0 {
 		t.Errorf("unreported cache/cost should stay zero, got %d/%d/%v", u.CachedTokens, u.CacheWriteTokens, u.CostUSD)
+	}
+}
+
+// zen sends Retry-After as plain delay-seconds on a 429, so that form parses
+// straight through; an HTTP-date form some other upstream might send still
+// resolves to a positive second count, and anything unparseable or absent
+// reports 0 rather than guessing.
+func TestParseRetryAfter(t *testing.T) {
+	if n := parseRetryAfter("17600"); n != 17600 {
+		t.Errorf("delay-seconds: got %d, want 17600", n)
+	}
+	if n := parseRetryAfter(""); n != 0 {
+		t.Errorf("empty header: got %d, want 0", n)
+	}
+	if n := parseRetryAfter("not a number"); n != 0 {
+		t.Errorf("garbage header: got %d, want 0", n)
+	}
+	future := time.Now().Add(2 * time.Hour).UTC().Format(http.TimeFormat)
+	if n := parseRetryAfter(future); n < 7100 || n > 7300 {
+		t.Errorf("HTTP-date two hours out: got %d, want ~7200", n)
 	}
 }

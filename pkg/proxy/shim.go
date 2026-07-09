@@ -104,7 +104,7 @@ func (t *tap) serveWire(w http.ResponseWriter, r *http.Request, target *url.URL,
 	chatBody, stream, err := wc.toChat(body)
 	if err != nil {
 		http.Error(w, "wire translate: "+err.Error(), http.StatusBadRequest)
-		t.recordLatency(seq, start, time.Now(), time.Time{}, wc.chatPath, http.StatusBadRequest)
+		t.recordLatency(seq, start, time.Now(), time.Time{}, wc.chatPath, http.StatusBadRequest, 0)
 		return
 	}
 	// Force the shared decoding knobs the same way the pass-through path does, so
@@ -123,7 +123,7 @@ func (t *tap) serveWire(w http.ResponseWriter, r *http.Request, target *url.URL,
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, up.String(), bytes.NewReader(chatBody))
 	if err != nil {
 		http.Error(w, "wire upstream: "+err.Error(), http.StatusBadGateway)
-		t.recordLatency(seq, start, time.Now(), time.Time{}, wc.chatPath, http.StatusBadGateway)
+		t.recordLatency(seq, start, time.Now(), time.Time{}, wc.chatPath, http.StatusBadGateway, 0)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -148,7 +148,7 @@ func (t *tap) serveWire(w http.ResponseWriter, r *http.Request, target *url.URL,
 	resp, err := t.client.Do(req)
 	if err != nil {
 		http.Error(w, "wire upstream: "+err.Error(), http.StatusBadGateway)
-		t.recordLatency(seq, start, time.Now(), time.Time{}, wc.chatPath, http.StatusBadGateway)
+		t.recordLatency(seq, start, time.Now(), time.Time{}, wc.chatPath, http.StatusBadGateway, 0)
 		return
 	}
 	defer resp.Body.Close()
@@ -160,7 +160,8 @@ func (t *tap) serveWire(w http.ResponseWriter, r *http.Request, target *url.URL,
 		w.WriteHeader(resp.StatusCode)
 		b, _ := io.ReadAll(resp.Body)
 		w.Write(b)
-		t.recordLatency(seq, start, time.Now(), time.Now(), wc.chatPath, resp.StatusCode)
+		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+		t.recordLatency(seq, start, time.Now(), time.Now(), wc.chatPath, resp.StatusCode, retryAfter)
 		return
 	}
 
@@ -186,7 +187,7 @@ func (t *tap) jsonWire(w http.ResponseWriter, resp *http.Response, seq int, star
 		u.Status = http.StatusOK
 		t.writeJSON(t.usage, u)
 	}
-	t.recordLatency(seq, start, time.Now(), first, wc.chatPath, http.StatusOK)
+	t.recordLatency(seq, start, time.Now(), first, wc.chatPath, http.StatusOK, 0)
 }
 
 // streamWire re-emits the upstream chat SSE stream in the wire's shape, recording
@@ -222,5 +223,5 @@ func (t *tap) streamWire(w http.ResponseWriter, resp *http.Response, seq int, st
 			t.writeJSON(t.usage, u)
 		}
 	}
-	t.recordLatency(seq, start, done, firstAt, wc.chatPath, http.StatusOK)
+	t.recordLatency(seq, start, done, firstAt, wc.chatPath, http.StatusOK, 0)
 }

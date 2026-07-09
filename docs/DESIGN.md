@@ -113,7 +113,10 @@ the number can be recomputed later. Nothing is lost.
   much back-and-forth the task took.
 - Latency: per call, the time to first byte and the total, averaged over the
   run's completions. The proxy times these, so the number is the same
-  measurement for every tool.
+  measurement for every tool. A 429 from the free tier's rate limit also
+  carries a `Retry-After` header; the proxy reads it into `retry_after_s` on
+  that call's latency row, so a rate-limited attempt is visible in the trace
+  as a wait time rather than a bare failure.
 - Install footprint: the tool image's on-disk size and the slice that is the
   tool itself sitting on the shared base, captured at build time. A heavier
   agent is a real cost, so it is an axis of the comparison.
