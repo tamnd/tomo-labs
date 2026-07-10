@@ -188,8 +188,9 @@ func jobsNeedWeb(jobs []job) bool {
 	return false
 }
 
-// ToolSummary is one tool's aggregate across every captured run, the row the
-// comparison table is built from.
+// ToolSummary is one tool's aggregate over the latest run of each scenario, the
+// row the comparison table is built from. Runs is therefore the number of distinct
+// scenarios the tool has a run for, and Passed is how many of those it passed.
 type ToolSummary struct {
 	Tool         string  `json:"tool"`
 	Version      string  `json:"version,omitempty"`
@@ -212,11 +213,17 @@ type ToolSummary struct {
 	AvgWallS     int     `json:"avg_wall_s"`
 }
 
-// Report reads every result.json under the data dir and aggregates it per tool.
-// A single full sweep writes one result.json per tool and scenario, so the
-// summary is over exactly that sweep; repeated sweeps accumulate. A non-empty
-// scenario filter narrows the summary to runs whose scenario name contains it,
-// which is how the report focuses on one scenario at a time (report 11).
+// Report reads every result.json under the data dir and aggregates it per tool,
+// keeping only the latest run of each tool and scenario so the summary is the
+// tool's current state, not its whole history. A tool gets re-run as adapters
+// and scenarios change; an old failing run from before a fix should not drag its
+// pass rate down forever, and counting the same scenario several times would make
+// total tokens depend on how often it happened to be re-run rather than on the
+// work. The result is that every tool's row is over the same scenarios, so pass
+// reads as N of the scenarios and total tokens compares like for like. A
+// non-empty scenario filter narrows the summary to runs whose scenario name
+// contains it, which is how the report focuses on one scenario at a time
+// (report 11).
 func (l *Lab) Report(_ context.Context, scenario string) ([]ToolSummary, error) {
 	var results []*Result
 	err := filepath.WalkDir(l.cfg.Data, func(path string, d fs.DirEntry, err error) error {
@@ -239,7 +246,7 @@ func (l *Lab) Report(_ context.Context, scenario string) ([]ToolSummary, error) 
 	if err != nil {
 		return nil, err
 	}
-	sums := summarize(results)
+	sums := summarize(latestPerScenario(results))
 	// Version and release date are properties of the tool image, captured at build
 	// time, so join them in here rather than reading them off every run.
 	for i := range sums {
@@ -248,6 +255,45 @@ func (l *Lab) Report(_ context.Context, scenario string) ([]ToolSummary, error) 
 		sums[i].Released = m.Released
 	}
 	return sums, nil
+}
+
+// latestPerScenario keeps only the most recent run of each tool and scenario.
+// Run timestamps are the compact UTC form (20260710T140140Z), which sorts the
+// same lexically as chronologically, so the largest string is the newest run.
+func latestPerScenario(results []*Result) []*Result {
+	best := map[string]*Result{}
+	for _, r := range results {
+		k := r.Tool + "\x00" + r.Scenario
+		if b, ok := best[k]; !ok || r.Time > b.Time {
+			best[k] = r
+		}
+	}
+	out := make([]*Result, 0, len(best))
+	for _, r := range best {
+		out = append(out, r)
+	}
+	return out
+}
+
+// DeepSeek's published standard-hours rates for the shared model, in USD per 1M
+// tokens: cache-miss input, cache-hit input, and output. The lab runs on the free
+// tier, which bills nothing, so the provider reports no cost. Pricing the tokens
+// at these reference rates turns the token gap between tools into the dollar gap
+// it would be on the paid tier, which is the number that decides which tool you
+// can afford to run at scale.
+const (
+	rateInputMissUSD = 0.27
+	rateInputHitUSD  = 0.07
+	rateOutputUSD    = 1.10
+)
+
+// estimatedCostUSD prices one run's tokens at the reference rates above, used when
+// the provider billed nothing so the report still has a comparable cost column.
+func estimatedCostUSD(t Tokens) float64 {
+	miss := max(t.Prompt-t.Cached, 0)
+	return float64(miss)/1e6*rateInputMissUSD +
+		float64(t.Cached)/1e6*rateInputHitUSD +
+		float64(t.Completion)/1e6*rateOutputUSD
 }
 
 func summarize(results []*Result) []ToolSummary {
@@ -279,7 +325,13 @@ func summarize(results []*Result) []ToolSummary {
 			s.Subagents += r.Orchestration.Subagents
 			tokens += r.Tokens.Total
 			cached += r.Tokens.Cached
-			cost += r.CostUSD
+			// A paid provider reports the real cost; the free tier reports none, so
+			// price its tokens at the reference rates to keep the column comparable.
+			if r.CostUSD > 0 {
+				cost += r.CostUSD
+			} else {
+				cost += estimatedCostUSD(r.Tokens)
+			}
 			rss += r.MaxRSSKB
 			wall += r.WallSeconds
 			if r.Latency.Calls > 0 {
