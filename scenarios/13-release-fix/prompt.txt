@@ -1,0 +1,8 @@
+This is a small Go program with a broken build and a failing test. Read spec.md, then fetch http://tomolab-web/taxes.json and fix the project so it builds, its tests pass, and it writes the report the spec asks for.
+
+Start by writing a short todo list of the steps below, then work through them one at a time, marking each done as you go. Do all of the following:
+
+- Fetch taxes.json and write taxes.go with a function TaxRate(region string) float64 that returns each region's rate from that file.
+- Read pricing.go, find the bug in the subtotal calculation, and fix it.
+- Build the program and run it so it writes report.txt.
+- Run `go test ./...` and make sure every test passes.

@@ -149,6 +149,7 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 		WallSeconds: wall, ElapsedClock: m.ElapsedClock,
 		MaxRSSKB: m.MaxRSSKB, Requests: m.Requests,
 		Tokens: m.Tokens, Latency: m.Latency, CostUSD: m.CostUSD,
+		Orchestration: m.Orch,
 		DiskBeforeKB: diskBefore, DiskAfterKB: diskAfter, DiskDeltaKB: diskAfter - diskBefore,
 		InstallKB: installKB,
 		Check:     firstLineOf(reason),
@@ -333,9 +334,10 @@ func (l *Lab) printSummary(r *Result) {
 	case r.Passed:
 		mark = "PASS"
 	}
-	fmt.Fprintf(os.Stderr, "  %s  %-8s %-20s try=%d/%d tokens=%d reqs=%d rss=%.1fMB disk=+%dKB ttfb=%dms  %s\n",
+	fmt.Fprintf(os.Stderr, "  %s  %-8s %-20s try=%d/%d tokens=%d reqs=%d plan=%d sub=%d rss=%.1fMB disk=+%dKB ttfb=%dms  %s\n",
 		mark, r.Tool, r.Scenario, r.Attempts, r.AttemptsMax,
-		r.Tokens.Total, r.Requests, float64(r.MaxRSSKB)/1024, r.DiskDeltaKB, r.Latency.AvgTTFB,
+		r.Tokens.Total, r.Orchestration.ModelCalls, r.Orchestration.PlanCalls, r.Orchestration.Subagents,
+		float64(r.MaxRSSKB)/1024, r.DiskDeltaKB, r.Latency.AvgTTFB,
 		firstLineOf(r.Check))
 }
 

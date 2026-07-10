@@ -28,6 +28,11 @@ type Result struct {
 	Tokens  Tokens  `json:"tokens"`
 	Latency Latency `json:"latency_ms"`
 
+	// Orchestration is how the tool went about the task, read back from its own
+	// captured calls: how many model round-trips it took, how many tool calls it
+	// made, and whether it planned or spawned subagents to get there.
+	Orchestration Orchestration `json:"orchestration"`
+
 	// CostUSD is the dollar cost the provider billed for the run, summed over
 	// every completion. It is omitted when the provider does not report a cost,
 	// so a zero here means unknown, not free.
@@ -73,4 +78,20 @@ type Latency struct {
 	AvgTTFB  int `json:"avg_ttfb"`
 	AvgTotal int `json:"avg_total"`
 	Calls    int `json:"calls"`
+}
+
+// Orchestration is what a run reveals about how the tool approached the task,
+// recovered from the calls it actually made rather than from what it says it
+// did. ModelCalls is the number of model round-trips, the honest turn count.
+// ToolCalls is every tool the agent invoked. PlanCalls counts writes to a
+// planning primitive (a todo or plan list, a plan-mode toggle); Subagents counts
+// delegations to a child agent. Planned is true when the tool did either, so a
+// tool that judged the task simple and ran a flat loop reads as unplanned, which
+// is a real difference between approaches rather than a missing measurement.
+type Orchestration struct {
+	ModelCalls int  `json:"model_calls"`
+	ToolCalls  int  `json:"tool_calls"`
+	PlanCalls  int  `json:"plan_calls"`
+	Subagents  int  `json:"subagents"`
+	Planned    bool `json:"planned"`
 }

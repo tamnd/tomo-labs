@@ -20,6 +20,7 @@ type traceMetrics struct {
 	Tokens       Tokens
 	CostUSD      float64
 	Latency      Latency
+	Orch         Orchestration
 }
 
 // readTrace parses every metric file the proxy and GNU time left in a trace dir.
@@ -31,7 +32,117 @@ func readTrace(dir string) traceMetrics {
 	m.Requests = countLines(filepath.Join(dir, "requests.jsonl"))
 	m.Tokens, m.CostUSD = sumTokens(filepath.Join(dir, "usage.jsonl"))
 	m.Latency = latencyStats(filepath.Join(dir, "latency.jsonl"))
+	m.Orch = orchestration(filepath.Join(dir, "requests.jsonl"))
 	return m
+}
+
+// planTools are the names a tool calls to write down a plan: a todo or plan
+// list, or a plan-mode toggle. Different agents spell it differently, so match
+// the union across the wired tools (opencode's todowrite, gemini's plan-mode,
+// codex's update_plan), lowercased.
+var planTools = map[string]bool{
+	"todowrite": true, "todo_write": true, "update_plan": true, "write_todos": true,
+	"enter_plan_mode": true, "exit_plan_mode": true, "plan": true, "planning": true,
+	// Names the wired tools spell their plan list with: claude-code writes a task
+	// list (taskcreate/taskupdate), hermes a bare todo, others a create_plan.
+	"todo": true, "taskcreate": true, "taskupdate": true, "create_plan": true, "add_task": true,
+}
+
+// subagentTools are the names a tool calls to delegate a scoped piece of work to
+// a child agent, the other shape orchestration takes.
+var subagentTools = map[string]bool{
+	"task": true, "invoke_agent": true, "dispatch_agent": true, "agent": true, "subagent": true,
+	// openclaw spawns children as subagents, hermes as delegate_task.
+	"subagents": true, "delegate_task": true,
+}
+
+// orchestration recovers how a tool worked from the proxy's request tap. Every
+// completion request carries the whole transcript so far, so the request with
+// the most messages holds every tool call the agent made; counting names in it
+// yields the plan-list writes and subagent spawns without the tool cooperating.
+// ModelCalls counts the completion requests themselves, the round-trip count.
+//
+// Planning shows up two different ways across the wired tools, and both count.
+// A tool with a plan primitive calls it as a tool (opencode's todowrite, codex's
+// update_plan), which lands in the transcript's tool calls. A tool that plans in
+// a dedicated pass instead makes a separate completion under a planner system
+// prompt (tomo asks its planner to turn a job into steps); that call has no plan
+// tool to see, so it is recognized by its system prompt instead.
+func orchestration(path string) Orchestration {
+	var o Orchestration
+	var best []string
+	bestN := -1
+	forEachJSON(path, func(b []byte) {
+		var rec struct {
+			Method string          `json:"method"`
+			Path   string          `json:"path"`
+			Body   json.RawMessage `json:"body"`
+		}
+		if json.Unmarshal(b, &rec) != nil {
+			return
+		}
+		if rec.Method != "POST" || !strings.Contains(rec.Path, "chat/completions") {
+			return
+		}
+		o.ModelCalls++
+		if len(rec.Body) == 0 {
+			return
+		}
+		var body struct {
+			Messages []struct {
+				Role      string          `json:"role"`
+				Content   json.RawMessage `json:"content"`
+				ToolCalls []struct {
+					Function struct {
+						Name string `json:"name"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"messages"`
+		}
+		if json.Unmarshal(rec.Body, &body) != nil {
+			return
+		}
+		// A dedicated planner pass is one completion; count each such request once.
+		if len(body.Messages) > 0 && isPlannerSystem(body.Messages[0].Role, body.Messages[0].Content) {
+			o.PlanCalls++
+		}
+		if len(body.Messages) <= bestN {
+			return
+		}
+		bestN = len(body.Messages)
+		best = best[:0]
+		for _, m := range body.Messages {
+			for _, tc := range m.ToolCalls {
+				best = append(best, strings.ToLower(tc.Function.Name))
+			}
+		}
+	})
+	for _, name := range best {
+		o.ToolCalls++
+		if planTools[name] {
+			o.PlanCalls++
+		}
+		if subagentTools[name] {
+			o.Subagents++
+		}
+	}
+	o.Planned = o.PlanCalls > 0 || o.Subagents > 0
+	return o
+}
+
+// isPlannerSystem reports whether a message is a system prompt that puts the
+// model in a dedicated planning role, the signature of a plan-in-a-separate-pass
+// tool. It reads the word "planner" in the system content, which the plan pass
+// carries and an ordinary agent turn does not.
+func isPlannerSystem(role string, content json.RawMessage) bool {
+	if role != "system" || len(content) == 0 {
+		return false
+	}
+	var s string
+	if json.Unmarshal(content, &s) != nil {
+		s = string(content) // content may be an array of parts; scan it raw
+	}
+	return strings.Contains(strings.ToLower(s), "planner")
 }
 
 // readTime pulls the max resident set size (in kbytes) and the wall-clock
