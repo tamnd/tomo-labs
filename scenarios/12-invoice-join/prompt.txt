@@ -1,0 +1,8 @@
+Join a price catalog with an order list into an invoice and total it. Start by writing a short todo list of the steps below, then work through them one at a time, marking each done as you go. Do all of the following, in order:
+
+- Fetch http://tomolab-web/catalog.json and read orders.csv in the current directory. catalog.json maps each product name to its unit price; orders.csv has a header "product,qty" and one row per order.
+- Write a program invoice.py that joins the two: for every order it looks up the unit price and computes the line total (qty times unit price).
+- Have invoice.py write invoice.csv with the header "product,qty,unit_price,line_total", one row per order, sorted by product name.
+- Run invoice.py.
+- Write the grand total of every line total to grand_total.txt, as a single number.
+- Before you finish, confirm grand_total.txt equals the sum of the line_total column in invoice.csv.

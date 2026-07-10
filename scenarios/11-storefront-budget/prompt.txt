@@ -1,0 +1,8 @@
+Build an affordable-products list from a storefront and a budget. Start by writing a short todo list of the steps below, then work through them one at a time, marking each done as you go. Do all of the following, in order:
+
+- Fetch http://tomolab-web/prices.html and read budget.txt in the current directory. The page lists products with their prices; budget.txt holds a single dollar amount.
+- Parse every product name and its price from the page.
+- Keep only the products priced at or under the budget.
+- Sort the kept products from cheapest to most expensive.
+- Write affordable.txt with those product names, one per line, cheapest first, and nothing else: no prices, no headings, no blank lines.
+- Before you finish, re-read affordable.txt and confirm it lists no product priced over the budget and contains no prices or headings.
