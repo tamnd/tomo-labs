@@ -93,8 +93,10 @@ func (l *Lab) probeToolMeta(ctx context.Context, tool string) toolMeta {
 }
 
 // npmInstallRe pulls the package name out of a global npm install line, keeping a
-// scope but dropping the trailing @version (or @${VERSION} build arg).
-var npmInstallRe = regexp.MustCompile(`npm install -g\s+(\S+)`)
+// scope but dropping the trailing @version (or @${VERSION} build arg). Any flags
+// between -g and the package, like --ignore-scripts, are skipped so the package
+// is captured rather than the flag.
+var npmInstallRe = regexp.MustCompile(`npm install -g\s+(?:--\S+\s+)*(\S+)`)
 
 // npmPackageOf returns the npm package a Dockerfile installs globally, or empty
 // if it installs none. The version suffix after the last @ is stripped, so both
