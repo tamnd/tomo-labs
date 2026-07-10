@@ -109,7 +109,7 @@ Install footprint, not image size, is the honest size axis. Image size is domina
 
 Time to first byte is bounded by the hosted model, the same upstream for every tool, so it clusters in the same couple of seconds for everyone and is not a real axis of difference here.
 
-gemini-cli's 6/16 is mostly the model missing a step, not a wiring bug: it makes only 2 to 3 requests per scenario, so it rarely retries the way the others do, and it drops the multi-step scenarios where a plan would have kept it on track. Its wire translator works end to end. pi is the opposite kind of flat, a minimal harness that runs the whole task in one loop and passed every scenario cleanly.
+gemini-cli's 6/16 is mostly the model missing a step, not a wiring bug: it makes only 2 to 3 requests per scenario, so it rarely retries the way the others do, and it drops the multi-step scenarios where a plan would have kept it on track. Its wire translator works end to end. pi is the opposite kind of flat, a minimal harness that runs the whole task in one loop and passed every scenario cleanly. pi does ship a plan mode, but it is a read-only exploration extension gated behind an interactive prompt: it writes a prose plan and asks, in the TUI, whether to execute, rather than exposing a plan tool the model calls mid-run. In a one-shot headless run there is no prompt to answer and no plan tool to record, so pi stays flat here by design, not for lack of trying.
 
 The `00-hello` scenario is a baseline, just the prompt `Hi!`, isolating the fixed round-trip cost every tool pays before it does any real work. See the [Hi! baseline results](https://github.com/tamnd/tomo#the-hi-baseline) in tomo's own README for that table; it lives there since it's the number tomo's README leads with.
 
