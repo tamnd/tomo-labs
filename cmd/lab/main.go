@@ -10,6 +10,7 @@
 //	lab scenarios               list scenarios
 //	lab meta                    capture each tool's version and release date
 //	lab report [--json]         summarize captured runs
+//	lab reparse                 recompute metrics of captured runs from their traces
 //	lab clean                   remove lab containers and dangling images
 //
 // It needs OPENCODE_API_KEY (or another OpenAI-compatible key, with LAB_UPSTREAM
@@ -58,7 +59,13 @@ func main() {
 	case "meta":
 		die(l.RefreshMeta(ctx))
 	case "report":
-		die(cmdReport(ctx, l, hasFlag(args, "--json")))
+		die(cmdReport(ctx, l, arg(args, 1), hasFlag(args, "--json")))
+	case "reparse":
+		n, err := l.Reparse(ctx)
+		if err == nil {
+			fmt.Printf("reparsed %d runs\n", n)
+		}
+		die(err)
 	case "clean":
 		l.Clean(ctx)
 	default:
@@ -121,8 +128,8 @@ func cmdScenarios(l *lab.Lab) error {
 	return nil
 }
 
-func cmdReport(ctx context.Context, l *lab.Lab, asJSON bool) error {
-	sums, err := l.Report(ctx)
+func cmdReport(ctx context.Context, l *lab.Lab, scenario string, asJSON bool) error {
+	sums, err := l.Report(ctx, scenario)
 	if err != nil {
 		return err
 	}
@@ -154,7 +161,7 @@ func hasFlag(args []string, flag string) bool {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|meta|report|clean} [args]")
+	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|meta|report|reparse|clean} [args]")
 }
 
 func die(err error) {

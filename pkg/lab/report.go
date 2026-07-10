@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"text/tabwriter"
 )
@@ -198,6 +199,9 @@ type ToolSummary struct {
 	FirstTry     int     `json:"first_try"`
 	Retried      int     `json:"retried"`
 	AvgAttempts  float64 `json:"avg_attempts"`
+	AvgModelCalls int    `json:"avg_model_calls"`
+	PlannedRuns  int     `json:"planned_runs"`
+	Subagents    int     `json:"subagents"`
 	InstallMB    int     `json:"install_mb"`
 	TotalTokens  int     `json:"total_tokens"`
 	AvgTokens    int     `json:"avg_tokens"`
@@ -210,8 +214,10 @@ type ToolSummary struct {
 
 // Report reads every result.json under the data dir and aggregates it per tool.
 // A single full sweep writes one result.json per tool and scenario, so the
-// summary is over exactly that sweep; repeated sweeps accumulate.
-func (l *Lab) Report(_ context.Context) ([]ToolSummary, error) {
+// summary is over exactly that sweep; repeated sweeps accumulate. A non-empty
+// scenario filter narrows the summary to runs whose scenario name contains it,
+// which is how the report focuses on one scenario at a time (report 11).
+func (l *Lab) Report(_ context.Context, scenario string) ([]ToolSummary, error) {
 	var results []*Result
 	err := filepath.WalkDir(l.cfg.Data, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || d.Name() != "result.json" {
@@ -224,7 +230,8 @@ func (l *Lab) Report(_ context.Context) ([]ToolSummary, error) {
 		var r Result
 		// Ungraded prompt runs (lab -p) have no pass or fail, so they never belong
 		// in the scenario comparison; skip them here.
-		if json.Unmarshal(b, &r) == nil && r.Tool != "" && !r.Ungraded {
+		if json.Unmarshal(b, &r) == nil && r.Tool != "" && !r.Ungraded &&
+			(scenario == "" || strings.Contains(r.Scenario, scenario)) {
 			results = append(results, &r)
 		}
 		return nil
@@ -251,7 +258,7 @@ func summarize(results []*Result) []ToolSummary {
 	var out []ToolSummary
 	for tool, rs := range byTool {
 		s := ToolSummary{Tool: tool, Runs: len(rs)}
-		var tokens, cached, rss, ttfb, wall, attempts, timed int
+		var tokens, cached, rss, ttfb, wall, attempts, timed, modelCalls int
 		var cost float64
 		for _, r := range rs {
 			if r.Passed {
@@ -265,6 +272,11 @@ func summarize(results []*Result) []ToolSummary {
 			if a > 1 {
 				s.Retried++
 			}
+			modelCalls += r.Orchestration.ModelCalls
+			if r.Orchestration.Planned {
+				s.PlannedRuns++
+			}
+			s.Subagents += r.Orchestration.Subagents
 			tokens += r.Tokens.Total
 			cached += r.Tokens.Cached
 			cost += r.CostUSD
@@ -286,6 +298,7 @@ func summarize(results []*Result) []ToolSummary {
 		s.AvgRSSMB = rss / n / 1024
 		s.AvgWallS = wall / n
 		s.AvgAttempts = float64(attempts) / float64(n)
+		s.AvgModelCalls = modelCalls / n
 		if timed > 0 {
 			s.AvgTTFBMS = ttfb / timed
 		}
@@ -295,17 +308,61 @@ func summarize(results []*Result) []ToolSummary {
 	return out
 }
 
-// WriteTable renders the summaries as an aligned text table, the human view of a
-// comparison.
+// WriteTable renders the summaries as aligned text, split into two tables: the
+// tools that planned (wrote a plan or todo list, or spawned a subagent) and the
+// tools that ran a flat loop. The split keeps the comparison honest and clean:
+// planning trades tokens and round-trips for structure, so the two groups are
+// read against different expectations, not lined up as if they did the same
+// thing. A tool that planned on some runs and not others lands in the planned
+// group, since PlannedRuns counts any run that did.
 func WriteTable(w io.Writer, sums []ToolSummary) {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tRUNS\tPASS\t1ST-TRY\tRETRIED\tAVG-TRIES\tTOKENS\tAVG-TOK\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tINSTALL-MB")
+	var planned, flat []ToolSummary
 	for _, s := range sums {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%.2f\t%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\n",
-			s.Tool, blankDash(s.Version), blankDash(s.Released),
-			s.Runs, s.Passed, s.FirstTry, s.Retried, s.AvgAttempts,
-			s.TotalTokens, s.AvgTokens, blankZero(s.CachedTokens), blankCost(s.TotalCostUSD),
-			s.AvgRSSMB, s.AvgTTFBMS, s.AvgWallS, s.InstallMB)
+		if s.PlannedRuns > 0 {
+			planned = append(planned, s)
+		} else {
+			flat = append(flat, s)
+		}
+	}
+	if len(planned) > 0 {
+		fmt.Fprintln(w, "planned (wrote a plan or spawned a subagent)")
+		writeSummaryTable(w, planned, true)
+	}
+	if len(flat) > 0 {
+		if len(planned) > 0 {
+			fmt.Fprintln(w)
+		}
+		fmt.Fprintln(w, "no plan (single flat loop)")
+		writeSummaryTable(w, flat, false)
+	}
+}
+
+// writeSummaryTable renders one group of summaries. The planned group carries the
+// PLANNED and SUBAG columns; the flat group drops them, since both are zero there
+// by definition and a column of zeros is noise, not information.
+func writeSummaryTable(w io.Writer, sums []ToolSummary, withPlan bool) {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	if withPlan {
+		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tRUNS\tPASS\t1ST-TRY\tRETRIED\tAVG-TRIES\tREQS\tPLANNED\tSUBAG\tTOKENS\tAVG-TOK\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tINSTALL-MB")
+	} else {
+		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tRUNS\tPASS\t1ST-TRY\tRETRIED\tAVG-TRIES\tREQS\tTOKENS\tAVG-TOK\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tINSTALL-MB")
+	}
+	for _, s := range sums {
+		if withPlan {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%.2f\t%d\t%d\t%d\t%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\n",
+				s.Tool, blankDash(s.Version), blankDash(s.Released),
+				s.Runs, s.Passed, s.FirstTry, s.Retried, s.AvgAttempts,
+				s.AvgModelCalls, s.PlannedRuns, s.Subagents,
+				s.TotalTokens, s.AvgTokens, blankZero(s.CachedTokens), blankCost(s.TotalCostUSD),
+				s.AvgRSSMB, s.AvgTTFBMS, s.AvgWallS, s.InstallMB)
+		} else {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%.2f\t%d\t%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\n",
+				s.Tool, blankDash(s.Version), blankDash(s.Released),
+				s.Runs, s.Passed, s.FirstTry, s.Retried, s.AvgAttempts,
+				s.AvgModelCalls,
+				s.TotalTokens, s.AvgTokens, blankZero(s.CachedTokens), blankCost(s.TotalCostUSD),
+				s.AvgRSSMB, s.AvgTTFBMS, s.AvgWallS, s.InstallMB)
+		}
 	}
 	tw.Flush()
 }
