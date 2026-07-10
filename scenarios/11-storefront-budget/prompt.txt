@@ -1,4 +1,4 @@
-Build an affordable-products list from a storefront and a budget. Start by writing a short todo list of the steps below, then work through them one at a time, marking each done as you go. Do all of the following, in order:
+Build an affordable-products list from a storefront and a budget. Before you touch any files, put the steps below into your plan or todo tool as a checklist, then keep that plan live as you work: mark a step in progress when you start it and done when you finish, so the plan always shows where you are. Do all of the following, in order:
 
 - Fetch http://tomolab-web/prices.html and read budget.txt in the current directory. The page lists products with their prices; budget.txt holds a single dollar amount.
 - Parse every product name and its price from the page.
