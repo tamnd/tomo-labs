@@ -132,7 +132,7 @@ func (l *Lab) dispatch(ctx context.Context, jobs []job) ([]*Result, error) {
 		if err := l.startWeb(ctx); err != nil {
 			return nil, err
 		}
-		defer l.rt.Remove(ctx, webName)
+		defer l.rt.Remove(ctx, l.cfg.webName())
 	}
 
 	workers := min(max(l.cfg.Concurrency, 1), len(jobs))
@@ -146,7 +146,7 @@ func (l *Lab) dispatch(ctx context.Context, jobs []job) ([]*Result, error) {
 		wg.Add(1)
 		go func(slotIdx int) {
 			defer wg.Done()
-			sl := newSlot(slotIdx, l.cfg.ProxyPort)
+			sl := l.newSlot(slotIdx, l.cfg.ProxyPort)
 			for i := range jobCh {
 				res, err := l.runScenario(ctx, jobs[i].tool, jobs[i].sc, sl)
 				if err != nil {
