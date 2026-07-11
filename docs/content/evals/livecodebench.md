@@ -8,6 +8,32 @@ The `livecodebench` tier rebuilds [LiveCodeBench](https://livecodebench.github.i
 Its selling point is contamination control: every problem carries the date it was published, so a run can be scoped to problems that appeared after a model's training cutoff, which is the honest way to ask whether a model is solving or remembering.
 The tier pulls the pruned [`code_generation_lite`](https://huggingface.co/datasets/livecodebench/code_generation_lite) dataset, which keeps a representative sample of each problem's tests rather than the full set, so a task stays small enough to render into the harness.
 
+## Results
+
+Every tool runs the same tasks through the same trace proxy, so the row is the tool: how many problems it got green, how many tokens it spent getting there, and what it cost at the reference rates.
+`pass` is graded by LiveCodeBench's own runner, `1st` is how many it passed on the first attempt before the retry kicked in, and `cost` prices the tokens at DeepSeek's paid rates even though the run itself was free.
+The table below is written by `scripts/eval_docs.go`, so a rerun refreshes it in place.
+
+<!-- eval-results:start -->
+Snapshot taken 2026-07-11 on the `nemotron-3-ultra-free` model, every tool over the same tasks through the same trace proxy.
+Rows are ordered by total tokens, cheapest first, and `pass` is how many of the 6 tasks the tool got a passing grade on.
+
+| tool | version | pass | 1st | tokens | avg | cost | rss | wall | install |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| aider | 0.86.2 | 6/6 | 6 | 29,018 | 4,836 | $0.0268 | 239MB | 35s | 621MB |
+| pi | 0.80.6 | 5/6 | 5 | 55,547 | 9,257 | $0.0283 | 165MB | 36s | 156MB |
+| tomo | v0.2.4 | 6/6 | 4 | 79,980 | 13,330 | $0.0430 | 13MB | 65s | 21MB |
+| opencode | 1.17.18 | 3/6 | 2 | 108,006 | 18,001 | $0.0312 | 594MB | 47s | 433MB |
+| codex | 0.145.0-alpha.4 | 3/6 | 3 | 300,989 | 50,164 | $0.0800 | 93MB | 59s | 424MB |
+| gemini-cli | 0.52.0-nightly.20260710.ga4c91ce19 | 5/6 | 5 | 338,667 | 56,444 | $0.0733 | 302MB | 51s | 206MB |
+| kilocode | 7.4.5 | 6/6 | 6 | 374,848 | 62,474 | $0.0775 | 596MB | 59s | 591MB |
+| openclaw | 2026.7.1-beta.2 | 5/6 | 5 | 384,333 | 64,055 | $0.0838 | 457MB | 71s | 404MB |
+| hermes | 0.18.2 | 5/6 | 5 | 439,269 | 73,211 | $0.0992 | 129MB | 80s | 221MB |
+| copilot | 1.0.70 | 2/6 | 1 | 478,102 | 79,683 | $0.0916 | 387MB | 61s | 418MB |
+| claude-code | 2.1.207 | 6/6 | 6 | 1,155,121 | 192,520 | $0.2110 | 293MB | 109s | 325MB |
+
+<!-- eval-results:end -->
+
 ## The two problem shapes
 
 LiveCodeBench problems come in two shapes, and the tier renders both, because they are graded differently.
