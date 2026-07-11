@@ -116,11 +116,23 @@ func (l *Lab) genLiveCodeBench(ctx context.Context, opts GenOptions) (int, error
 		limit = lcbMaxScanRecords
 	}
 
+	// The dataset tags every problem easy, medium, or hard. A caller can pin the
+	// tier with --difficulty so a run showcases a tool where it is strongest (easy
+	// problems for a clean green sweep) or stresses it (hard problems), or leaves
+	// it open to take whatever difficulty comes first.
+	want, err := lcbWantDifficulty(opts.Difficulty)
+	if err != nil {
+		return 0, err
+	}
+
 	// Collect qualifying problems into two buckets so the sample exercises both the
 	// stdin and the functional grading paths, then draw a balanced set.
 	var stdin, funcs []lcbRow
 	if err := lcbStream(ctx, lcbBase+file, func(row lcbRow) bool {
 		if len(row.PrivateTestCases) > lcbMaxPrivateBytes || strings.TrimSpace(row.QuestionContent) == "" {
+			return false
+		}
+		if want != nil && !want[normDifficulty(row.Difficulty)] {
 			return false
 		}
 		if row.functional() {
@@ -177,8 +189,39 @@ func (l *Lab) genLiveCodeBench(ctx context.Context, opts GenOptions) (int, error
 			dropped++
 		}
 	}
-	fmt.Printf("\nlivecodebench %s: kept %d, dropped %d\n", version, kept, dropped)
+	tier := "any difficulty"
+	if want != nil {
+		tier = strings.Join(opts.Difficulty, ",")
+	}
+	fmt.Printf("\nlivecodebench %s (%s): kept %d, dropped %d\n", version, tier, kept, dropped)
 	return kept, nil
+}
+
+// lcbDifficulties are the tiers the dataset tags each problem with. A --difficulty
+// value has to be one of these.
+var lcbDifficulties = map[string]bool{"easy": true, "medium": true, "hard": true}
+
+// normDifficulty lowercases and trims a dataset difficulty tag so a request and a
+// row compare on the same footing regardless of the casing either arrives in.
+func normDifficulty(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+
+// lcbWantDifficulty turns the requested tiers into a lookup set, lowercased so it
+// matches the dataset's own casing. An empty request returns a nil set, which the
+// caller reads as "take any difficulty". An unknown tier is an error rather than a
+// silent no-match, so a typo does not quietly render zero tasks.
+func lcbWantDifficulty(diffs []string) (map[string]bool, error) {
+	if len(diffs) == 0 {
+		return nil, nil
+	}
+	want := make(map[string]bool, len(diffs))
+	for _, d := range diffs {
+		d = normDifficulty(d)
+		if !lcbDifficulties[d] {
+			return nil, fmt.Errorf("unknown difficulty %q: try easy, medium, or hard", d)
+		}
+		want[d] = true
+	}
+	return want, nil
 }
 
 // lcbBalance draws up to limit problems, alternating between the functional and
@@ -303,7 +346,11 @@ func (l *Lab) lcbMaterialize(row lcbRow) (task, oracle string, err error) {
 	if fn {
 		kind = "functional"
 	}
-	desc := fmt.Sprintf("livecodebench: %s %s (%s)\n", row.Platform, row.QuestionID, kind)
+	tier := normDifficulty(row.Difficulty)
+	if tier == "" {
+		tier = "unknown"
+	}
+	desc := fmt.Sprintf("livecodebench: %s %s (%s, %s)\n", row.Platform, row.QuestionID, kind, tier)
 	if err = writeFile(filepath.Join(task, "desc"), []byte(desc), 0o644); err != nil {
 		return
 	}

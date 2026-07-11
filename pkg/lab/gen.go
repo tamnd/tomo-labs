@@ -20,6 +20,7 @@ type GenOptions struct {
 	Limit      int      // per-track sample size when All is false
 	All        bool     // take every problem the benchmark offers
 	NoValidate bool     // skip the reference-solution proof (inspection only)
+	Difficulty []string // livecodebench: keep only these difficulty tiers (easy/medium/hard); empty takes any
 }
 
 // Generate materializes a public benchmark into the active suite's tasks/ dir.

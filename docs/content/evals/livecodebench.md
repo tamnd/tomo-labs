@@ -20,6 +20,14 @@ LiveCodeBench problems come in two shapes, and the tier renders both, because th
 A functional problem carries a `func_name` in its metadata and a starter `class Solution`; a stdin problem carries neither.
 The generator renders a balanced sample of both so a verification run exercises both grading paths, not just one.
 
+## Choosing difficulty
+
+The dataset tags every problem `easy`, `medium`, or `hard`, and the generator can pin the tier with `--difficulty`.
+This is the lever for what a run is meant to show.
+Draw an `easy` set to get a clean green sweep that showcases a tool at its strongest, a `medium` set for a fair middle, or a `hard` set to stress a tool where the weaker ones start to fall off.
+Pass one tier or a comma list (`--difficulty easy,medium`), and an empty flag takes whatever difficulty comes first, the way it did before.
+Each rendered task records its tier in its `desc` line, so a report table shows at a glance which difficulty a run covered.
+
 ## What a task looks like
 
 Each problem becomes one harness task under `evals/livecodebench/tasks/`.
@@ -58,8 +66,10 @@ go run ./cmd/lab report --suite livecodebench               # the tier's compari
 go run ./cmd/lab gen --suite livecodebench                  # a small validated sample
 go run ./cmd/lab gen --suite livecodebench --langs v5       # draw from a later release window
 go run ./cmd/lab gen --suite livecodebench --limit 12       # more problems from the sample
+go run ./cmd/lab gen --suite livecodebench --difficulty easy   # keep only the easy tier
 ```
 
 For this tier `--langs` selects the release version (`v1` through `v6`), which is how LiveCodeBench pins a date window: a higher version adds later problems.
 `--limit N` caps how many problems are drawn, split between the two shapes, and `--all` takes as many as the scan budget allows.
+`--difficulty easy|medium|hard` keeps only the named tier or tiers (comma separated), which is how a run is tuned to showcase or to stress a tool.
 See [evals](/evals/) for how a suite is selected and how the trust boundary works across every tier.
