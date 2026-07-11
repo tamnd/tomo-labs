@@ -29,12 +29,12 @@ type slot struct {
 	port  int
 }
 
-func newSlot(i, basePort int) slot {
+func (l *Lab) newSlot(i, basePort int) slot {
 	if i == 0 {
-		return slot{proxy: proxyName, run: runName, port: basePort}
+		return slot{proxy: l.cfg.proxyName(), run: l.cfg.runName(), port: basePort}
 	}
 	suf := "-" + strconv.Itoa(i)
-	return slot{proxy: proxyName + suf, run: runName + suf, port: basePort + i}
+	return slot{proxy: l.cfg.proxyName() + suf, run: l.cfg.runName() + suf, port: basePort + i}
 }
 
 // baseURL is the in-network address the tool points its OpenAI base at. It uses
@@ -60,9 +60,9 @@ func (l *Lab) RunOne(ctx context.Context, tool, scenarioName string) (*Result, e
 		if err := l.startWeb(ctx); err != nil {
 			return nil, err
 		}
-		defer l.rt.Remove(ctx, webName)
+		defer l.rt.Remove(ctx, l.cfg.webName())
 	}
-	return l.runOn(ctx, tool, scenarioName, newSlot(0, l.cfg.ProxyPort))
+	return l.runOn(ctx, tool, scenarioName, l.newSlot(0, l.cfg.ProxyPort))
 }
 
 // runOn is RunOne bound to a specific worker slot. RunAll calls it directly, one
@@ -231,9 +231,9 @@ func (l *Lab) startProxy(ctx context.Context, trace string, sl slot) error {
 // caller starts it once before running and tears it down after, and every
 // worker's tool reaches the same instance over the network.
 func (l *Lab) startWeb(ctx context.Context) error {
-	l.rt.Remove(ctx, webName)
+	l.rt.Remove(ctx, l.cfg.webName())
 	return l.rt.Run(ctx, container.RunSpec{
-		Name: webName, Image: baseImage, Network: l.cfg.Network, Detach: true,
+		Name: l.cfg.webName(), Image: baseImage, Network: l.cfg.Network, Detach: true,
 		Mounts:  []container.Mount{{Host: filepath.Join(l.cfg.Root, "webroot"), Container: "/srv", ReadOnly: true}},
 		Workdir: "/srv",
 		Cmd:     []string{"python3", "-m", "http.server", "80"},

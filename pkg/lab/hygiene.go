@@ -14,7 +14,7 @@ import (
 // machine has just drifted, exposed as `lab clean`. It leaves the tagged tool
 // images in place, so the next run needs no rebuild.
 func (l *Lab) Clean(ctx context.Context) {
-	for _, name := range []string{proxyName, webName, runName} {
+	for _, name := range []string{l.cfg.proxyName(), l.cfg.webName(), l.cfg.runName()} {
 		l.rt.Remove(ctx, name)
 	}
 	l.rt.PruneImages(ctx)

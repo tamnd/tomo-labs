@@ -23,7 +23,8 @@ type Config struct {
 	KeepRuns    int // how many timestamped runs to keep per tool/scenario, 0 keeps all
 	Concurrency int // how many tool/scenario runs to keep in flight at once
 
-	Network string // container network name
+	Network    string // container network name
+	NamePrefix string // prefix for the proxy, web, and run container names
 
 	// Determinism knobs forwarded to the proxy. The proxy forces these onto every
 	// completion request; empty Seed opts out of the seed field.
@@ -37,11 +38,17 @@ const (
 	baseImage  = "tomolab-base"
 	proxyImage = "tomolab-proxy"
 	toolPrefix = "tomolab-tool-"
-
-	proxyName = "tomolab-proxy"
-	webName   = "tomolab-web"
-	runName   = "tomolab-run"
 )
+
+// proxyName, webName, and runName are the container names a run owns, derived
+// from NamePrefix so a second harness process can take a different prefix and
+// run alongside the first without colliding on a name. Container names are
+// unique per machine, not per network, so varying the network alone is not
+// enough; the names have to differ too. The default prefix keeps the bare
+// tomolab-* names a single harness always used.
+func (c Config) proxyName() string { return c.NamePrefix + "-proxy" }
+func (c Config) webName() string   { return c.NamePrefix + "-web" }
+func (c Config) runName() string   { return c.NamePrefix + "-run" }
 
 // DefaultConfig reads the environment and fills in defaults, matching the knobs
 // the shell harness used so a run reproduces whichever front end starts it.
@@ -57,7 +64,8 @@ func DefaultConfig() Config {
 		ProxyPort:     envInt("LAB_PROXY_PORT", 8899),
 		KeepRuns:      envInt("LAB_KEEP_RUNS", 5),
 		Concurrency:   envInt("LAB_CONCURRENCY", 3),
-		Network:       "tomolab",
+		Network:       env("LAB_NETWORK", "tomolab"),
+		NamePrefix:    env("LAB_NAME_PREFIX", "tomolab"),
 		Deterministic: env("LAB_DETERMINISTIC", "1") != "0",
 		Temperature:   env("LAB_TEMPERATURE", "0"),
 		TopP:          env("LAB_TOP_P", "1"),
