@@ -75,6 +75,29 @@ A new version can change the tool's prompt, its tool schema, its token appetite,
 
   The [prompts](/prompts/) pages are checked into the repo for exactly this reason: when a tool changes its system prompt between versions, the change lands in a reviewable diff instead of going unnoticed.
 
+## Bumping every tool at once
+
+The tools ship new releases faster than anyone wants to track by hand, so the pins are moved by a script rather than edited one at a time.
+
+```bash
+go run scripts/update_tools.go              # bump every tool
+go run scripts/update_tools.go codex        # bump just one
+```
+
+For each tool the script resolves the newest upstream release and rewrites the version argument in that tool's `Dockerfile`.
+Newest means the most recently published version across a tool's real release channels, so a beta, alpha, nightly, or preview wins when it is newer than the stable line.
+This is deliberate: the lab wants the bleeding edge of each agent, not the conservative release.
+Branch-snapshot builds that carry the placeholder version `0.0.0` are skipped, since they are ephemeral CI artifacts rather than releases.
+npm tools resolve against the npm registry; tomo, which installs from its Go module, tracks its main branch through the Go module proxy.
+The script only reads the network and rewrites `Dockerfile`s, so it never needs a container runtime and is safe to run anywhere.
+
+## The daily update
+
+A scheduled workflow, `.github/workflows/update-tools.yml`, runs the same script once a day and opens a pull request when anything moved.
+The pull request is a reviewable record of exactly which tool changed and from which version to which, so a bump is never silent.
+It does not rebuild the images or rerun the sweep, because that needs the container runtime and the model key, so the results are refreshed separately on a machine that can run them.
+After the bump merges, rebuild and rerun as below so the numbers catch up with the versions.
+
 ## A note on the free tier
 
 Every tool talks to the same upstream model through the proxy, so upgrading a tool never changes the model it runs against.
