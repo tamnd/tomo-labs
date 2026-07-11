@@ -34,6 +34,7 @@ func (l *Lab) Reparse(_ context.Context) (int, error) {
 		r.Latency = m.Latency
 		r.CostUSD = m.CostUSD
 		r.Orchestration = m.Orch
+		r.RateLimit = m.RateLimit
 		if writeErr := writeResult(path, r); writeErr != nil {
 			firstErr = writeErr
 			return

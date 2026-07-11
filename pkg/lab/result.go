@@ -47,6 +47,11 @@ type Result struct {
 	// by the base every tool shares, so it measures the base, not the tool.
 	InstallKB int `json:"install_kb"`
 
+	// RateLimit is set only when the upstream throttled the run, so its presence
+	// marks a result whose slowness or failure was the free tier rejecting calls,
+	// not the agent. It is omitted on a run that hit no rate limit.
+	RateLimit *RateLimit `json:"rate_limit,omitempty"`
+
 	Check string `json:"check"`
 
 	// Ungraded marks a run with no checker, which is what an ad-hoc prompt run
@@ -78,6 +83,17 @@ type Latency struct {
 	AvgTTFB  int `json:"avg_ttfb"`
 	AvgTotal int `json:"avg_total"`
 	Calls    int `json:"calls"`
+}
+
+// RateLimit summarizes the upstream rate-limit (HTTP 429) responses a run hit,
+// recovered from the proxy's latency log. Hits is how many model calls the
+// upstream rejected for rate, and MaxRetryAfterS is the longest back-off it asked
+// for across them, in seconds, read from the Retry-After header the free tier
+// sends. A 429 leaves no tokens and no answer, so without this a throttled run
+// looks like a plain failure; recording it keeps the two apart.
+type RateLimit struct {
+	Hits           int `json:"hits"`
+	MaxRetryAfterS int `json:"max_retry_after_s,omitempty"`
 }
 
 // Orchestration is what a run reveals about how the tool approached the task,
