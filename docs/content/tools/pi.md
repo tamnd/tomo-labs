@@ -4,68 +4,94 @@ description: "pi is the earendil-works coding agent CLI, driven headless with pi
 weight: 80
 ---
 
-pi is a coding agent CLI built by earendil-works, published on npm as `@earendil-works/pi-coding-agent` with the binary `pi`, and documented at pi.dev.
+## Overview
+
+pi is a coding agent CLI built by earendil-works, published on npm as `@earendil-works/pi-coding-agent` with the binary `pi`.
 Its design keeps the core small and pushes everything else into user extensions, so out of the box the agent gets a four-tool set and a plain agent loop.
-The lab drives it through a small adapter that runs `pi -p "<prompt>"` once per scenario, registers a custom provider whose base URL is the trace proxy, and grades whatever pi leaves in `/work`.
-pi speaks OpenAI chat-completions natively, so the proxy records and forwards its requests without translating a dialect.
+The lab installs it into a container image, drives it through a small adapter that runs `pi -p "<prompt>"` once per scenario, and grades whatever pi leaves in `/work`.
+pi speaks OpenAI chat-completions natively, so the trace proxy records and forwards its requests without translating a dialect.
 
-## What it is
+pi is a lean flat-loop agent.
+Its baked-in system prompt is small: on the 00-hello run the whole request measured 1,606 tokens, the second-smallest baseline in the group, just above tomo.
+That lean baseline still clears every real scenario: pi passes all 14 of the lab's non-trivial scenarios cleanly.
 
-pi is installed from npm into the tool image, so the lab does not depend on any pi checkout on the host.
-The Dockerfile runs `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`, the install pi's own docs prescribe, on top of the shared base that already carries Node 22.
-The captured system prompt states pi's own framing in its first line: an expert coding assistant operating inside pi, a coding agent harness, that reads files, executes commands, edits code, and writes new files.
-In the lab it runs with the four built-in tools and nothing else, because the adapter loads no extension, skill, or package.
-pi ships no built-in permission system, so in headless mode it runs with the process's own permissions and the container is the only sandbox.
+pi does ship a plan mode, but it never fires in a headless lab run.
+Plan mode is a read-only exploration extension gated behind an interactive TUI prompt: it restricts the model to read-only tools, writes a prose plan, then asks the operator whether to execute it.
+It is not a plan tool the model calls mid-run, so in a one-shot `pi -p` run there is no prompt to answer and nothing to record.
+The 00-hello trace reflects this: `plan_calls: 0` and `planned: false`.
 
-## Command surface
+### At a glance
 
-The lab uses one entry point, pi's headless print mode.
-`pi -p "<prompt>"` runs a single prompt non-interactively, prints the result, and exits, instead of opening the interactive TUI.
+| Property | Value |
+| --- | --- |
+| Runtime | Node 22, carried by the shared `tomolab-base` image |
+| Install source | npm `@earendil-works/pi-coding-agent`, binary `pi`, installed `-g --ignore-scripts` |
+| Version captured | `0.80.6` (Dockerfile `ARG PI_VERSION=0.80.6`) |
+| Wire dialect | OpenAI chat-completions (`api: "openai-completions"`) |
+| How the lab invokes it | `pi -p "<prompt>" --model lab/<model> -a`, one non-interactive call per scenario |
+| Where it writes | `/work`, the agent's cwd and the tree the checker inspects |
+| Base image | `tomolab-base` |
+| Entrypoint | `/usr/local/bin/adapter` (the pi `adapter.sh`) |
+
+### Tools and features
+
+The adapter loads no extension, skill, or package, so pi runs with exactly its four built-in tools.
+The set below is what the 00-hello request actually carried, matching the recovered system prompt.
+
+| Tool | What it does |
+| --- | --- |
+| `read` | Read file contents. Supports text and images, truncates text to 2000 lines or 50KB, takes `offset`/`limit` for large files. |
+| `bash` | Execute a bash command in the cwd, returning stdout and stderr. This is also how listing and search happen: the prompt routes `ls`, `rg`, and `find` through `bash`. |
+| `edit` | Exact-text replacement on a single file. One call can carry multiple disjoint `edits[]`, each `oldText` matched against the original file. |
+| `write` | Create or overwrite a whole file, creating parent directories as needed. |
+
+There is no separate `grep`, `find`, `ls`, or plan tool in the default set.
+The prompt tells the model to run search and listing through `bash` and to read files with `read` instead of shelling out to `cat` or `sed`.
+Anything beyond the four defaults comes from skills, prompt templates, extensions, or pi packages, none of which the lab loads.
+
+## Say Hi!
+
+The 00-hello scenario hands pi the single prompt `Hi!` and checks that a greeting round trip completes.
+This walks the newest run, `20260710T135633Z`, end to end.
+
+### 1. The adapter reads the prompt and points pi at the proxy
+
+The adapter reads the prompt from `/scenario/prompt.txt`, then writes pi's model config so a custom provider named `lab` points at the trace proxy.
 
 ```bash
-pi -p "Hi!"
-```
+prompt="$(cat /scenario/prompt.txt)"   # "Hi!"
 
-The adapter selects the proxied model and trusts the working tree in the same call.
-
-```bash
-pi -p "$prompt" --model "lab/deepseek-v4-flash-free" -a
-```
-
-`--model lab/<model>` names the model as `provider/model`, where `lab` is the custom provider the adapter registers.
-`-a` trusts the project-local tree for the run, so nothing stops on a trust check before pi starts working.
-
-pi gives the model four tools by default: `read`, `bash`, `edit`, and `write`.
-There is no separate `grep`, `find`, or `ls` tool in the default set: the prompt tells the model to run those through `bash` instead, so file listing and search go over the shell tool rather than dedicated tools.
-Capabilities beyond the four defaults come from skills, prompt templates, extensions, or pi packages, none of which the lab loads.
-
-The flags this page can verify from the adapter are `-p` for the one-shot prompt, `--model` for provider and model selection, and `-a` for trusting the tree.
-Other subcommands and flags are not exercised by the lab, so they are not documented here.
-
-## How the lab drives it
-
-The pi-specific glue is a single adapter script that is the container entrypoint.
-Everything upstream of it, the network, the trace capture, and the resource accounting, is the same for every tool.
-
-The harness mounts three paths into the container.
-`/work` is the scenario's working tree, writable, and the agent's cwd.
-`/scenario` is the read-only scenario definition, holding `prompt.txt`.
-`/trace` is where stdout, the rendered config, and the time report land.
-It also passes `LAB_BASE_URL`, `LAB_MODEL`, `OPENCODE_API_KEY`, and `LAB_MAX_TURNS`.
-
-pi reads its model config from `~/.pi/agent/models.json`, so the adapter writes that file to register a custom provider named `lab`.
-
-```json
+mkdir -p "$HOME/.pi/agent"
+cat >"$HOME/.pi/agent/models.json" <<JSON
 {
   "providers": {
     "lab": {
       "baseUrl": "${LAB_BASE_URL}",
       "api": "openai-completions",
+      "apiKey": "\$OPENCODE_API_KEY",
+      "models": [
+        { "id": "${LAB_MODEL}", "name": "${LAB_MODEL}",
+          "contextWindow": 128000, "maxTokens": 8192 }
+      ]
+    }
+  }
+}
+JSON
+```
+
+The rendered config for this run, copied verbatim into `/trace/config.json`, resolved to:
+
+```json
+{
+  "providers": {
+    "lab": {
+      "baseUrl": "http://tomolab-proxy-2:8080/v1",
+      "api": "openai-completions",
       "apiKey": "$OPENCODE_API_KEY",
       "models": [
         {
-          "id": "${LAB_MODEL}",
-          "name": "${LAB_MODEL}",
+          "id": "deepseek-v4-flash-free",
+          "name": "deepseek-v4-flash-free",
           "contextWindow": 128000,
           "maxTokens": 8192
         }
@@ -75,15 +101,11 @@ pi reads its model config from `~/.pi/agent/models.json`, so the adapter writes 
 }
 ```
 
-The provider's `baseUrl` is `LAB_BASE_URL`, which is the trace proxy, and its `api` is `openai-completions`, pi's OpenAI chat-completions client.
-That is how pi's traffic reaches the proxy instead of the real upstream: it points its chat-completions client at the proxy's address, and the proxy tees and forwards each call.
-The `apiKey` is left as the literal string `$OPENCODE_API_KEY`, not the expanded value, so pi interpolates the env var itself at run time.
-The adapter copies this same file to `/trace/config.json`, and because the key stayed a literal, the real key never lands in the trace copy.
-The proxy forwards upstream with the key it holds.
+The `apiKey` stays the literal string `$OPENCODE_API_KEY`, not the expanded value, so pi interpolates the env var itself at run time and the real key never lands in the trace copy.
 
-The models config declares `maxTokens: 8192`, so pi caps its own output budget at that value, and `contextWindow: 128000`.
+### 2. One non-interactive run
 
-The run itself is the one-shot print call, wrapped in GNU time for the resource numbers.
+The adapter runs pi once, headless, wrapped in GNU time, in `/work`.
 
 ```bash
 cd /work
@@ -92,43 +114,184 @@ cd /work
   >/trace/stdout.log 2>/trace/stderr.log
 ```
 
-The run happens in `/work`, the exact tree the checker inspects.
-stdout goes to `/trace/stdout.log`, which is the reply the checker and this page read, and stderr goes to `/trace/stderr.log`.
-Because pi has no sandbox and does not pause to approve a shell command or a file write, its built-in tools run freely, pi's equivalent of tomo's all-allow policy, with the container as the sandbox.
+`-p` runs one prompt and exits instead of opening the TUI, `--model lab/deepseek-v4-flash-free` selects the proxied model, and `-a` trusts the project-local tree so nothing pauses on a trust check.
+Because the run is headless, pi's interactive plan-mode prompt is never reachable, so pi stays in its flat loop.
 
-The Dockerfile installs pi with `ARG PI_VERSION=latest`, so the default build takes the current npm release rather than a pinned version, though the arg lets a build pin an exact version when needed.
-The result is copied onto the shared `tomolab-base` image alongside the adapter, which is the entrypoint.
+### 3. pi builds the request
+
+pi assembles a chat-completions request: its small baked-in system prompt, the user message `Hi!`, and the four tool schemas (`read`, `bash`, `edit`, `write`).
+The user turn arrives as structured content, `[{"type":"text","text":"Hi!"}]`.
+
+### 4. The proxy forces greedy decoding
+
+At the proxy the call lands as `POST /zen/v1/chat/completions` with model `deepseek-v4-flash-free`.
+The proxy pins decoding so runs are reproducible.
+
+| Parameter | Value |
+| --- | --- |
+| `temperature` | `0` |
+| `top_p` | `1` |
+| `seed` | `7` |
+| `stream` | `true` (`stream_options.include_usage: true`) |
+| `max_completion_tokens` | `8192` |
+| `store` | `false` |
+
+The full proxy tap for the run is two records: a `GET /zen/` health touch, then the one `POST /zen/v1/chat/completions`.
+
+### 5. One completion, zero tool calls
+
+pi answers directly, without calling a tool, so the loop ends after a single model call.
+The model streamed 23 reasoning tokens before the visible reply, which the trace counts under completion tokens.
+
+| Metric | Value |
+| --- | --- |
+| Requests | 2 (`GET /zen/` health, one chat completion) |
+| Model calls | 1 |
+| Tool calls | 0 |
+| Plan calls | 0 (`planned: false`) |
+| Prompt tokens | 1,552 |
+| Completion tokens | 54 |
+| Total tokens | 1,606 (second-smallest baseline, just above tomo) |
+| Cached prompt tokens | 1,536 of 1,552 |
+| First-byte latency | 10,859 ms (the highest first-byte latency of the group on this run) |
+| Total latency | 12,110 ms over one timed completion |
+| Peak RSS | 123,380 KB (about 120 MB) |
+| Install footprint | 160,225 KB (about 156 MB) |
+| Attempts | 1 of 3 |
+
+Almost the entire prompt came back cached, 1,536 of 1,552 tokens, so only 16 tokens were fresh input.
+Latency dominated the run: nearly all the wall time was spent waiting for the model to start replying.
+
+### 6. The verbatim reply
+
+The reply that reached `/trace/stdout.log`, 120 bytes, is:
+
+```text
+Hello! How can I help you today? Feel free to ask me to read files, run commands, edit code, or anything else you need.
+```
+
+### 7. The checker grades a pass
+
+The checker never reads the model's prose.
+It confirms the greeting round trip completed, records `check: "baseline greeting round trip completed"`, and marks `passed: true` on the first attempt with `exit_code: 0`.
 
 ## Architecture
 
-pi runs a plain agent loop.
-The loop sends the conversation to the model, and when the model asks for a tool, pi runs it and feeds the result back, until the model answers without a tool call.
-For the 00-hello run the loop made exactly one model call and zero tool calls, which the trace records as `model_calls: 1` and `tool_calls: 0`.
+This is enough to reimplement the pi harness from scratch.
 
-The tool set is small and fixed: `read`, `bash`, `edit`, and `write`.
-`read` reads file contents, `bash` runs shell commands and covers listing and search, `edit` makes precise text replacements including multiple disjoint edits in one call, and `write` creates or overwrites whole files.
-The 00-hello request carried exactly these four tool schemas, matching pi's documented default set.
+### The container
 
-pi speaks native chat-completions.
-The provider's `api` is `openai-completions`, and the how-it-works proxy normalizes each request to the chat-completions shape before recording it.
-Because pi already sends that shape, the proxy does not shim its dialect; it tees a copy into the trace and forwards it upstream.
-The 00-hello trace confirms the path is `/zen/v1/chat/completions`, a plain chat call with no dialect translation tag.
+The image is the shared `tomolab-base` plus pi and the adapter.
 
-pi has no built-in plan or todo tool.
-Its project philosophy is explicit about this: no plan mode, write plans to files or build it with extensions.
-There is a plan-mode example extension bundled under the package's `examples/extensions/plan-mode`, but it is an example you opt into, not a built-in `--plan` flag.
-That extension plans in prose: it restricts the model to read-only tools, extracts numbered steps from a `Plan:` section, and gates execution behind an interactive prompt before any change is made.
-The honest consequence for the lab is that headless pi can plan but cannot write through that extension: the extension's execution step needs an interactive approval that a `-p` run never reaches.
-The lab does not load the extension anyway, so pi runs with the four default tools, and the trace shows `plan_calls: 0` and `planned: false` for the hello run.
+```dockerfile
+FROM tomolab-base
+ARG PI_VERSION=0.80.6
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent@${PI_VERSION}
+COPY adapter.sh /usr/local/bin/adapter
+RUN chmod +x /usr/local/bin/adapter
+ENTRYPOINT ["/usr/local/bin/adapter"]
+```
 
-## System prompt
+The base already carries Node 22, which pi needs.
+pi is installed from npm with `--ignore-scripts`, the install pi's own docs prescribe, so the image is independent of any pi checkout on the host.
+The version is pinned by `ARG PI_VERSION=0.80.6`, and the adapter is the container entrypoint.
 
-The [prompts/pi](/prompts/pi/) page holds the verbatim text the proxy captured.
-It was recovered with `lab prompts pi` across 17 captured runs, and it is the exact text that reached the model, not a copy from pi's source.
+### Mounts
 
-The proxy captured one distinct prompt, on wire `chat`, 2433 chars, seen across 85 requests.
-It is a single static rendering: pi sent the same prompt every run, which is a simpler picture than tomo's four distinct prompts that tracked versions.
-The prompt is compact for what it does, and the tool list it advertises is small, four tools against tomo's nine.
+The harness mounts three paths into the container.
+
+| Mount | Mode | Purpose |
+| --- | --- | --- |
+| `/work` | read-write | The scenario's working tree and the agent's cwd. The checker inspects this after the run. |
+| `/scenario` | read-only | The scenario definition. Holds `prompt.txt`. |
+| `/trace` | read-write | Where stdout, stderr, the rendered config, and the time report land. |
+
+### Harness environment
+
+The harness passes four environment variables.
+
+| Variable | Role |
+| --- | --- |
+| `LAB_BASE_URL` | The trace proxy base URL. Becomes the `lab` provider's `baseUrl`. On this run, `http://tomolab-proxy-2:8080/v1`. |
+| `LAB_MODEL` | The model id, used both as the provider's model and in `--model lab/<model>`. On this run, `deepseek-v4-flash-free`. |
+| `OPENCODE_API_KEY` | The upstream key. Left as a literal in the config so pi interpolates it at run time and the trace never captures it. |
+| `LAB_MAX_TURNS` | The turn cap for the agent loop. |
+
+### The adapter, step by step
+
+The adapter is the only pi-specific glue in the lab.
+Everything upstream of it, the network, the trace capture, and the resource accounting, is the same for every tool.
+
+First it reads the scenario prompt.
+
+```bash
+prompt="$(cat /scenario/prompt.txt)"
+```
+
+Then it registers the custom provider by writing `~/.pi/agent/models.json`, which is where pi reads model config.
+Pointing `baseUrl` at `LAB_BASE_URL` is what sends pi's traffic to the proxy instead of the real upstream, and `api: "openai-completions"` selects pi's OpenAI chat-completions client.
+The same file is copied to `/trace/config.json` for the record.
+
+```bash
+cp "$HOME/.pi/agent/models.json" /trace/config.json 2>/dev/null || true
+```
+
+Then it pins the cwd to `/work` and runs pi once under GNU time.
+
+```bash
+cd /work
+/usr/bin/time -v -o /trace/time.txt \
+  pi -p "$prompt" --model "lab/${LAB_MODEL}" -a \
+  >/trace/stdout.log 2>/trace/stderr.log
+status=$?
+echo "$status" >/trace/exit_code
+exit 0
+```
+
+The relevant flags and choices:
+
+| Choice | Effect |
+| --- | --- |
+| `-p "$prompt"` | Runs one prompt headless, prints the result, and exits. No TUI, so the interactive plan-mode prompt is never reached. |
+| `--model "lab/${LAB_MODEL}"` | Names the model as `provider/model`, where `lab` is the provider the adapter registered. |
+| `-a` | Trusts the project-local tree for the run, so nothing pauses on a trust check. |
+| `cd /work` | Pins the cwd, so pi's tool writes land in the tree the checker grades. `$HOME` holds `~/.pi/agent/models.json`. |
+| GNU `time -v` | Captures peak RSS and wall clock into `/trace/time.txt`. |
+
+pi ships no built-in permission system, so in headless mode its tools run with the process's own permissions.
+The adapter never approves individual shell commands or file writes: the container is the sandbox, which is pi's equivalent of tomo's all-allow policy.
+Output capture is plain redirection: stdout to `/trace/stdout.log` (the reply the checker reads), stderr to `/trace/stderr.log`, and the exit code to `/trace/exit_code`.
+The adapter exits `0` regardless, so the harness grades on the trace, not on the adapter's own status.
+
+### The agent loop
+
+pi runs a flat agent loop bounded by `LAB_MAX_TURNS`.
+Each turn sends the conversation to the model over native chat-completions.
+When the model asks for a tool, pi runs it and feeds the result back; when the model answers with no tool call, the loop ends.
+Tool calls are native function calls: the four tool schemas ride in the `tools` array of each request, and the model selects them by name.
+For 00-hello the loop made exactly one model call and zero tool calls.
+
+pi stays flat in headless runs by design.
+Its plan mode is an interactive read-only extension: it would restrict the model to read-only tools, write a prose plan, and then block on a TUI prompt asking whether to execute.
+A `pi -p` run has no interactive surface, so that prompt is never shown, no plan is written, and no plan tool is exposed to the model.
+The loop is just model, optional tool, model, until an answer.
+
+### Reaching the proxy and the wire
+
+pi already speaks the proxy's dialect, so nothing is translated.
+The provider's `api` is `openai-completions`, and the proxy speaks OpenAI chat-completions at `/v1/chat/completions`.
+The proxy normalizes each request to the chat-completions shape, tees a copy into `/trace` (`requests.jsonl`, `resp-N.txt`, `latency.jsonl`, `usage.jsonl`), and forwards it upstream with the real key it holds.
+Because pi's traffic is already chat-completions, there is no dialect shim; the 00-hello path is a plain `POST /zen/v1/chat/completions`.
+
+## System Prompts
+
+This is pi's OWN baked-in system prompt, not something the lab injects.
+It was recovered verbatim by `lab prompts pi`, which reads the copy the trace proxy captured on the wire, so it is the exact text that reached the model.
+The full text lives at [/prompts/pi/](/prompts/pi/).
+
+The proxy captured one distinct prompt across 17 runs (newest `20260710T135900Z`).
+It is a single static rendering on wire `chat`, 2,433 chars, seen across 85 requests, advertising four tools: `bash`, `edit`, `read`, `write`.
+That is a simpler and smaller picture than tools that ship several versioned prompts: pi sent the same working prompt every run, and it is compact for what it does.
 
 The prompt opens by fixing pi's identity and role.
 
@@ -146,7 +309,7 @@ Available tools:
 - write: Create or overwrite files
 ```
 
-The guidelines push search and listing onto `bash` rather than a dedicated tool, and push reading onto `read` rather than shelling out.
+The tool-use rules push search and listing onto `bash` and reading onto `read`, rather than shelling out to `cat` or `sed`.
 
 ```text
 - Use bash for file operations like ls, rg, find
@@ -154,35 +317,40 @@ The guidelines push search and listing onto `bash` rather than a dedicated tool,
 ```
 
 The bulk of the remaining text is edit-tool discipline: keep `oldText` small but unique, match against the original file, and merge nearby changes into one call.
-The prompt closes with a volatile date line and the current working directory, `/work`, which is worth ignoring when comparing prompt text.
-
-This section is recovered from the traces, not copied from pi's source.
-What matches the public repo is the four-tool default set: the docs state pi gives the model read, write, edit, and bash by default, and the captured prompt advertises exactly those four.
-
-## Hi! end to end
-
-The 00-hello scenario hands pi the single prompt `Hi!` and checks that a greeting round trip completes.
-
-The adapter reads `Hi!` from `/scenario/prompt.txt` and runs `pi -p "Hi!" --model lab/deepseek-v4-flash-free -a`.
-pi builds the request around it: a system message with the agent prompt, whose first line is "You are an expert coding assistant operating inside pi, a coding agent harness.", then the user message `Hi!`.
-The request also carries the four tool schemas (`read`, `bash`, `edit`, `write`), sent on the native chat wire.
-
-At the proxy the request lands as a POST to `/zen/v1/chat/completions` with model `deepseek-v4-flash-free`.
-The proxy forces greedy decoding, so the body shows `temperature=0`, `top_p=1`, `seed=7`, and `stream=True`.
-It is a plain chat-completions call with two messages, roles system and user, and no dialect translation.
-The full proxy tap for the run is two records, a `GET /zen/` health touch and the one `POST /zen/v1/chat/completions`.
-
-That one request gets one upstream completion, and pi answers without calling a tool.
-The trace records `requests: 2`, `orchestration.model_calls: 1`, `tool_calls: 0`, `plan_calls: 0`, and `planned: false`.
-Tokens were 1552 prompt, 54 completion, 1606 total, and 1536 of the 1552 prompt tokens came back cached, so almost the entire system prompt was served from the upstream cache.
-Latency was high on this run: 10859 ms to first byte and 12110 ms total, over one timed completion, so nearly all the wall time was spent waiting for the model to start replying.
-
-The reply that reached the user, from `stdout.log` at 120 bytes, is:
 
 ```text
-Hello! How can I help you today? Feel free to ask me to read files, run commands, edit code, or anything else you need.
+- Use edit for precise changes (edits[].oldText must match exactly)
+- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls
+- Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.
+- Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.
+- Use write only for new files or complete rewrites.
 ```
 
-The checker graded the run a pass.
-It never reads the model's prose; it confirms the greeting round trip completed, records `check: "baseline greeting round trip completed"`, and marks `passed: true` on the first attempt.
-The run also logged an install footprint of 160225 KB and a peak RSS of 123380 KB.
+Formatting rules are two lines: be concise, and show file paths clearly.
+
+```text
+- Be concise in your responses
+- Show file paths clearly when working with files
+```
+
+A large block near the end is pi self-documentation: where the README, docs, and examples live inside the installed package, and to read them only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI.
+This is where the plan-mode extension would be discovered if a user asked, under `examples/extensions/`, but nothing in the prompt exposes a plan tool to the model.
+
+```text
+Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
+- Main documentation: /usr/lib/node_modules/@earendil-works/pi-coding-agent/README.md
+- Additional docs: /usr/lib/node_modules/@earendil-works/pi-coding-agent/docs
+- Examples: /usr/lib/node_modules/@earendil-works/pi-coding-agent/examples (extensions, custom tools, SDK)
+```
+
+The prompt has no explicit safety or refusal policy: safety in the lab comes from the container boundary, not from prompt text.
+The flat-loop behavior is implicit in the tool list and the edit rules; there is no plan, todo, or subagent instruction anywhere in the prompt.
+
+The last two lines are volatile and worth ignoring when diffing prompt text.
+
+```text
+Current date: 2026-07-10
+Current working directory: /work
+```
+
+The date rolls each day and the cwd is fixed to `/work`, so a diff that flags only these lines is noise, not a real prompt change.

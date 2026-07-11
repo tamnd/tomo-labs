@@ -1,67 +1,70 @@
 ---
 title: "claude-code"
-description: "Anthropic's Claude Code CLI, run headless through the Claude Agent SDK and pointed at the lab's trace proxy as if it were the Anthropic API."
+description: "Anthropic's Claude Code CLI, run headless through the trace proxy as if it were the Anthropic API, carrying the largest baseline prompt of any wired tool."
 weight: 40
 ---
 
 claude-code is Anthropic's Claude Code CLI, the `claude` binary you install from npm, driven here in its headless single-shot mode.
-Anthropic builds it, and in the lab it runs through the Claude Agent SDK that ships inside the same package.
-It speaks the Anthropic Messages API on the wire, so the adapter points it at the trace proxy as if that were the Anthropic API, and the proxy shims each Messages call into the chat-completions shape the shared deepseek model speaks.
-The tool talks its native wire and never learns that the model behind the endpoint is not a Claude model.
+Anthropic builds it, and the lab runs the exact same agent loop that powers the interactive REPL, just with one prompt in and one result out.
+It speaks the Anthropic Messages API on the wire, so the adapter points it at the lab's trace proxy as if that endpoint were the Anthropic API.
+The proxy translates each Messages call into the chat-completions shape the shared deepseek model speaks, and back again, so claude-code talks its native dialect and never learns the model behind the endpoint is not a Claude model.
+The one thing that sets it apart on the leaderboard: it carries by far the largest baseline system prompt of any wired tool, about 19k tokens, and nearly all of it is served from cache.
 
-## What it is
+## Overview
 
-The tool under test is the `claude` command from the npm package `@anthropic-ai/claude-code`.
-It is the same CLI people run interactively in a terminal, but the lab uses it in headless print mode: one prompt in, the agent works, one result out, then it exits.
-Inside, it runs the Claude Agent SDK agent loop, the same loop that powers the interactive REPL, with a large built-in tool schema for reading and writing files, running shell commands, searching the web, spawning subagents, and tracking a task list.
-Everything the lab needs from it is reachable without a login flow, because the adapter feeds credentials and the endpoint through environment variables.
+The tool under test is the `claude` command from the npm package `@anthropic-ai/claude-code`, pinned in the Dockerfile to version `2.1.207`.
+It is the same CLI people run interactively in a terminal, but the lab uses it in headless print mode (`-p`): one prompt in, the agent works, one result out, then it exits.
+Inside, it runs the Claude Agent SDK loop with a large built-in tool schema for reading and writing files, running shell commands, searching the web, spawning subagents, and tracking a task list.
+Everything the lab needs is reachable without a login flow, because the adapter feeds the endpoint and credentials through environment variables.
 
-## Command surface
+The defining trait for the lab: claude-code ships the largest standing prompt of any wired tool.
+Its 00-hello run sends about 19,122 prompt tokens before the user has said anything of substance, and 19,072 of those come straight back from cache.
+That is the whole product working as designed: a big, stable system prompt that the model provider caches so repeat turns stay cheap.
 
-The lab uses one invocation of `claude` and a handful of flags, all headless.
+At a glance:
 
-Run one prompt non-interactively and print the result:
+| Aspect | Value |
+| --- | --- |
+| Runtime under test | `claude` binary from npm `@anthropic-ai/claude-code` |
+| Install source | `npm install -g @anthropic-ai/claude-code@2.1.207` |
+| Version captured | `2.1.207` (build `2.1.207.552` in the request billing header) |
+| Base image | `tomolab-base` (Node 22) |
+| Wire dialect | Anthropic Messages API, `POST /v1/messages` |
+| Proxy translation | Messages request shimmed to `POST /v1/chat/completions`, tagged `(from messages)` |
+| How the lab invokes it | `claude -p "$prompt" --dangerously-skip-permissions --output-format text` |
+| Agent loop | Claude Agent SDK loop, bounded by native tool-calling, one process |
+| Working directory | `/work` (agent cwd, writable, graded by the checker) |
+| Baseline prompt size | ~19,122 prompt tokens, ~19,072 cached (largest of the wired set) |
+
+The features and tools below are grounded in the recovered system prompt and the adapter, not in Anthropic's marketing.
+The prompt ships a 24-tool schema on every request:
+
+| Tool group | Tools | What they do |
+| --- | --- | --- |
+| File and shell | `Read`, `Write`, `Edit`, `NotebookEdit`, `Bash` | Read and write files, edit in place, run shell commands in `/work` |
+| Search and web | `WebFetch`, `WebSearch` | Fetch a URL, run a web search |
+| Subagents | `Agent`, `ReportFindings` | Fan out to `Explore`, `Plan`, `general-purpose`, or specialized agents; report back |
+| Task tracking | `TaskCreate`, `TaskUpdate`, `TaskGet`, `TaskList`, `TaskOutput`, `TaskStop` | The built-in todo/planning surface: pending, in_progress, completed |
+| Scheduling | `CronCreate`, `CronDelete`, `CronList`, `ScheduleWakeup`, `Workflow` | Recurring and deferred work (never fires in a one-shot greeting) |
+| Skills and worktrees | `Skill`, `EnterWorktree`, `ExitWorktree`, `SendMessage` | Invoke a named skill, isolate work in a git worktree, message a running agent |
+
+In a plain greeting none of these fire.
+The 00-hello run makes one model call, zero tool calls, and never opens its task list, which is exactly what a well-behaved agent should do for "Hi!".
+
+## Say Hi!
+
+The `00-hello` scenario hands the agent a one-word greeting and checks that a greeting round trip completed.
+Here is that run for claude-code end to end, from the newest trace (`20260711T044957Z`).
+
+Step 1, the adapter reads the prompt.
+The harness has mounted `/scenario` read-only, so the adapter pulls the task text straight from the file:
 
 ```bash
-claude -p "your prompt here"
+prompt="$(cat /scenario/prompt.txt)"   # "Hi!"
 ```
 
-`-p` (long form `--print`) is the headless switch.
-It takes Claude Code out of the interactive REPL and into a single batch run that prints the final result and exits.
-The prompt can be passed as an argument or piped in on stdin.
-
-Choose how the result is printed:
-
-```bash
-claude -p "your prompt here" --output-format text
-```
-
-`--output-format` accepts `text`, `json`, and `stream-json`.
-`text` is a plain transcript, which is what the lab wants on stdout.
-`json` returns a structured payload with the result, a session id, and cost fields; `stream-json` emits one event per line and needs `--verbose`.
-
-Drop the approval prompts for a fully unattended run:
-
-```bash
-claude -p "your prompt here" --dangerously-skip-permissions --output-format text
-```
-
-`--dangerously-skip-permissions` bypasses every tool-approval prompt.
-Anthropic's own guidance is to use it only in an isolated environment such as a CI container, which is exactly what each run here is.
-The safer alternatives Claude Code offers, `--allowedTools` to pre-approve a set and `--permission-mode` to pick a session-wide policy, are not used in the lab, because the throwaway container already provides the isolation the dangerous flag assumes.
-
-Model selection is by environment variable rather than a flag in the lab.
-Claude Code reads `ANTHROPIC_MODEL` for the main agent and `ANTHROPIC_SMALL_FAST_MODEL` for the cheap background model, and the adapter sets both to the one shared model.
-A `--model` flag exists on the CLI, but the adapter routes the choice through the environment so every request rides `LAB_MODEL`.
-Guardrail flags like `--max-turns` and `--max-budget-usd` exist too, but the captured runs do not set them, so they are not part of this tool's surface here.
-
-## How the lab drives it
-
-The whole claude-code-specific glue is one `adapter.sh`, the container entrypoint, plus a `Dockerfile`.
-The harness mounts `/work` as the agent's cwd, `/scenario` read-only for `prompt.txt`, and `/trace` for output, and passes `LAB_BASE_URL`, `LAB_MODEL`, `OPENCODE_API_KEY`, and `LAB_MAX_TURNS`.
-
-First the adapter points Claude Code at the trace proxy as if it were the Anthropic API.
-Claude Code joins `ANTHROPIC_BASE_URL` with the path `/v1/messages`, so the adapter strips the trailing `/v1` the harness passes:
+Step 2, the adapter points claude-code at the proxy.
+claude-code appends `/v1/messages` to `ANTHROPIC_BASE_URL`, so the adapter strips the trailing `/v1` the harness passes, then wires the auth token and both model slots to the one shared lab model:
 
 ```bash
 export ANTHROPIC_BASE_URL="${LAB_BASE_URL%/v1}"
@@ -70,134 +73,325 @@ export ANTHROPIC_MODEL="${LAB_MODEL}"
 export ANTHROPIC_SMALL_FAST_MODEL="${LAB_MODEL}"
 ```
 
-`ANTHROPIC_AUTH_TOKEN` sets the raw bearer token Claude Code sends, which is the variable meant for a custom endpoint rather than a real Anthropic key.
-Both model variables point at `LAB_MODEL`, so the cheap side tasks Claude Code farms out to the small fast model ride the same model it is graded on.
+`ANTHROPIC_AUTH_TOKEN` is the raw bearer token variable meant for a custom endpoint, not a real Anthropic key.
+Both model variables point at `LAB_MODEL`, so even the cheap side tasks claude-code farms out to the small fast model ride the model it is graded on.
 
-Then it sets the sandbox escape hatch:
-
-```bash
-export IS_SANDBOX=1
-```
-
-Claude Code refuses `--dangerously-skip-permissions` when it runs as root, unless it is told it is already inside a sandbox.
-Every tool here runs as root in a throwaway container, which is that sandbox, so `IS_SANDBOX=1` lets the skip-permissions flag through.
-
-Next it keeps the run offline except for the model, by disabling the autoupdater, telemetry, error reporting, and other nonessential traffic, and it pre-seeds `~/.claude.json` so the first-run onboarding and folder-trust prompts a headless run can never answer are already dismissed:
+Step 3, the adapter runs claude-code once, headless.
+`cd /work` pins the cwd, `-p` runs one prompt and prints the result, `--dangerously-skip-permissions` drops every approval prompt (the container is the sandbox), and `--output-format text` keeps stdout a plain transcript.
+GNU time wraps the call so the harness can read peak memory back:
 
 ```bash
-cat >"$HOME/.claude.json" <<JSON
-{"hasCompletedOnboarding": true, "bypassPermissionsModeAccepted": true}
-JSON
-```
-
-Finally it runs the task, wrapped in GNU time so the harness can read peak memory back:
-
-```bash
+cd /work
 /usr/bin/time -v -o /trace/time.txt \
   claude -p "$prompt" --dangerously-skip-permissions --output-format text \
   >/trace/stdout.log 2>/trace/stderr.log
 ```
 
-The `Dockerfile` builds `tomolab-tool-claude-code` on top of `tomolab-base`, so it shares the same toolchain every other tool runs against, including the Node 22 the CLI needs.
-It installs the CLI from npm with a build arg:
+Step 4, claude-code builds one Anthropic Messages request.
+It does not send the user's prompt bare: it wraps the run's context in a `<system-reminder>` block and folds in the current date.
+The wire carries three messages with roles `system`, `user`, `system`, plus the 24-tool schema:
 
-```dockerfile
-FROM tomolab-base
-ARG CLAUDE_CODE_VERSION=latest
-RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
+| Position | Role | Size | Content |
+| --- | --- | --- | --- |
+| 1 | `system` | 5,762 chars | Agent prompt: billing header, identity, harness, memory, environment, context rules |
+| 2 | `user` | 309 chars | `<system-reminder>` context block wrapping the literal `Hi!` |
+| 3 | `system` | 7,411 chars | Agent-types and skills context for the `Agent` and `Skill` tools |
+
+The user message is not just "Hi!":
+
+```text
+<system-reminder>
+As you answer the user's questions, you can use the following context:
+# currentDate
+Today's date is 2026-07-11.
+
+      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.
+</system-reminder>
+
+Hi!
 ```
 
-The arg defaults to `latest`, so a build pins whatever version was current at build time.
-The captured runs on this page ran Claude Code version `2.1.205.ca0`, which the tool stamps into its own request header, so the exact build is readable straight from the trace.
+Step 5, the proxy captures three records for the run.
+Two are a reachability preflight against the base URL, one is the model call:
+
+| seq | Method and path | Status | ttfb | total | Note |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `GET /zen/` | 200 | 669 ms | 672 ms | reachability preflight, no model call |
+| 2 | `HEAD /zen/` | 200 | 0 ms | 278 ms | reachability preflight, no model call |
+| 3 | `POST /v1/chat/completions (from messages)` | 200 | 1,115 ms | 3,378 ms | the one completion, translated from Messages |
+
+The `(from messages)` tag marks a request that arrived as Anthropic Messages and was shimmed into chat-completions before recording.
+
+Step 6, decoding is forced at the proxy, not by the tool.
+The recorded completion request carries forced-decoding params so every tool is judged under one regime:
+
+```json
+{
+  "model": "deepseek-v4-flash-free",
+  "max_tokens": 32000,
+  "temperature": 0,
+  "top_p": 1,
+  "seed": 7,
+  "stream": true,
+  "stream_options": { "include_usage": true }
+}
+```
+
+Step 7, the model answers in a single call and claude-code stops there.
+The headline is the prompt size and the cache:
+
+| Metric | Value |
+| --- | --- |
+| Requests | 3 (2 preflight, 1 completion) |
+| Model calls | 1 |
+| Tool calls | 0 |
+| Plan calls | 0 |
+| Subagents | 0 |
+| Prompt tokens | 19,122 |
+| Cached tokens | 19,072 (99.7% of the prompt) |
+| Completion tokens | 185 |
+| Total tokens | 19,307 (largest baseline of any wired tool) |
+| ttfb / total | 1,115 ms / 3,378 ms |
+| Peak RSS | 295,808 KB (~289 MB) |
+| Install footprint | 333,078 KB (~325 MB) |
+| Wall time | 4 s |
+| Attempts | 1 |
+
+Nearly the entire 19k-token prompt is a cache hit, so the big standing prompt is cheap after the first pass, which is the whole point of it.
+
+Step 8, the completion prints to stdout verbatim:
+
+```text
+Hi there! 👋 Great to meet you. I'm your Claude Code assistant, ready to help with software engineering tasks.
+
+What are you working on today? I can help with:
+
+- **Writing or debugging code** — just show me the files
+- **Reviewing changes** — use `/code-review` on your working diff
+- **Researching a topic** — use `/deep-research` for multi-source investigation
+- **Architecting a plan** — describe what you want to build and I'll map it out
+- **Running tests or builds** — I can execute commands and iterate
+- **Setting up the project** — use `/init` to bootstrap a CLAUDE.md
+
+Or if you have something specific in mind, just ask away!
+```
+
+Step 9, the checker grades the working tree, not the prose, and records `baseline greeting round trip completed`.
+The run passed on the first attempt, exit code 0.
 
 ## Architecture
 
-Claude Code runs the Claude Agent SDK loop.
-The CLI hands the model a system prompt and a tool schema, reads back either prose or tool calls, executes the tool calls locally in `/work`, feeds the results back as new messages, and repeats until the model stops calling tools and produces a final answer.
-In headless print mode that whole loop runs to completion in one process before `-p` prints the result.
+Enough to reimplement from scratch.
 
-The trace shows the schema is large: 24 tools reach the model on every request.
-The captured set is `Agent`, `Bash`, `CronCreate`, `CronDelete`, `CronList`, `Edit`, `EnterWorktree`, `ExitWorktree`, `NotebookEdit`, `Read`, `ReportFindings`, `ScheduleWakeup`, `SendMessage`, `Skill`, `TaskCreate`, `TaskGet`, `TaskList`, `TaskOutput`, `TaskStop`, `TaskUpdate`, `WebFetch`, `WebSearch`, `Workflow`, and `Write`.
-`Agent` spawns subagents for fan-out work, `Bash`, `Read`, `Edit`, `Write`, and `NotebookEdit` do the actual file and shell work, and `WebFetch` and `WebSearch` reach the network.
-`TaskCreate`, `TaskUpdate`, `TaskGet`, `TaskList`, `TaskOutput`, and `TaskStop` are the built-in planning surface: the agent keeps an explicit task list and moves items through pending, in_progress, and completed as it works, and the system prompt nudges it to use them on multi-step work.
-The scheduling tools (`CronCreate`, `CronDelete`, `CronList`, `ScheduleWakeup`, `Workflow`) and `SendMessage` are part of the same schema but do not fire in a one-shot greeting.
+The container.
+The image builds on `tomolab-base`, which already carries Node 22, the runtime the CLI needs.
+The Dockerfile npm-installs the pinned CLI and drops the adapter in as the entrypoint:
 
-On the wire, Claude Code sends the Anthropic Messages API request shape: a `messages` array of role-tagged turns, a separate tool schema, and Anthropic-specific headers.
-The free deepseek model behind the proxy speaks chat completions, not Messages, so the proxy's anthropic shim translates in both directions.
-It maps the Messages request into a chat-completions call, forwards it upstream, and maps the streamed chat response back into the Messages stream Claude Code expects, flushing as it copies so a streaming reply keeps streaming.
-Because the shim normalizes every completion to the chat-completions shape before recording it, the trace tags Claude Code's completion path as `/v1/chat/completions (from messages)`, which marks a request that arrived as Messages and was translated.
+```dockerfile
+FROM tomolab-base
+ARG CLAUDE_CODE_VERSION=2.1.207
+RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
+COPY adapter.sh /usr/local/bin/adapter
+RUN chmod +x /usr/local/bin/adapter
+ENTRYPOINT ["/usr/local/bin/adapter"]
+```
+
+The image is independent of any checkout on the host: the tool comes entirely from npm, and the version arg pins the exact build (`2.1.207`).
+
+Mounts.
+The harness gives the container three directories:
+
+| Mount | Mode | Purpose |
+| --- | --- | --- |
+| `/work` | writable | the scenario's working tree and the agent's cwd; the checker grades what lands here |
+| `/scenario` | read-only | the scenario definition, `prompt.txt` |
+| `/trace` | writable | stdout, stderr, the rendered config, the GNU time report, exit code |
+
+Harness environment.
+The harness passes four variables, the same for every tool:
+
+| Variable | Meaning |
+| --- | --- |
+| `LAB_BASE_URL` | the trace proxy URL, ending in `/v1` |
+| `LAB_MODEL` | the shared model id, `deepseek-v4-flash-free` |
+| `OPENCODE_API_KEY` | the bearer token the proxy accepts |
+| `LAB_MAX_TURNS` | the per-run turn ceiling (claude-code bounds itself by native tool-calling here) |
+
+The adapter, step by step.
+It reads the prompt, translates the harness environment into the variables claude-code understands, seeds a config file to skip onboarding, then runs the CLI once under GNU time.
+
+First it points claude-code at the proxy as if it were the Anthropic API.
+claude-code joins `ANTHROPIC_BASE_URL` with `/v1/messages`, so the trailing `/v1` from `LAB_BASE_URL` is stripped:
+
+```bash
+export ANTHROPIC_BASE_URL="${LAB_BASE_URL%/v1}"
+export ANTHROPIC_AUTH_TOKEN="${OPENCODE_API_KEY}"
+export ANTHROPIC_MODEL="${LAB_MODEL}"
+export ANTHROPIC_SMALL_FAST_MODEL="${LAB_MODEL}"
+```
+
+Then it sets the sandbox escape hatch.
+claude-code refuses `--dangerously-skip-permissions` when it runs as root, unless it is told it is already inside a sandbox.
+Every tool here runs as root in a throwaway container, which is that sandbox:
+
+```bash
+export IS_SANDBOX=1
+```
+
+Then it keeps the run offline except for the model, so nothing muddies the trace:
+
+```bash
+export DISABLE_AUTOUPDATER=1
+export DISABLE_TELEMETRY=1
+export DISABLE_ERROR_REPORTING=1
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+```
+
+Then it pre-seeds a settings file at `$HOME/.claude.json`, pinning HOME's config so the first-run onboarding and folder-trust prompts a headless run can never answer are already dismissed, and copies it into the trace:
+
+```bash
+cat >"$HOME/.claude.json" <<JSON
+{"hasCompletedOnboarding": true, "bypassPermissionsModeAccepted": true}
+JSON
+cp "$HOME/.claude.json" /trace/config.json 2>/dev/null || true
+```
+
+Finally it pins the cwd to `/work` and runs the task once, headless, wrapped in GNU time for peak memory, with stdout and stderr captured and the exit code recorded:
+
+```bash
+cd /work
+/usr/bin/time -v -o /trace/time.txt \
+  claude -p "$prompt" --dangerously-skip-permissions --output-format text \
+  >/trace/stdout.log 2>/trace/stderr.log
+status=$?
+echo "$status" >/trace/exit_code
+exit 0
+```
+
+The adapter always `exit 0`s so the harness collects the trace even when the CLI itself fails; the real exit code lives in `/trace/exit_code`.
+
+How claude-code reaches the proxy.
+There is no proxy config inside the tool.
+`ANTHROPIC_BASE_URL` is all it takes: claude-code treats the proxy as the Anthropic API, sends Messages requests to it, and the auth token in `ANTHROPIC_AUTH_TOKEN` rides along as the bearer.
+The preflight `GET /zen/` and `HEAD /zen/` are claude-code checking the endpoint is reachable before it sends the first real call.
+
+The agent loop.
+claude-code hands the model a system prompt and the 24-tool schema, reads back either prose or tool calls, executes the tool calls locally in `/work`, feeds the results back as new messages, and repeats until the model stops calling tools and produces a final answer.
+The loop is bounded by native tool-calling and by the turn ceiling; in headless print mode the whole loop runs to completion in one process before `-p` prints the result.
+For a plain greeting the loop terminates after one model call with no tool use.
+
+The wire, and how the proxy translates it.
+claude-code sends the Anthropic Messages request shape: a `messages` array of role-tagged turns, a separate tool schema, and Anthropic-specific headers including the `x-anthropic-billing-header` that stamps `cc_version`.
+The deepseek model behind the proxy speaks chat completions, not Messages, so the proxy's anthropic shim translates in both directions:
+
+1. It maps the Messages request into a chat-completions call, injecting forced decoding (`temperature=0`, `top_p=1`, `seed=7`, `stream=true`).
+2. It forwards that call upstream to the shared model.
+3. It tees the streamed chat response, recording usage and latency as it copies, and maps the stream back into the Messages stream claude-code expects, flushing as it goes so a streaming reply keeps streaming.
+
+Because the shim normalizes every completion to the chat-completions shape before recording, the trace tags the completion path as `POST /v1/chat/completions (from messages)`.
 The tool talks its native dialect throughout, and its token usage and latency are captured with no cooperation from the tool.
 
-## System prompt
+## System Prompts
 
-The proxy captured Claude Code's real system prompt across 26 runs, recovered with `lab prompts claude-code`, so this is the text that reached the model rather than a copy from the tool's source.
-It comes as two wire `messages`: a main agent prompt of about 7445 chars and a secondary context block of about 5738 chars, both carrying the same 24-tool schema.
-Both are grouped from many near-identical per-run renderings that differ only in volatile spans, so the page shows the base prompt rather than a hundred copies.
+Up front: this is claude-code's own baked-in system prompt, Anthropic-authored text that ships inside the CLI, recovered verbatim by `lab prompts claude-code`.
+It is not lab-injected.
+The lab adds nothing to it except the endpoint and the model env; every word below is what claude-code itself sent.
+Because the proxy records each completion after normalizing it to chat-completions, this is the exact text that reached the model, not a transcription from source.
 The full verbatim capture is on the prompt page at [/prompts/claude-code/](/prompts/claude-code/).
 
-The prompt opens by declaring the agent and its wire, right after a billing header the tool prepends:
+What was captured.
+Recovered across 26 runs (newest `20260710T133549Z`), the capture groups into three distinct prompts, all on the `messages` wire, all carrying the same 24-tool schema:
+
+| Prompt | Size | Requests | Role in the wire | What it is |
+| --- | --- | --- | --- | --- |
+| 1, agent prompt | 7,445 chars | 131 | trailing `system` message | agent types for the `Agent` tool plus the user-invocable skills list |
+| 2, agent prompt | 5,738 chars | 131 | leading `system` message | the core working prompt: identity, harness, memory, environment, context |
+| 3, agent prompt | 775 chars | 6 | mid-conversation `system` turn | a gentle reminder to use the task tools, injected only after work is underway |
+
+Prompt 2 is the working prompt and the largest single block; together with prompt 1's agent-types and skills catalog it is what pushes claude-code's baseline to about 19k tokens, the biggest of any wired tool.
+
+Identity and wire.
+Prompt 2 opens with a billing header the tool prepends, then declares the agent:
 
 ```text
 x-anthropic-billing-header: cc_version=2.1.205.ca0; cc_entrypoint=sdk-cli;You are a Claude agent, built on Anthropic's Claude Agent SDK.
 You are an interactive agent that helps users with software engineering tasks.
 ```
 
-That `cc_version=2.1.205.ca0` and the `sdk-cli` entrypoint are the per-run volatile spans: the version string moves when the pinned build moves, and grouping collapses those renderings into one prompt.
+The `cc_version` moves with the pinned build; the newest 00-hello run stamps `cc_version=2.1.207.552`, so this span is volatile and grouping collapses those renderings into one prompt.
 
-A Harness section tells the model how its output and tools are handled, including how injected context is marked:
+Safety and refusal rules.
+Right after the identity line the prompt draws the line on security work:
 
 ```text
- - `<system-reminder>` tags in messages and tool results are injected by the harness, not the user. Hooks may intercept tool calls; treat hook output as user feedback.
+IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.
 ```
 
-This is the same convention the Hi! run below shows in practice, where the harness wraps the run's context in a `<system-reminder>` block.
-
-The prompt also carries an Environment section that the proxy captured filled in with the lab's own values:
+Tool-use policy and the harness contract.
+A Harness section tells the model how its output and tools are handled, including the injected-context convention the Hi! run shows in practice:
 
 ```text
+# Harness
+ - Text you output outside of tool use is displayed to the user as Github-flavored markdown in a terminal.
+ - Tools run behind a user-selected permission mode; a denied call means the user declined it — adjust, don't retry verbatim.
+ - `<system-reminder>` tags in messages and tool results are injected by the harness, not the user. Hooks may intercept tool calls; treat hook output as user feedback.
+ - Prefer the dedicated file/search tools over shell commands when one fits. Independent tool calls can run in parallel in one response.
+ - Reference code as `file_path:line_number` — it's clickable.
+```
+
+Editing conventions.
+A single line sets the house style for code changes:
+
+```text
+Write code that reads like the surrounding code: match its comment density, naming, and idiom.
+```
+
+Tone, register, and honesty rules.
+The prompt tells the model to confirm irreversible actions and to report outcomes without hedging:
+
+```text
+For actions that are hard to reverse or outward-facing, confirm first unless durably authorized or explicitly told to proceed without asking; approval in one context doesn't extend to the next. Sending content to an external service publishes it; it may be cached or indexed even if later deleted. Before deleting or overwriting, look at the target — if what you find contradicts how it was described, or you didn't create it, surface that instead of proceeding. Report outcomes faithfully: if tests fail, say so with the output; if a step was skipped, say that; when something is done and verified, state it plainly without hedging.
+```
+
+The todo and planning tooling.
+The `Task*` tools are the built-in planning surface, and prompt 3 is the mid-conversation nudge that reminds the model to use them once work is underway:
+
+```text
+The task tools haven't been used recently. If you're working on tasks that would benefit from tracking progress, consider using TaskCreate to add new tasks and TaskUpdate to update task status (set to in_progress when starting, completed when done). Also consider cleaning up the task list if it has become stale. Only use these if relevant to the current work. This is just a gentle reminder - ignore if not applicable.
+```
+
+That reminder only appears once real work exists; for a plain "Hi!" it never fires, which is why the greeting run makes zero plan calls.
+
+The persistent memory system.
+The prompt describes a file-based memory the agent writes to directly:
+
+```text
+# Memory
+
+You have a persistent file-based memory at `/root/.claude/projects/-work/memory/`. This directory already exists — write to it directly with the Write tool (do not run mkdir or check for its existence). Each memory is one file holding one fact, with frontmatter:
+```
+
+Formatting and context management.
+The prompt closes by telling the model that long conversations are summarized for it, and to act when it has enough information rather than survey options:
+
+```text
+When you have enough information to act, act. Do not re-derive facts already established in the conversation, re-litigate a decision the user has already made, or narrate options you will not pursue. If you are weighing a choice, give a recommendation, not an exhaustive survey
+```
+
+Volatile spans worth ignoring when diffing.
+An Environment section is rendered fresh each run from the container, filled in with the lab's own values:
+
+```text
+# Environment
+You have been invoked in the following environment: 
  - Primary working directory: /work
  - Is a git repository: false
  - Platform: linux
+ - Shell: unknown
+ - OS Version: Linux 7.0.12-201.fc44.aarch64
  - You are powered by the model deepseek-v4-flash-free.
 ```
 
-The working directory, the platform, and the model name are the other volatile spans, rendered fresh each run from the container's environment.
-Note that the model line reads `deepseek-v4-flash-free`, the shared lab model, even though the surrounding prompt is Claude Code's own Anthropic-authored text, because the adapter set `ANTHROPIC_MODEL` to the lab model and the tool reflected it back.
-
-The structure matches Claude Code's public behavior: the Agent SDK framing, the harness and permission notes, the memory and task-tracking guidance, and the `<system-reminder>` convention are all documented parts of the CLI.
-What is recovered from the trace rather than the docs is the exact wording and the filled-in per-run values, which is the point of capturing it from the proxy instead of transcribing it.
-
-## Hi! end to end
-
-The `00-hello` scenario hands the agent a one-word greeting task and checks that a greeting round trip completed.
-Here is that run for claude-code, from the trace.
-
-Claude Code builds one Messages request.
-It does not send the user's prompt bare: it injects a `<system-reminder>` context message, so the wire carries three messages with roles `system`, `user`, `system`.
-The first system message is Claude Code's agent prompt, opening with the billing header and `You are a Claude agent, built on Anthropic's Claude Agent SDK.`
-The user message is the `<system-reminder>` block, which begins `As you answer the user's questions, you can use the following context:` and folds in the current date, `Today's date is 2026-07-10.`
-The second system message is the agent-types context, opening `Available agent types for the Agent tool:`.
-All 24 tools ride along in the schema.
-
-The proxy taps three records for the run: `GET /zen/`, `HEAD /zen/`, and `POST /v1/chat/completions (from messages)`.
-The two `/zen/` records are Claude Code's reachability preflight against the base URL and carry no model call.
-The one completion is the Messages request, tagged `(from messages)` because it arrived as Messages and the shim translated it.
-Its `model` field is `deepseek-v4-flash-free`, the shared model.
-
-Determinism is forced at the proxy, not by the tool.
-The recorded completion request carries `temperature=0`, `top_p=1`, `seed=7`, and `stream=True`, so client-side sampling variance is gone and the greeting is judged under the one decoding regime every tool gets.
-
-The model answers in a single call and Claude Code stops there.
-The run made 1 model call, 0 tool calls, and 0 plan calls, so the agent did not open its task list for a plain greeting.
-Tokens: 19110 prompt, 68 completion, 19178 total, with 19072 of the prompt tokens served from cache, so the large stable system prompt is almost entirely a cache hit after the first pass.
-Latency on that one completion: 7389 ms to first byte and 15122 ms total.
-The run used about 297776 KB peak resident set, on an install footprint of about 330456 KB.
-
-The completion prints to stdout as a 167-byte transcript:
-
-```text
-Hello! 👋 How can I help you today? Whether you need help with coding, research, planning, or anything else, I'm here for you. Just let me know what you're working on!
-```
-
-The checker inspects the working tree, not the prose, and records `baseline greeting round trip completed`.
-The run passed on the first attempt.
+These spans move every run and should be ignored when diffing the prompt: the `cc_version` build string, the working directory, the git-status line, the platform and OS version, the date folded into the `<system-reminder>`, and the model id.
+The model line reads `deepseek-v4-flash-free`, the shared lab model, even though the surrounding text is claude-code's own Anthropic-authored prompt, because the adapter set `ANTHROPIC_MODEL` to the lab model and the tool reflected it back.
+What is recovered from the trace rather than the docs is the exact wording and these filled-in per-run values, which is the point of capturing the prompt from the proxy instead of transcribing it.

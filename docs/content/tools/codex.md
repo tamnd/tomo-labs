@@ -1,75 +1,100 @@
 ---
 title: "codex"
-description: "OpenAI's open source Codex CLI, driven headless by its codex exec mode over the Responses wire, which the proxy shims to chat."
+description: "OpenAI's Codex CLI, installed from npm and driven headless through codex exec over the Responses wire, which the proxy shims to chat-completions for the shared free model."
 weight: 20
 ---
 
-codex is the OpenAI Codex CLI, an open source terminal coding agent from github.com/openai/codex, installed here from the npm package `@openai/codex`.
-The lab runs it non-interactively through its `codex exec` mode, one prompt in and one final message out.
-codex only speaks the OpenAI Responses wire, so the adapter points it at the trace proxy with `wire_api = "responses"`, and the proxy translates each Responses request into a chat-completions call for the free deepseek model and streams the answer back.
+codex is the OpenAI Codex CLI, a terminal coding agent from github.com/openai/codex, installed here from the npm package `@openai/codex`.
+The lab runs it non-interactively through its `codex exec` mode: one prompt in, one final message out, no approval prompts.
+codex only speaks the OpenAI Responses wire, so the adapter points it at the trace proxy with `wire_api = "responses"`, and the proxy translates each Responses request into a chat-completions call for the shared free deepseek model and folds the answer back.
 codex talks its native wire the whole time and never learns that a translation happened.
 
-## What it is
+## Overview
 
-codex is a coding agent that runs in your terminal and edits files, runs commands, and iterates until a task is done.
-It is a compiled binary shipped through npm, so the image installs it with `npm install -g @openai/codex` and does not need a codex checkout on the host.
+codex is a coding agent that runs in a terminal, edits files, runs shell commands, and iterates until a task is done.
+It ships as a prebuilt binary through npm, so the image installs it with `npm install -g @openai/codex@0.145.0-alpha.4` and needs no codex checkout on the host.
 It has an interactive TUI for a human at a keyboard and a headless `exec` subcommand for automation.
 The lab only uses the headless path, because a benchmark run has no human to answer approval prompts.
 Its model, provider, sandbox policy, and approval policy are read from `config.toml` under `$CODEX_HOME`, which defaults to `~/.codex`.
 
-## Command surface
+The pinned version comes straight from the Dockerfile build argument and is confirmed on the wire by codex's own startup banner, which prints `OpenAI Codex v0.145.0-alpha.4`.
 
-The interactive entry point is bare `codex`, which opens the TUI.
-The lab never touches that.
-It uses `codex exec`, the non-interactive one-shot mode, which takes the prompt as a positional argument, runs to completion, and exits without ever pausing for approval.
+### At a glance
 
-```bash
-codex exec "explain this repo"
+| Property | Value |
+| --- | --- |
+| Runtime | Node 22 launcher plus prebuilt `codex` binary, run under podman |
+| Install source | npm, `npm install -g @openai/codex@${CODEX_VERSION}` |
+| Version captured | `0.145.0-alpha.4` (Dockerfile `ARG CODEX_VERSION`, echoed by the startup banner) |
+| Wire dialect | OpenAI Responses API (`wire_api = "responses"`) |
+| How the lab invokes it | `codex exec --sandbox danger-full-access --skip-git-repo-check "$prompt"` |
+| Config it reads | `$HOME/.codex/config.toml`, written fresh by the adapter |
+| Working directory | `/work`, pinned with `cd /work` before launch |
+| Where it writes | edits and files land in `/work`; stdout, config, and `time -v` report land in `/trace` |
+| Provider endpoint | `http://tomolab-proxy:8080/v1`, the trace proxy |
+| Autonomy | `--sandbox danger-full-access`, approval policy `never` |
+
+### Features and tools
+
+codex advertises eight tools on every request.
+The set is recovered verbatim from the trace, in the order the proxy recorded it.
+
+| Tool | What it does | Grounded in |
+| --- | --- | --- |
+| `exec_command` | Runs a shell command in the workspace; file edits ride on top of it via `apply_patch` | Prompt "Tool Guidelines", captured schema |
+| `write_stdin` | Feeds input to a running command that reads stdin after it starts | Captured schema |
+| `update_plan` | Posts an ordered step list, each `pending`, `in_progress`, or `completed`, rendered by the CLI | Prompt "Planning" and "`update_plan`" sections |
+| `request_user_input` | Asks the human a question; has no one to answer in a headless run | Captured schema |
+| `view_image` | Attaches an image to the model context | Captured schema |
+| `get_goal` | Reads the longer-horizon goal track that sits above the step plan | Captured schema |
+| `create_goal` | Opens a new goal | Captured schema |
+| `update_goal` | Advances or closes a goal | Captured schema |
+
+Editing is not a separate tool.
+The agent prompt tells the model to edit files with `apply_patch`, invoked as a command array through `exec_command`:
+
+```json
+{"command":["apply_patch","*** Begin Patch\n*** Update File: path/to/file.py\n@@ def example():\n- pass\n+ return 123\n*** End Patch"]}
 ```
 
-`exec` streams its progress to stderr and prints only the final agent message to stdout, which is exactly what a checker wants: the work lands on disk and the last line of prose lands in a log.
+Beyond tools, the recovered prompt bakes in a full working posture: a preamble before tool calls, a planning discipline, root-cause editing conventions, a testing philosophy keyed to the approval mode, and a detailed final-answer formatting spec.
+Those are codex's own defaults, not lab settings, and are analyzed in the System Prompts section.
 
-The flags the lab relies on:
+## Say Hi!
+
+The `00-hello` scenario hands codex the single prompt `Hi!` and passes if a baseline greeting round trip completes.
+codex passed it on the first attempt.
+
+**Step 1, the adapter reads the prompt.**
+The adapter is the container entrypoint.
+It reads the scenario prompt off the read-only mount:
 
 ```bash
-codex exec --sandbox danger-full-access --skip-git-repo-check "$prompt"
+prompt="$(cat /scenario/prompt.txt)"
 ```
 
-- `--sandbox <level>` sets filesystem and execution isolation, with levels `read-only`, `workspace-write` (the default), and `danger-full-access`.
-  `danger-full-access` removes all restrictions so the agent can write anywhere and run any command, and it also lifts the network block that `workspace-write` imposes by default.
-- `--skip-git-repo-check` disables the guard that otherwise refuses to run outside a git repository, so codex will operate in a plain directory.
-- In `exec` mode there is no `--ask-for-approval` in play, because the mode is non-interactive and never prompts, so `--sandbox` is the only autonomy control that matters.
+For this scenario that file holds exactly `Hi!`.
 
-Provider and model come from config, not flags.
-A custom provider is declared under `[model_providers.<id>]` with a `base_url`, an `env_key` naming the environment variable that holds the API key, and a `wire_api`.
-As of recent releases `wire_api` only accepts `responses`, since Codex dropped its chat-completions client, so a chat-only endpoint has to sit behind a translating proxy.
-
-## How the lab drives it
-
-The adapter is the only codex-specific glue in the lab.
-Everything upstream of it, the network path, the trace capture, and the resource accounting, is identical to every other tool.
-It runs as the container entrypoint, with `/work` mounted as the writable cwd, `/scenario` mounted read-only for `prompt.txt`, and `/trace` for output, and the harness passes in `LAB_BASE_URL`, `LAB_MODEL`, `OPENCODE_API_KEY`, and `LAB_MAX_TURNS`.
-
-First the adapter writes `~/.codex/config.toml` and defines the provider that sends codex through the proxy:
+**Step 2, point codex at the proxy.**
+The adapter writes `~/.codex/config.toml` and defines a custom provider named `lab` whose `base_url` is the trace proxy, then copies the rendered file into the trace for the record:
 
 ```toml
-model = "${LAB_MODEL}"
+model = "deepseek-v4-flash-free"
 model_provider = "lab"
 
 [model_providers.lab]
 name = "lab"
-base_url = "${LAB_BASE_URL}"
+base_url = "http://tomolab-proxy:8080/v1"
 env_key = "OPENCODE_API_KEY"
 wire_api = "responses"
 ```
 
-`base_url` is the trace proxy, so every request, response, and token count is captured with no cooperation from codex.
+`base_url` routes every request through the proxy, so requests, responses, and token counts are captured with no cooperation from codex.
+`env_key = "OPENCODE_API_KEY"` names the environment variable codex reads the key from; the proxy forwards to the real upstream with it.
 `wire_api = "responses"` is not a choice, it is the only wire recent codex speaks.
-The free deepseek model is chat-only upstream, so the proxy translates the Responses request into a chat request at its edge and the chat reply back into a Responses stream.
-`env_key = "OPENCODE_API_KEY"` names the variable codex reads the key from, and the proxy forwards to the real upstream with that key.
-The rendered config is copied to `/trace/config.toml` so the exact provider block is preserved with the run.
 
-Then the adapter runs the task:
+**Step 3, run codex once, headless.**
+The adapter pins the cwd to `/work` and runs `codex exec` under GNU time:
 
 ```bash
 cd /work
@@ -78,22 +103,100 @@ cd /work
   >/trace/stdout.log 2>/trace/stderr.log
 ```
 
-`exec` runs the prompt headless in one shot and never stops for an approval.
-`danger-full-access` drops the sandbox so the agent can act freely, which is codex's equivalent of tomo's all-allow policy, safe here because the container is itself the sandbox.
+`exec` is the one-shot headless mode: a single prompt, run to completion, exit, never pausing for an approval.
+`--sandbox danger-full-access` drops the sandbox so the agent can act freely, which is safe because the container is itself the sandbox.
 `--skip-git-repo-check` lets it run in `/work`, which is a plain tree rather than a git repo.
-The whole thing is wrapped in `/usr/bin/time -v` so the harness reads peak resident memory back out of `/trace/time.txt`.
-The exit status is written to `/trace/exit_code`, and the adapter itself always exits 0, because the checker grades the files in `/work`, not the agent's return code.
 
-The image is pinned by a build argument:
+**Step 4, codex builds the request.**
+codex does not send just `Hi!`.
+It builds a Responses request that carries four messages, in the order `system`, `system`, `user`, `user`, plus its eight tool schemas.
+The two system messages are the agent prompt and the live permissions prompt.
+Before the user's `Hi!`, codex injects its own user message, an `<environment_context>` block telling the model where it is running:
+
+```text
+<environment_context>
+  <cwd>/work</cwd>
+  <shell>bash</shell>
+  <current_date>2026-07-11</current_date>
+  <timezone>Etc/UTC</timezone>
+  <filesystem><workspace_roots><root>/work</root></workspace_roots><permission_profile type="disabled"><file_system type="unrestricted" /></permission_profile></filesystem>
+</environment_context>
+```
+
+Only after that context does the real `Hi!` arrive as the fourth message.
+
+**Step 5, the proxy translates and forces decoding.**
+The proxy records the Responses request, rewrites it into a `POST /v1/chat/completions`, and forwards it to the chat-only deepseek upstream.
+In the trace the record is tagged `POST /v1/chat/completions (from responses)`, the proxy's own marker that this started life as a Responses request.
+Every completion is forced onto greedy decoding, so the request went out with `temperature=0`, `top_p=1`, `seed=7`, and `stream=true`.
+That is the lab's determinism lever, applied identically to every tool, so a rerun means the same thing.
+The `model` field on the wire is `deepseek-v4-flash-free`, the shared free model every agent in the sweep is judged on.
+
+**Step 6, one completion, zero tool calls.**
+The model answered with prose and no tool calls, so the agent loop ran once and yielded.
+The trace shows exactly two records for the whole run: a startup health probe and the single completion.
+
+| Record | Method and path | Status | TTFB | Total |
+| --- | --- | --- | --- | --- |
+| seq 1 | `GET /zen/` | 200 | 700 ms | 704 ms |
+| seq 2 | `POST /v1/chat/completions (from responses)` | 200 | 855 ms | 1982 ms |
+
+The `GET /zen/` is codex's startup probe against the provider; the completion is the only model call.
+
+**Step 7, the numbers.**
+
+| Metric | Value |
+| --- | --- |
+| passed | true |
+| attempts | 1 of 3 |
+| requests | 2 |
+| model_calls | 1 |
+| tool_calls | 0 |
+| plan_calls | 0 |
+| subagents | 0 |
+| prompt tokens | 7562 |
+| completion tokens | 44 |
+| total tokens | 7606 |
+| cache | none reported |
+| avg TTFB | 855 ms |
+| avg total | 1982 ms over 1 timed call |
+| peak RSS | 90056 KB (~88 MB) |
+| install footprint | 435049 KB (~425 MB) |
+| wall clock | 0:02.86 |
+
+The large prompt count is the two system messages plus the environment context; the completion is a one-line greeting, which is why the round trip costs so little.
+
+**Step 8, the reply.**
+The final message codex printed to stdout, verbatim:
+
+```text
+Hey there! 👋 How can I help you today?
+```
+
+**Step 9, the grade.**
+The exit status is written to `/trace/exit_code` (`0`), and the adapter itself always exits 0, because the checker grades the files and output, not the agent's return code.
+The checker saw a completed greeting round trip and marked the run passed with check `baseline greeting round trip completed`, attempts 1.
+
+## Architecture
+
+Enough detail here to reimplement the integration from scratch.
+
+### The container
+
+The image is the shared base plus the CLI and the adapter.
 
 ```dockerfile
 FROM tomolab-base
-ARG CODEX_VERSION=latest
+ARG CODEX_VERSION=0.145.0-alpha.4
 RUN npm install -g @openai/codex@${CODEX_VERSION}
 COPY adapter.sh /usr/local/bin/adapter
+RUN chmod +x /usr/local/bin/adapter
+ENTRYPOINT ["/usr/local/bin/adapter"]
 ```
 
-`CODEX_VERSION` defaults to `latest`, and the base image already carries Node 22, which the npm launcher needs.
+`tomolab-base` already carries Node 22, which the npm launcher needs.
+codex is a prebuilt binary shipped through npm, so the image is independent of any codex checkout on the host.
+The entrypoint is `adapter.sh`, so starting the container runs one scenario and exits.
 
 Build and run it with:
 
@@ -102,103 +205,193 @@ go run ./cmd/lab build codex
 go run ./cmd/lab run codex
 ```
 
-## Architecture
+### Mounts
 
-codex runs a standard agent loop: it sends the conversation to the model, the model answers with prose or with function calls, the CLI executes those calls locally, appends the results, and loops until the model stops calling tools and yields a final message.
-For a real task that loop turns over many times.
-For `Hi!` it turns over once, because the model has nothing to do but greet back.
+The harness mounts three directories into the container.
 
-The wire is the OpenAI Responses API, not chat completions.
-That is the whole reason the proxy exists on this path.
-codex builds a Responses request and posts it at the proxy; the proxy records it, rewrites it into a `POST /v1/chat/completions`, forwards that to the chat-only deepseek upstream, then folds the chat reply back into a Responses-shaped stream for codex.
-In the trace tap that translated call shows up tagged `/v1/chat/completions (from responses)`, which is the proxy's own marker that this record started life as a Responses request.
+| Mount | Mode | Purpose |
+| --- | --- | --- |
+| `/work` | read-write | the scenario's working tree and the agent's cwd; the checker grades what lands here |
+| `/scenario` | read-only | the scenario definition, holds `prompt.txt` |
+| `/trace` | read-write | stdout, stderr, rendered config, `time -v` report, exit code |
 
-codex advertises eight tools on every request.
-The captured schema, in the order the proxy recorded it, is `exec_command`, `write_stdin`, `update_plan`, `request_user_input`, `view_image`, `get_goal`, `create_goal`, and `update_goal`.
+### Harness environment
 
-- `exec_command` is how codex touches the world: it runs a shell command in the workspace, and file edits ride on top of it.
-  The agent prompt tells the model to edit files with `apply_patch`, invoked as a command array like `{"command":["apply_patch", "*** Begin Patch ..."]}`, so patching flows through `exec_command` rather than being a separate tool.
-- `write_stdin` feeds input to a running command, for programs that read from stdin after they start.
-- `update_plan` is the plan tool: the model posts an ordered list of short steps, each `pending`, `in_progress`, or `completed`, and the CLI renders it.
-  The prompt insists on exactly one `in_progress` step at a time and forbids plans for trivial single-step work.
-- `get_goal`, `create_goal`, and `update_goal` are the goal tools, a longer-horizon track of objectives that sits above the step plan.
-- `request_user_input` asks the human a question, and `view_image` attaches an image to the context.
-  In a headless `exec` run with no human present, `request_user_input` has no one to answer, so a run that needs it would stall rather than pass.
+The harness passes four environment variables into the container.
 
-On the `Hi!` run none of these fire.
-The trace records `tool_calls: 0`, `plan_calls: 0`, and `subagents: 0`, so the eight tools are offered and none is used.
+| Variable | Role | Used by the adapter |
+| --- | --- | --- |
+| `LAB_BASE_URL` | proxy endpoint, becomes `base_url` in the provider block | yes, written into `config.toml` |
+| `LAB_MODEL` | model id, becomes `model` in `config.toml` | yes |
+| `OPENCODE_API_KEY` | upstream key, named by `env_key`; codex reads it, proxy forwards it | yes, by reference through `env_key` |
+| `LAB_MAX_TURNS` | turn budget for agent loops | not referenced by this adapter; `exec` runs to natural completion |
 
-## System prompt
+### The adapter, step by step
 
-The proxy captured two distinct system prompts for codex, both on the `responses` wire, both seen across 127 requests, and each advertising the same 8 tools.
-codex sends them as a two-message preamble: a large agent prompt of about 20902 characters, then a second system message of about 3185 characters that carries the run's permissions and the installed skills.
-The full text of both is on the [codex prompt page](/prompts/codex/).
+The adapter is the only codex-specific glue in the lab.
+Everything upstream of it, the network path, trace capture, and resource accounting, is identical to every other tool.
 
-The first prompt opens by naming the tool and its posture:
+It reads the prompt off the read-only mount:
 
-> You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex CLI is an open source project led by OpenAI. You are expected to be precise, safe, and helpful.
+```bash
+prompt="$(cat /scenario/prompt.txt)"
+```
 
-It then spends most of its length on process rules.
+It writes the provider config that sends codex through the proxy and preserves a copy in the trace:
+
+```bash
+mkdir -p "$HOME/.codex"
+cat >"$HOME/.codex/config.toml" <<TOML
+model = "${LAB_MODEL}"
+model_provider = "lab"
+
+[model_providers.lab]
+name = "lab"
+base_url = "${LAB_BASE_URL}"
+env_key = "OPENCODE_API_KEY"
+wire_api = "responses"
+TOML
+cp "$HOME/.codex/config.toml" /trace/config.toml 2>/dev/null || true
+```
+
+Model selection is by config, not flags: `model` and `model_provider` at the top level point codex at the `lab` provider, and the provider block carries the endpoint, key variable, and wire.
+There is no CLI `--model` or `--base-url` in play; the config file is the single source.
+
+It pins the cwd, wraps the run in GNU time for peak memory, and captures both streams:
+
+```bash
+cd /work
+/usr/bin/time -v -o /trace/time.txt \
+  codex exec --sandbox danger-full-access --skip-git-repo-check "$prompt" \
+  >/trace/stdout.log 2>/trace/stderr.log
+status=$?
+
+echo "$status" >/trace/exit_code
+exit 0
+```
+
+`cd /work` makes the writable tree the agent's cwd.
+`codex exec` runs the prompt headless in one shot.
+`--sandbox danger-full-access` is codex's autonomy control in exec mode; the other levels are `read-only` and `workspace-write`, and `danger-full-access` removes all filesystem restrictions and lifts the network block that `workspace-write` imposes by default.
+There is no `--ask-for-approval` because exec mode is non-interactive and never prompts, so the effective approval policy is `never`, which codex prints in its banner.
+`--skip-git-repo-check` disables the guard that otherwise refuses to run outside a git repository.
+`/usr/bin/time -v -o /trace/time.txt` lets the harness read peak resident set size back out of the report.
+stdout is the final agent message, stderr is the progress stream; both are teed to files.
+The exit status is recorded, but the adapter always exits 0, because grading is on the files and output, not the return code.
+
+### How codex reaches the proxy
+
+codex resolves the `lab` provider, reads the key from `OPENCODE_API_KEY`, and posts its Responses request to `LAB_BASE_URL`, which is `http://tomolab-proxy:8080/v1`.
+On startup it first hits `GET /zen/` as a health probe, then sends the completion.
+The proxy sits inline on the container network, so no codex cooperation is needed to capture traffic.
+
+### The agent loop and native tool calling
+
+codex runs a standard agent loop.
+It sends the conversation to the model; the model answers with prose or with function calls; the CLI executes those calls locally, appends the results, and loops until the model stops calling tools and yields a final message.
+codex's tool calling is native: it advertises the eight tools listed in the Overview on every request, and shell work and file edits both flow through `exec_command` (edits via `apply_patch`).
+For a real task the loop turns over many times.
+For `Hi!` it turns over once, because the model has nothing to do but greet back, so the trace records `tool_calls: 0`, `plan_calls: 0`, and `subagents: 0`.
+
+### Wire dialect and proxy translation
+
+The wire is the OpenAI Responses API, not chat completions, which is the whole reason the proxy exists on this path.
+The prompt page tags every captured prompt `wire responses`, the adapter sets `wire_api = "responses"`, and the trace confirms it: the completion record is tagged `POST /v1/chat/completions (from responses)`.
+
+The proxy's job on each call:
+
+1. Receive codex's Responses request at `http://tomolab-proxy:8080/v1`.
+2. Record it to the trace (`requests.jsonl`), tagging the path `(from responses)`.
+3. Rewrite it into a `POST /v1/chat/completions`, mapping the Responses shape onto chat messages and tool schemas.
+4. Force greedy decoding: `temperature=0`, `top_p=1`, `seed=7`, `stream=true`.
+5. Forward to the chat-only deepseek upstream with the key from `OPENCODE_API_KEY`.
+6. Tee the streamed chat reply into the trace (`resp-*.txt`, `usage.jsonl`, `latency.jsonl`) and fold it back into a Responses-shaped stream for codex.
+
+codex sees a well-formed Responses stream and never learns a translation happened.
+The determinism knobs make a rerun mean the same thing across every tool in the sweep.
+
+## System Prompts
+
+The prompts below are codex's OWN baked-in system prompt, recovered verbatim by `lab prompts codex`, NOT lab-injected.
+The lab injects only the user message (`Hi!` plus codex's own `<environment_context>`) and forces decoding.
+Everything else in the system messages is text codex ships and sends on its own.
+Full text is on the [codex prompt page](/prompts/codex/).
+
+### What was captured
+
+The proxy captured two distinct system prompts for codex, both on the `responses` wire, both seen across 127 requests over 26 runs, each advertising the same 8 tools.
+codex sends them as a two-message preamble, `system` then `system`, ahead of the user turns.
+
+| Prompt | Role | Recovered size | Size on the Hi! run | What it is |
+| --- | --- | --- | --- | --- |
+| Prompt 1 | agent prompt | ~20902 chars | 20751 chars | codex's working posture: identity, planning, editing, formatting |
+| Prompt 2 | permissions and skills | ~3185 chars | 3234 chars | the run's live sandbox/approval policy plus the installed skills list |
+
+Both are the working prompt in the sense that both are sent on every request; Prompt 1 is the durable agent text and Prompt 2 is the live per-run policy.
+The small size differences between the recovered figures and this run come from volatile spans, described below.
+
+### Prompt 1: the agent prompt
+
+It opens by naming the tool and its posture:
+
+```text
+You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex CLI is an open source project led by OpenAI. You are expected to be precise, safe, and helpful.
+```
+
+Most of its length is process rules.
 It directs the model to send a short preamble before tool calls, to keep a high quality `update_plan` and never pad it with filler steps, and to keep going until the task is fully resolved:
 
-> You are a coding agent. Please keep going until the query is completely resolved, before ending your turn and yielding back to the user. Only terminate your turn when you are sure that the problem is solved.
+```text
+You are a coding agent. Please keep going until the query is completely resolved, before ending your turn and yielding back to the user. Only terminate your turn when you are sure that the problem is solved.
+```
 
 It pins the edit mechanism to one tool and warns against guessing the name:
 
-> Use the `apply_patch` tool to edit files (NEVER try `applypatch` or `apply-patch`, only `apply_patch`)
+```text
+Use the `apply_patch` tool to edit files (NEVER try `applypatch` or `apply-patch`, only `apply_patch`)
+```
 
-The second prompt is the run's live policy, injected fresh rather than baked into the agent text.
-It states the sandbox and approval mode this run is under, which is exactly the pair the adapter set:
+The prompt breaks into distinct concerns.
 
-> `sandbox_mode` is `danger-full-access`: No filesystem sandboxing - all commands are permitted. Network access is enabled.
-> Approval policy is currently never.
+| Section | What it governs |
+| --- | --- |
+| Identity and capabilities | who codex is, what the harness provides, what function calls it can emit |
+| AGENTS.md spec | how to discover and obey repo-local instruction files, and their precedence |
+| Responsiveness / preambles | short friendly notes before grouped tool calls, with worked examples |
+| Planning | when to use `update_plan`, exactly one `in_progress` step, high vs low quality plan examples |
+| Task execution | root-cause fixes, minimal focused changes, no unrelated bug fixing, no unrequested commits or license headers |
+| Validating your work | testing philosophy keyed to the approval mode; under `never`, proactively run tests and lint |
+| Ambition vs precision | be creative on greenfield work, surgical in an existing codebase |
+| Presenting your work | brevity by default, natural teammate voice |
+| Final answer formatting | detailed spec for headers, bullets, monospace, file references, tone |
+| Tool guidelines | prefer `rg`, plus the `update_plan` usage contract |
 
-The rest of the second message is a `<skills_instructions>` block listing the built-in skills codex ships with, such as `imagegen`, `openai-docs`, and `skill-creator`, each with a `SKILL.md` source path under `/root/.codex/skills/.system/`.
+### Prompt 2: permissions and skills
+
+This is the run's live policy, injected fresh by codex rather than baked into the agent text.
+It states the sandbox and approval mode, which is exactly the pair the adapter set:
+
+```text
+<permissions instructions>
+Filesystem sandboxing defines which files can be read or written. `sandbox_mode` is `danger-full-access`: No filesystem sandboxing - all commands are permitted. Network access is enabled.
+Approval policy is currently never. Do not provide the `sandbox_permissions` for any reason, commands will be rejected.
+</permissions instructions>
+```
+
+The rest is a `<skills_instructions>` block listing the built-in skills codex ships, each with a `SKILL.md` source path under `/root/.codex/skills/.system/`: `imagegen`, `openai-docs`, `plugin-creator`, `skill-creator`, and `skill-installer`.
+
+### Volatile spans to ignore when diffing
+
+A few spans change per run and should be ignored when diffing prompts across captures.
+
+| Span | Where | Example |
+| --- | --- | --- |
+| `<current_date>` | environment context (user message, not system) | `2026-07-11` |
+| `<cwd>` and workspace roots | environment context | `/work` |
+| session id | codex banner in stderr, not the wire prompt | `019f4f83-ef8b-7a10-ac57-3fc76b3d6807` |
+| sandbox/approval wording | Prompt 2, reflects the run's flags | `danger-full-access`, approval `never` |
+
+The environment context is a user message, so it is not part of the system prompt proper, but it is worth noting since its date and cwd shift every run.
 
 Both prompts are recovered from the trace proxy, which records each completion after normalizing it to the chat-completions shape, so this is the exact text that reached the model rather than a copy from the tool's source.
-The agent prompt's opening and its `apply_patch` and planning rules match the prompt Codex publishes in its public repository, which is the cross-check that this is codex's own text and not something the lab injected.
-
-## Hi! end to end
-
-The `00-hello` scenario hands codex the single prompt `Hi!` and passes if a baseline greeting round trip completes.
-codex passed it on the first attempt.
-
-The trace tap shows two records for the whole run: a `GET /zen/`, which is codex's startup health probe against the provider, and one `POST /v1/chat/completions (from responses)`, the single completion.
-So codex made exactly one model call to finish, which the orchestration counters confirm with `model_calls: 1` and `requests: 2`.
-
-The request codex built is not just `Hi!`.
-It carries four messages, in the order `system`, `system`, `user`, `user`.
-The two system messages are the agent prompt and the permissions prompt described above.
-Before the user's `Hi!`, codex injects its own user message, an `<environment_context>` block that tells the model where it is running:
-
-```text
-<environment_context>
-  <cwd>/work</cwd>
-  <shell>bash</shell>
-  <current_date>2026-07-10</current_date>
-  <timezone>Etc/UTC</timezone>
-  <filesystem><workspace_roots><root>/work</root></workspace_roots>
-  ...
-```
-
-Only after that context does the real `Hi!` arrive as the fourth message.
-
-At the proxy every completion is forced onto greedy decoding, so this request went out with `temperature=0`, `top_p=1`, `seed=7`, and `stream=True`.
-That is the lab's determinism lever, applied the same way to every tool, so a rerun means the same thing.
-The `model` field on the wire is `deepseek-v4-flash-free`, the shared free model every agent in the sweep is judged on.
-
-The numbers on that one call:
-
-- prompt tokens 7554, completion tokens 42, total 7596, with 7424 of the prompt served from cache.
-  The large prompt count is the two system messages plus the environment context, and most of it is cached, which is why a greeting costs so little fresh compute.
-- time to first byte 914 ms, total 2092 ms, over a single timed completion.
-- peak resident set 93464 KB for the agent process, and an install footprint of 433811 KB for the image slice.
-
-The model answered with no tool calls, so the loop ran once and yielded.
-The final message codex printed to stdout was 31 bytes:
-
-```text
-Hey! How can I help you today?
-```
-
-The checker saw a completed greeting round trip and marked the run passed, attempts 1.
+The agent prompt's opening and its `apply_patch` and planning rules match the prompt Codex publishes in its public repository, the cross-check that this is codex's own text and not something the lab injected.

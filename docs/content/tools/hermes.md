@@ -4,58 +4,70 @@ description: "hermes is Nous Research's Hermes Agent, driven headless with herme
 weight: 60
 ---
 
-hermes is Hermes Agent by Nous Research, wired into the lab as one more agent under study.
-The public project is real and verifiable: it lives at [github.com/NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent), is MIT licensed, and presents itself as a self-improving personal agent with persistent memory, skills, and subagents.
-The lab drives it through a small adapter that runs `hermes chat -q "<prompt>"` once per scenario, points its model base URL at the trace proxy, and grades whatever it leaves in `/work`.
-Its wire is native chat-completions, so the proxy records and forwards its requests without translating a dialect.
-This page is grounded in the captured run: the trace, the adapter, the Dockerfile, the README, and the recovered prompt, not a reading of Hermes' own source.
+## Overview
 
-## What it is
+hermes is Hermes Agent by Nous Research, wired into the lab as one more coding agent under study.
+The lab installs it from the npm package `hermes-agent`, a thin bridge whose postinstall step pip installs the upstream Python Hermes Agent, so the process the lab actually drives is a Python runtime the npm bridge launches.
+The image pins the bridge with a build arg, `ARG HERMES_VERSION=0.18.2`, and installs it with `npm install -g hermes-agent@${HERMES_VERSION}`.
+It presents as a general personal agent that also does coding work: the recovered system prompt opens with "You are Hermes Agent, an intelligent AI assistant created by Nous Research," and points at `https://hermes-agent.nousresearch.com/docs` as its own reference.
 
-hermes presents as a general personal agent that also does coding work, which the captured system prompt states in its first line: "You are Hermes Agent, an intelligent AI assistant created by Nous Research."
-The prompt points at `https://hermes-agent.nousresearch.com/docs` as its own authoritative reference and describes memory that persists across sessions, skills it can save and patch, and subagents it can delegate to.
-It carries 19 tools in the versions the lab captured, covering a terminal, file read and write, a patch tool, code execution, a process tool, search over files and past sessions, a todo planner, subagent delegation, three skill tools, a memory tool, and several media tools.
-The lab installs it as the npm package `hermes-agent`, which the adapter README describes as an unofficial bridge whose postinstall step pip installs the upstream Python Hermes Agent, so the real agent is a Python runtime the bridge launches.
-That install path is what the Dockerfile and README show; this page does not claim provenance for the npm bridge beyond what those two files state.
+Its headline features, all grounded in the recovered prompt and the captured trace: persistent cross-session memory injected every turn, a save-and-patch skills loop, subagent delegation, a full terminal and file toolset, and a built-in command security scanner it calls "tirith."
+That scanner announces itself on every run.
+The first thing hermes prints after "Initializing agent..." is the line `⚠ tirith security scanner enabled but not available — command scanning will use pattern matching only`, so on the lab image the scanner degrades to pattern matching rather than its full check.
 
-## Command surface
+This page is grounded in the captured 00-hello run: the trace, the adapter, the Dockerfile, and the prompt recovered by `lab prompts hermes`, not a reading of Hermes' own source.
 
-The lab uses one entry point, the single-query mode.
-`hermes chat -q "<prompt>"` runs one task non-interactively and exits instead of opening the chat REPL.
+### At a glance
+
+| Field | Value |
+| --- | --- |
+| Runtime | podman container on the shared `tomolab-base` image |
+| Install source | npm `hermes-agent`, postinstall pip installs the upstream Python Hermes Agent (Nous Research) |
+| Version captured | `hermes-agent@0.18.2` (Dockerfile `ARG HERMES_VERSION=0.18.2`) |
+| Wire dialect | native chat-completions, streamed SSE, no dialect translation |
+| Lab invocation | `hermes chat -q "<prompt>" --yolo`, one-shot, non-interactive |
+| Model config | `hermes config set model.*` writes `~/.hermes/config.yaml` before the run |
+| Working dir | `/work` (the agent's cwd, writable) |
+| Trace out | `/trace` (stdout, rendered config, GNU time report) |
+| 00-hello result | pass, 26 requests, 1 model call, 0 tool calls |
+
+### Tools and features
+
+Each completion carries all 19 tool schemas; the model picks one by name.
+The trace names them and the prompt describes what they are for.
+
+| Tool | Role (from the prompt and trace) |
+| --- | --- |
+| `terminal` | shell, git, builds, tests, inspection; the scanner target |
+| `read_file` / `write_file` | read files, author new files |
+| `patch` | edit existing files, `mode='replace'` preferred, `mode='patch'` (V4A) for multi-file |
+| `search_files` | locate code and symbols across the tree |
+| `execute_code` | run code directly |
+| `process` | background/long-running work |
+| `todo` | in-context planning for multi-step work |
+| `delegate_task` | hand work to a subagent |
+| `memory` | durable facts about user and environment, injected every turn |
+| `session_search` | recall task progress and past transcripts (kept out of memory) |
+| `skills_list` / `skill_view` / `skill_manage` | enumerate, read, and create/patch skills (the learning loop) |
+| `clarify` | ask the user a question |
+| `cronjob` | schedule local jobs |
+| `image_generate` / `vision_analyze` / `text_to_speech` | media tools |
+
+Feature notes grounded in the prompt: memory is compact and declarative, and the prompt explicitly bars saving task progress, PR/issue numbers, or anything stale within a week; skills are the place for reusable procedures; the coding block tells hermes to gather context first, edit through tools rather than chat, and verify with real tool output before claiming a task done.
+
+## Say Hi!
+
+The 00-hello scenario hands hermes the single prompt `Hi!` and checks that a greeting round trip completes.
+This is the walkthrough of the passing run captured at `20260710T134145Z`.
+
+### The adapter sets up and fires once
+
+The adapter reads the prompt, points hermes at the trace proxy two ways at once, and runs it once non-interactively.
+It exports the OpenAI-style env vars and also writes the same values into hermes' config, because the custom provider reads the config, not `OPENAI_API_KEY`.
 
 ```bash
-hermes chat -q "Hi!" --yolo
-```
+prompt="$(cat /scenario/prompt.txt)"
 
-The adapter configures the model through `hermes config set` before the run rather than passing model flags on the command line.
-
-```bash
-hermes config set model.provider custom
-hermes config set model.base_url "$LAB_BASE_URL"
-hermes config set model.default "$LAB_MODEL"
-hermes config set model.api_key "$OPENCODE_API_KEY"
-```
-
-The `--yolo` flag auto-approves every action so the shell scenarios can run headless.
-The flags this page can verify from the adapter are `-q` for the one-shot prompt and `--yolo` for auto-approval, plus the `config set model.*` keys above.
-Other subcommands and flags are not exercised by the lab, so they are not documented here.
-
-## How the lab drives it
-
-The hermes-specific glue is a single adapter script that is the container entrypoint.
-Everything upstream of it, the network, the trace capture, and the resource accounting, is the same for every tool.
-
-The harness mounts three paths into the container.
-`/work` is the scenario's working tree, writable, and the agent's cwd.
-`/scenario` is the read-only scenario definition, holding `prompt.txt`.
-`/trace` is where stdout, the rendered config, and the time report land.
-It also passes `LAB_BASE_URL`, `LAB_MODEL`, `OPENCODE_API_KEY`, and `LAB_MAX_TURNS`.
-The adapter reads the prompt from `/scenario/prompt.txt` and does not reference `LAB_MAX_TURNS`, so the turn budget is left to Hermes' own default.
-
-The adapter points Hermes at the proxy in two ways at once.
-It exports `OPENAI_API_KEY` and `OPENAI_BASE_URL`, and it also sets the same values into Hermes' config with `hermes config set`.
-
-```bash
 export OPENAI_API_KEY="${OPENCODE_API_KEY}"
 export OPENAI_BASE_URL="${LAB_BASE_URL}"
 hermes config set model.provider custom
@@ -64,77 +76,202 @@ hermes config set model.default "${LAB_MODEL}"
 hermes config set model.api_key "${OPENCODE_API_KEY}"
 ```
 
-`LAB_BASE_URL` is the trace proxy, so setting `model.base_url` routes the model calls straight through the proxy, which forwards to the real upstream with the real key.
-The adapter comment notes that the custom provider does not read `OPENAI_API_KEY`, so the key has to live in the config too; without `model.api_key` the proxy forwards an empty bearer and the upstream rejects the one real chat call with 401.
-The adapter then copies `$HOME/.hermes/config.yaml` to `/trace/config.yaml` for the record.
+The rendered `~/.hermes/config.yaml` that reached this run:
 
-It sets `HERMES_YOLO_MODE=1` and passes `--yolo`, which auto-approves every action so the agent acts autonomously.
-The README calls this Hermes' equivalent of tomo's all-allow policy; the container is the sandbox, so the agent is let loose and the lab measures whether it can finish.
+```yaml
+model:
+  provider: custom
+  base_url: http://tomolab-proxy-1:8080/v1
+  default: deepseek-v4-flash-free
+  api_key: sk-...            # the real upstream key, forwarded by the proxy
+```
 
-The run itself is wrapped in GNU time for the resource numbers.
+`LAB_BASE_URL` is the trace proxy, so setting `model.base_url` routes every model call through it; the proxy forwards to the real upstream with the real key.
+The adapter then sets `HERMES_YOLO_MODE=1` and passes `--yolo` to auto-approve every action, wraps the run in GNU time, and captures streams into `/trace`.
 
 ```bash
+export HERMES_YOLO_MODE=1
 cd /work
 /usr/bin/time -v -o /trace/time.txt \
   hermes chat -q "$prompt" --yolo \
   >/trace/stdout.log 2>/trace/stderr.log
 ```
 
-stdout goes to `/trace/stdout.log`, which is the reply this page reads, and stderr goes to `/trace/stderr.log`.
+### hermes builds one request, but sends 26
 
-The image installs a version pinned by build arg.
-The Dockerfile builds on the shared `tomolab-base` image, sets `ENV PIP_BREAK_SYSTEM_PACKAGES=1` so the bridge's pip install lands on Debian bookworm's externally managed Python, and runs `npm install -g hermes-agent@${HERMES_VERSION}` with `ARG HERMES_VERSION=latest`.
-The base already carries Node 22 and Python 3.11, which the bridge and the Python agent both need.
-The adapter is copied in and set as the entrypoint.
+hermes builds a single chat completion around the prompt: a system message with the general agent prompt, then the user message `Hi!`, plus all 19 tool schemas, on the native chat wire.
+The wire body confirms it: `model=deepseek-v4-flash-free`, two messages (system 7526 chars, user 3 chars, which is `Hi!`), and 19 tools.
+At the proxy the decoding is forced greedy, so the body shows `temperature=0`, `top_p=1`, `seed=7`, and `stream=true`.
+
+The standout fact is that answering "Hi!" logged 26 requests while only one was a model completion.
+The other 25 are hermes' own scaffolding during the "Initializing agent..." phase: capability probes against the OpenAI-compatible endpoint plus the setup chatter the CLI prints.
+The trace shows the probes plainly; they are repeated GET and POST sweeps for provider metadata that all 404 against the proxy, before the one real completion goes out.
+
+| seq | request | status | note |
+| --- | --- | --- | --- |
+| 1 | `GET /zen/` | 200 | reach the endpoint |
+| 2-11 | `GET /zen/api/v1/models`, `/zen/api/tags`, `/zen/v1/props`, `/zen/props`, `/zen/version` (twice) | 404 | capability discovery sweep |
+| 12 | `GET /zen/v1/models` | 200 | model list found |
+| 13 | `POST /zen/api/show` | 404 | Ollama-style model probe |
+| 14-19 | more `models`/`tags`/`props`/`version` + `GET /zen/v1/models/deepseek-v4-flash-free` | 404 | keep feeling out the API |
+| 20 | `GET /zen/v1/models` | 200 | model list again |
+| 21-25 | `models`/`tags`/`props`/`version` sweep | 404 | last discovery pass |
+| 26 | `POST /zen/v1/chat/completions` | 200 | the one model call |
+
+Alongside the probes, stdout shows the tirith security scanner announcing that it is enabled but unavailable and falling back to pattern matching.
+That scanner banner is part of the same init scaffolding: hermes stands up its own tooling and provider checks before it ever talks to the model, and that is why a bare greeting cost 26 requests for a single completion.
+
+### The one completion, and the numbers
+
+That one request gets one streamed completion, and hermes answers without calling a tool.
+Only the completion is a timed model call; the 25 probes each returned in roughly 240 to 350 ms, while the completion took 8136 ms to first byte.
+
+| Metric | Value |
+| --- | --- |
+| passed | true (attempt 1 of 3) |
+| requests | 26 (1 completion, 25 init probes), the most of any tool for a bare greeting |
+| model_calls | 1 |
+| tool_calls / plan_calls / subagents | 0 / 0 / 0 |
+| planned | false |
+| tokens | 13586 prompt, 33 completion, 13619 total |
+| cached tokens | 7808 (of the prompt), 23 reasoning tokens |
+| ttfb | 8136 ms |
+| total (completion) | 9562 ms, the slowest baseline in the group |
+| wall clock | 26 s (elapsed 0:24.60) |
+| peak RSS | 124868 KB (~122 MB) |
+| install footprint | 226651 KB (~221 MB) |
+| runtime | podman |
+
+The large prompt count is the 7500-plus-char system prompt and the 19 tool schemas; the cache hit covers 7808 of those prompt tokens.
+The completion streamed as SSE chunks and finished with `finish_reason: "stop"`, usage `prompt_tokens=13586, completion_tokens=33, total_tokens=13619, prompt_cache_hit_tokens=7808`.
+
+The reply that reached the user, from `stdout.log`, is:
+
+```text
+Hi! How can I help you today?
+```
+
+stdout also shows the terminal chrome around that line: the tirith fallback warning, a Reasoning box ("The user is just saying 'Hi!' ... I'll respond warmly and helpfully."), the Hermes reply panel, and a session footer ("Messages: 2 (1 user, 0 tool calls)").
+
+### The checker grades a pass
+
+The checker never reads the model's prose.
+It confirms the greeting round trip completed, records `check: "baseline greeting round trip completed"`, and marks `passed: true` on the first attempt with `exit_code: 0`.
 
 ## Architecture
 
-hermes runs an agent loop over the model's native function-calling.
-The loop sends the conversation to the model, and when the model asks for a tool, Hermes runs it and feeds the result back, until the model answers without a tool call.
-For the 00-hello run the loop made exactly one model call and zero tool calls, which the trace records as `model_calls: 1` and `tool_calls: 0`.
+Enough to reimplement the harness side from scratch.
 
-Each request carries all 19 tool schemas, and the model picks one by name.
-The tools the trace names are `clarify`, `cronjob`, `delegate_task`, `execute_code`, `image_generate`, `memory`, `patch`, `process`, `read_file`, `search_files`, `session_search`, `skill_manage`, `skill_view`, `skills_list`, `terminal`, `text_to_speech`, `todo`, `vision_analyze`, and `write_file`.
+### The container
 
-Planning is in-context through the `todo` tool rather than a separate orchestrator.
-The coding prompt directs Hermes to track multi-step work with `todo`, and the trace records `plan_calls: 0` for the trivial greeting, so a one-step request skips it.
-Subagents are their own tool, `delegate_task`, and the 00-hello run used none, recorded as `subagents: 0`.
+The image builds on the shared `tomolab-base`, which already carries Node 22 and Python 3.11 that the npm bridge and the Python agent both need.
+Debian bookworm marks its system Python as externally managed (PEP 668), so the bridge's pip step needs `PIP_BREAK_SYSTEM_PACKAGES=1` at build time.
+The entrypoint is the adapter.
 
-Skills are three tools working together: `skills_list` enumerates them, `skill_view` reads one (the prompt tells Hermes to load `skill_view(name='hermes-agent')` for guidance on Hermes itself), and `skill_manage` creates or patches them.
-The prompt frames this as a learning loop: after a complex task Hermes is told to save the approach as a skill, and to patch a skill the moment it finds it outdated.
-Memory is a separate tool, injected into every turn, for durable facts about the user and environment; the prompt is explicit that task progress and stale artifacts go to `session_search` instead, not to memory.
-Editing goes through `patch` and `write_file`, shell and builds through `terminal`, background work through `process`, and code runs through `execute_code`.
+```dockerfile
+FROM tomolab-base
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+ARG HERMES_VERSION=0.18.2
+RUN npm install -g hermes-agent@${HERMES_VERSION}
+COPY adapter.sh /usr/local/bin/adapter
+RUN chmod +x /usr/local/bin/adapter
+ENTRYPOINT ["/usr/local/bin/adapter"]
+```
 
-The two main prompt sizes suggest two modes, and the trace shows both.
-The shorter prompt is a general assistant; the longer one adds a coding-agent block that turns Hermes into "a careful senior engineer" pairing inside a repo.
-The trace shows which prompt shipped, not an internal switch, so this page describes only the observed prompts, not the mechanism that selects them.
+### Mounts and harness env
 
-hermes speaks native chat-completions.
-The prompt page tags every hermes prompt as wire `chat`, and the proxy normalizes each request to the chat-completions shape before recording it.
-Because Hermes already sends that shape, the proxy does not shim its dialect; it tees a copy into the trace and forwards it upstream.
-The 00-hello trace confirms the completion path is `/zen/v1/chat/completions`, a plain chat call with no dialect translation.
+The adapter is the only hermes-specific glue; everything upstream of it (network, trace capture, resource accounting) is identical for every tool.
+The harness mounts three paths:
 
-## System prompt
+| Mount | Access | Purpose |
+| --- | --- | --- |
+| `/work` | read-write | the scenario's working tree, and the agent's cwd |
+| `/scenario` | read-only | the scenario definition, holds `prompt.txt` |
+| `/trace` | read-write | stdout, stderr, rendered config, GNU time report |
 
-The [prompts/hermes](/prompts/hermes/) page holds the verbatim text the proxy captured.
-It was recovered with `lab prompts hermes` across 15 captured runs, and it is the exact text that reached the model, not a copy from Hermes' source.
-This recovered trace is the ground truth for what the prompt says on this page.
+And passes four environment variables:
+
+| Env var | Used for |
+| --- | --- |
+| `LAB_BASE_URL` | the trace proxy URL, set into `model.base_url` and `OPENAI_BASE_URL` |
+| `LAB_MODEL` | the model id, set into `model.default` (`deepseek-v4-flash-free`) |
+| `OPENCODE_API_KEY` | the real upstream key, set into `model.api_key` and `OPENAI_API_KEY` |
+| `LAB_MAX_TURNS` | the turn budget; the adapter does not reference it, so hermes uses its own default |
+
+### The adapter, step by step
+
+1. Read the task: `prompt="$(cat /scenario/prompt.txt)"`.
+2. Point at the proxy twice: export `OPENAI_API_KEY` and `OPENAI_BASE_URL`, then `hermes config set model.provider custom`, `model.base_url`, `model.default`, and `model.api_key`.
+3. Persist the key in config: the custom provider does not read `OPENAI_API_KEY`, so without `model.api_key` the proxy forwards an empty bearer and the upstream rejects the one real chat call with 401.
+4. Record the effective config: `cp "$HOME/.hermes/config.yaml" /trace/config.yaml`.
+5. Approvals off the leash: `export HERMES_YOLO_MODE=1` plus `--yolo`, the hermes equivalent of tomo's all-allow policy, so shell scenarios run headless.
+6. Pin cwd to `/work`: `cd /work` so all file work lands where the checker grades it. HOME stays the container default `/root`, where `.hermes/` lives.
+7. Run once under GNU time: `/usr/bin/time -v -o /trace/time.txt hermes chat -q "$prompt" --yolo` with stdout to `/trace/stdout.log` and stderr to `/trace/stderr.log`.
+8. Capture the exit code: `echo "$status" >/trace/exit_code` and `exit 0` so the container itself always exits clean and the harness reads the result from the trace.
+
+### How hermes reaches the proxy
+
+`model.base_url` is `http://tomolab-proxy-1:8080/v1`, which is the trace proxy, not the upstream.
+The proxy tees a copy of every request into the trace under a `/zen/` namespace and forwards it upstream with the real credential.
+hermes already speaks native chat-completions, so the proxy does not shim a dialect: it normalizes each request to the chat-completions shape, records it, and forwards.
+The 00-hello trace confirms the completion path is `POST /zen/v1/chat/completions`, a plain streamed chat call with two messages and no translation.
+
+### The agent loop
+
+hermes runs an agent loop over the model's native function-calling: it sends the conversation with all 19 tool schemas, runs any tool the model asks for and feeds the result back, and stops when the model answers without a tool call.
+The loop is bounded by hermes' own max-turns default here, since the adapter does not wire `LAB_MAX_TURNS`.
+For 00-hello the loop made exactly one model call and zero tool calls (`model_calls: 1`, `tool_calls: 0`, `planned: false`).
+
+### The init phase inflates the request count
+
+Before that one completion, hermes stands up its own tooling: it announces the tirith command security scanner (which is unavailable on this image and falls back to pattern matching), and it probes the OpenAI-compatible endpoint for capabilities with repeated GET/POST sweeps for `models`, `tags`, `props`, `version`, and `show`.
+Those 25 probe requests are why a one-line greeting logged 26 requests for a single model completion; they are hermes' own scaffolding, not lab-injected traffic.
+
+## System Prompts
+
+This is hermes' OWN baked-in system prompt.
+It was recovered verbatim by `lab prompts hermes` from the trace proxy across 15 captured runs (newest `20260710T134419Z`), so it is the exact text hermes sent to the model, NOT anything the lab injected.
+Every completion routes through the proxy, which records each request after normalizing it to the chat-completions shape, so the [/prompts/hermes/](/prompts/hermes/) page holds the ground truth this section reads from.
+
+### What was captured
 
 The proxy captured four distinct prompts, all on wire `chat`.
-Three are agent prompts and one is a short side prompt.
-The general agent prompt runs 7562 chars.
-The coding-agent prompt runs 10561 chars, with a near-twin at 10567 chars that differs only in the workspace manifest it names (`go.mod` versus `package.json`), so the difference tracks the scenario's project, not the agent's behavior.
 
-The prompt opens by fixing Hermes' identity and register.
+| Prompt | Size | Requests | Tools | Role |
+| --- | --- | --- | --- | --- |
+| Prompt 1 | 7562 chars | 64 | 19 | general agent prompt |
+| Prompt 2 | 10561 chars | 16 | 19 | agent + coding block, project `go.mod` |
+| Prompt 3 | 10567 chars | 3 | 19 | agent + coding block, project `package.json` |
+| Prompt 4 | 312 chars | 13 | 0 | side prompt: title a conversation |
+
+Prompt 1 is the working prompt for 00-hello: the wire body for the passing run carried the general agent prompt (7526 chars as sent) with the user message `Hi!` and all 19 tool schemas.
+Prompts 2 and 3 are a near-twin pair that differ only in the workspace manifest they name, `go.mod` versus `package.json`, so the difference tracks the scenario's project, not hermes' behavior.
+Prompt 4 is a utility call hermes makes to name the session, separate from the agent loop, which is why it appears on its own with no tools attached.
+
+### What each part does
+
+The prompt opens by fixing identity and register.
 
 ```text
 You are Hermes Agent, an intelligent AI assistant created by Nous Research. You are helpful, knowledgeable, and direct.
 ```
 
-It sets a hard rule against fabricating results, which is the same finishing-the-job discipline the lab grades on.
+It points hermes at its own docs as the source of truth and tells it to load its self-skill for workflows.
+
+```text
+the documentation at https://hermes-agent.nousresearch.com/docs is your authoritative reference ... Load the `hermes-agent` skill with skill_view(name='hermes-agent') for additional guidance and proven workflows, but treat the docs as the source of truth when the two differ.
+```
+
+A "Finishing the job" block sets a hard rule against fabricating results, the same discipline the lab grades on.
 
 ```text
 NEVER substitute plausible-looking fabricated output (made-up data, invented file contents, synthesised API responses) for results you couldn't actually produce. Reporting a blocker honestly is always better than inventing a result.
+```
+
+Tool-use enforcement bars planning without acting.
+
+```text
+You MUST use your tools to take action — do not describe what you would do or plan to do without actually doing it. ... Never end your turn with a promise of future action — execute it now.
 ```
 
 The memory guidance is unusually specific about what does not belong in memory, which is what keeps the injected memory block small.
@@ -143,43 +280,30 @@ The memory guidance is unusually specific about what does not belong in memory, 
 Do NOT save task progress, session outcomes, completed-work logs, or temporary TODO state to memory; use session_search to recall those from past transcripts.
 ```
 
-The 10561-char prompt adds the coding-agent block that the shorter prompt does not carry.
+The skills loop tells hermes to save proven approaches and patch stale ones on sight.
+
+```text
+When using a skill and finding it outdated, incomplete, or wrong, patch it immediately with skill_manage(action='patch') — don't wait to be asked. Skills that aren't maintained become liabilities.
+```
+
+The coding prompt (Prompts 2 and 3) adds a senior-engineer block on top of the general prompt.
 
 ```text
 You are a coding agent pairing with the user inside their codebase. Operate like a careful senior engineer.
 ```
 
-The fourth prompt is a 312-char side prompt whose purpose is visible in its text: it asks the model to generate a short 3 to 7 word title for a conversation, returning only the title.
-That is a utility call Hermes makes to name the session, separate from the agent loop, which is why it appears on its own with no tools attached.
-This section is recovered from traces, not copied from Hermes' source, so it reflects what Hermes actually sent.
+It sequences the work: gather context first with `read_file` and `search_files`, edit through `patch`/`write_file` rather than printing code to chat, verify with real `terminal` output before claiming done, and track multi-step work with `todo`.
+It also sets safety rails: do not commit, push, or rewrite history unless asked, and leave `.env` and credential files alone.
 
-## Hi! end to end
-
-The 00-hello scenario hands hermes the single prompt `Hi!` and checks that a greeting round trip completes.
-
-The adapter reads `Hi!` from `/scenario/prompt.txt`, configures the custom provider, and runs `hermes chat -q "Hi!" --yolo`.
-Hermes builds the request around it: a system message with the general agent prompt, whose first line is "You are Hermes Agent, an intelligent AI assistant created by Nous Research.", then the user message `Hi!`.
-The request also carries all 19 tool schemas, sent on the native chat wire.
-
-Before that one chat call, Hermes probes the endpoint hard.
-The proxy tap for this run holds 26 records, of which exactly one is the completion POST; the other 25 are capability probes such as `GET /zen/v1/models`, `GET /zen/api/tags`, `GET /zen/v1/props`, `GET /zen/version`, and `POST /zen/api/show`, as Hermes feels out the custom OpenAI-compatible endpoint.
-The completion lands as a POST to `/zen/v1/chat/completions` with model `deepseek-v4-flash-free`.
-The proxy forces greedy decoding, so the body shows `temperature=0`, `top_p=1`, `seed=7`, and `stream=True`.
-It is a plain chat-completions call with two messages, roles system and user, and no dialect translation.
-
-That one request gets one upstream completion, and Hermes answers without calling a tool.
-The trace records `requests: 26`, `orchestration.model_calls: 1`, `tool_calls: 0`, `plan_calls: 0`, `subagents: 0`, and `planned: false`.
-Tokens were 13586 prompt, 33 completion, 13619 total, with 7808 cached; the large prompt count is the 7562-char system prompt plus the 19 tool schemas, and the cache hit covers most of it.
-Latency was 8136 ms to first byte and 9562 ms total, over one timed completion.
-
-The reply that reached the user, from `stdout.log` at 803 bytes, is:
+The side prompt (Prompt 4) is a small titling utility, not part of the agent loop.
 
 ```text
-Hi! How can I help you today?
+Generate a short, descriptive title (3-7 words) for a conversation that starts with the following exchange. ... Return ONLY the title text, nothing else.
 ```
 
-The same log shows Hermes' terminal chrome around that line: a one-time warning that the tirith security scanner is enabled but not available so command scanning falls back to pattern matching, a Reasoning box ("The user is just saying 'Hi!' ... I'll respond warmly and helpfully."), and the Hermes reply panel.
+### Spans worth ignoring when diffing
 
-The checker graded the run a pass.
-It never reads the model's prose; it confirms the greeting round trip completed, records `check: "baseline greeting round trip completed"`, and marks `passed: true` on the first attempt.
-The run ran under the podman runtime, and logged an install footprint of 226651 KB and a peak RSS of 124868 KB.
+Some spans are volatile and change per run, so ignore them when diffing prompts for drift: the `Conversation started:` date line, the `Model:` and `Provider:` lines, the `go.mod` versus `package.json` workspace manifest that separates Prompts 2 and 3, and the host detail lines (`Host:`, `User home directory:`, `Current working directory:`).
+These track the environment and scenario, not a change in hermes' behavior.
+
+See the [/prompts/hermes/](/prompts/hermes/) page for the four prompts in full.
