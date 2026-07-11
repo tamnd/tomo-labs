@@ -141,7 +141,7 @@ func (l *Lab) genLiveCodeBench(ctx context.Context, opts GenOptions) (int, error
 			stdin = append(stdin, row)
 		}
 		enough := len(stdin) >= 1 && len(funcs) >= 1 && len(stdin)+len(funcs) >= limit
-		return opts.All == false && enough
+		return !opts.All && enough
 	}); err != nil {
 		return 0, err
 	}
