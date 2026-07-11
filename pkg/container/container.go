@@ -132,6 +132,26 @@ func (c *CLI) Remove(ctx context.Context, name string) {
 	_ = exec.CommandContext(ctx, c.Bin, "rm", "-f", name).Run()
 }
 
+// Containers returns the names of every container, running or stopped. The
+// hygiene sweep uses it to find the ones a killed run left behind: a container
+// is addressed by exact name everywhere else, but cleanup has to discover the
+// per-worker slots a concurrent sweep created without knowing how many there
+// were. A failure to list yields nothing rather than an error, since cleanup is
+// best-effort.
+func (c *CLI) Containers(ctx context.Context) []string {
+	out, err := exec.CommandContext(ctx, c.Bin, "ps", "-a", "--format", "{{.Names}}").Output()
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			names = append(names, line)
+		}
+	}
+	return names
+}
+
 // EnsureNetwork creates the lab network if it does not already exist.
 func (c *CLI) EnsureNetwork(ctx context.Context, name string) error {
 	if exec.CommandContext(ctx, c.Bin, "network", "inspect", name).Run() == nil {
