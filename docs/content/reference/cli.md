@@ -86,7 +86,7 @@ go run ./cmd/lab prompts opencode --json       # structured, for regenerating a 
 lab gen [--limit N] [--all] [--langs a,b] [--no-validate]
 ```
 
-Materializes a public benchmark into the active suite's `tasks/` dir, chosen with the global `--suite` flag. It fetches the upstream benchmark, renders each problem into the harness task shape, and proves each task against a known-good solution before keeping it, so a task that cannot be validated never lands. `--limit N` takes N problems per track, `--all` takes the whole benchmark, `--langs a,b` selects language tracks for aider or datasets for evalplus, and `--no-validate` skips the reference-solution proof for a quick inspection. See [evals](/guides/evals/).
+Materializes a public benchmark into the active suite's `tasks/` dir, chosen with the global `--suite` flag. It fetches the upstream benchmark, renders each problem into the harness task shape, and proves each task against a known-good solution before keeping it, so a task that cannot be validated never lands. `--limit N` takes N problems per track, `--all` takes the whole benchmark, `--langs a,b` selects language tracks for aider or datasets for evalplus, and `--no-validate` skips the reference-solution proof for a quick inspection. See [evals](/evals/).
 
 ## meta
 
@@ -126,7 +126,7 @@ Removes lab containers and dangling images left behind by builds and runs.
 lab <command> --suite <name>
 ```
 
-Any command that runs, lists, reports, or generates over tasks takes `--suite` to select an eval tier instead of the core `scenarios/`. A suite reads its tasks from `evals/<name>/tasks/` and lands results in a separate tree, so a tier never mixes into the core report. `lab gen --suite <name>` materializes a tier; see [evals](/guides/evals/).
+Any command that runs, lists, reports, or generates over tasks takes `--suite` to select an eval tier instead of the core `scenarios/`. A suite reads its tasks from `evals/<name>/tasks/` and lands results in a separate tree, so a tier never mixes into the core report. `lab gen --suite <name>` materializes a tier; see [evals](/evals/).
 
 ```bash
 go run ./cmd/lab run tomo --suite aider

@@ -1,12 +1,19 @@
 ---
 title: "Evals"
+linkTitle: "Evals"
 description: "The eval tiers beside the core scenarios: whole public benchmarks rendered into the same task shape, selected with --suite, materialized and validated by lab gen, and graded on the host."
-weight: 25
+weight: 18
+featured: true
 ---
 
 The core [scenarios](/guides/scenarios/) are hand-written tasks, each exercising one behaviour and small enough to read at a glance.
 The eval tiers are the other end of the scale: whole public benchmarks, rendered into the same task shape, so the harness can run an agent over hundreds of problems without any of them being bespoke.
 Everything else stays identical: the same base image, the same trace proxy, the same determinism, the same grading from files on disk.
+
+Two tiers ship today, each with its own page.
+
+- [aider](/evals/aider/) rebuilds the Aider polyglot benchmark, a set of Exercism practice exercises graded by their own tests.
+- [evalplus](/evals/evalplus/) rebuilds EvalPlus, the HumanEval+ and MBPP+ function-completion problems with their expanded hidden tests.
 
 ## Selecting a tier
 
@@ -20,18 +27,6 @@ go run ./cmd/lab report --suite aider         # report just that tier
 
 A suite reads its tasks from `evals/<name>/tasks/` and lands its results in a separate tree, so a suite run never mixes into the core report and one suite never mixes into another.
 The task directories are committed, so running a suite needs no network.
-
-## The tiers today
-
-Two tiers ship with the harness.
-
-- `aider` rebuilds the [Aider polyglot benchmark](https://github.com/Aider-AI/polyglot-benchmark), a set of [Exercism](https://exercism.org) practice exercises.
-  Each exercise ships a stub to fill in, a test suite that grades it, and a reference solution.
-  A task passes when the exercise's own tests are green.
-  The tier runs the languages the shared base already carries a toolchain for: Go, graded by `go test ./...`, and Python, graded by `python3 -m unittest`.
-  Rust, Java, C++, and JavaScript are in the upstream benchmark but need toolchains the base does not ship, so they are left out until the base grows them.
-- `evalplus` rebuilds [EvalPlus](https://github.com/evalplus/evalplus), the HumanEval+ and MBPP+ function-completion problems with their expanded hidden tests.
-  Each task gives the agent a function to complete, and grades the completion against the larger hidden test set that EvalPlus adds on top of the original benchmark.
 
 ## How a benchmark becomes a suite
 

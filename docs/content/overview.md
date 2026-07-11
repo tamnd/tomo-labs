@@ -78,7 +78,7 @@ A tier is selected with `--suite <name>`, reads its tasks from `evals/<name>/tas
 Two tiers ship today: the Aider polyglot benchmark (Exercism exercises graded by their own tests) and EvalPlus (HumanEval+ and MBPP+ with their expanded hidden tests).
 `lab gen --suite <name>` materializes a tier by fetching the upstream benchmark and proving each task against a known-good solution before keeping it, so a task that cannot be validated never lands.
 The expected answers are kept in a sibling directory the harness never mounts, so an agent only ever sees the prompt and its starting files.
-See [evals](/guides/evals/) for the full tier documentation.
+See [evals](/evals/) for the full tier documentation.
 
 ## System-prompt recovery
 
