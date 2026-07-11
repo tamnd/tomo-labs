@@ -35,22 +35,14 @@ Run it after a build so the report and the docs can name the exact versions the 
 ## Pulling newer releases
 
 A plain rebuild does not always pull a newer release, because the container runtime caches the install layer.
-There are two clean ways to move a pin.
-
-Pull the newest release by rebuilding without the cached layer:
+It keys a `RUN npm install pkg@${VERSION}` layer on the command string, not the resolved version, so bumping the pin alone reuses the old install.
+Force a fresh install with `--no-cache`:
 
 ```bash
-go run ./cmd/lab build codex   # rebuilds the codex image
+go run ./cmd/lab build codex --no-cache   # reinstall codex at its current pin
 ```
 
-If the runtime served the install from cache and you want to force the newest release, rebuild the image with the cache disabled for that tool, or bump the version argument to an exact release so the pin is explicit:
-
-```dockerfile
-ARG CODEX_VERSION=0.45.0
-```
-
-An exact pin is the better choice when you are about to publish numbers, because it makes the sweep reproducible: anyone who rebuilds gets the same version you measured.
-Leave `latest` in place for day-to-day exploration, pin an exact version when you record a result.
+This is why the updater pins an exact version rather than leaving `latest`: an exact pin makes the sweep reproducible, since anyone who rebuilds gets the same version you measured, and a no-cache build is what makes the new pin actually take.
 
 ## Refreshing after a bump
 

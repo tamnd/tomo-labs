@@ -15,15 +15,21 @@ import (
 // the module root so it can pull in its Go packages; everything else builds from
 // its own directory.
 //
+// noCache forces every image to build from scratch, ignoring cached layers. It
+// is what makes a version bump actually take: the runtime keys a `RUN npm
+// install pkg@${VERSION}` layer on the command string, not the resolved version,
+// so bumping the pin alone reuses the old install. A no-cache build reinstalls at
+// the new pin.
+//
 // Every image it retags leaves the previous copy behind as a dangling <none>
 // layer, so it prunes those once the build finishes. A build is a natural
 // checkpoint for that: it is the only thing that creates dangling images, and it
 // runs off the hot path of a scored run.
-func (l *Lab) Build(ctx context.Context, only string) error {
+func (l *Lab) Build(ctx context.Context, only string, noCache bool) error {
 	defer l.rt.PruneImages(ctx)
 	fmt.Fprintln(os.Stderr, "[build] base image ("+baseImage+")")
 	if err := l.rt.Build(ctx, container.BuildSpec{
-		Tag: baseImage, Context: filepath.Join(l.cfg.Root, "tools", "base"), Out: os.Stderr,
+		Tag: baseImage, Context: filepath.Join(l.cfg.Root, "tools", "base"), NoCache: noCache, Out: os.Stderr,
 	}); err != nil {
 		return err
 	}
@@ -33,6 +39,7 @@ func (l *Lab) Build(ctx context.Context, only string) error {
 		Tag:        proxyImage,
 		Context:    l.cfg.Root,
 		Dockerfile: filepath.Join(l.cfg.Root, "proxy", "Dockerfile"),
+		NoCache:    noCache,
 		Out:        os.Stderr,
 	}); err != nil {
 		return err
@@ -48,7 +55,7 @@ func (l *Lab) Build(ctx context.Context, only string) error {
 		}
 		fmt.Fprintln(os.Stderr, "[build] tool image ("+toolPrefix+t+")")
 		if err := l.rt.Build(ctx, container.BuildSpec{
-			Tag: toolPrefix + t, Context: filepath.Join(l.cfg.Root, "tools", t), Out: os.Stderr,
+			Tag: toolPrefix + t, Context: filepath.Join(l.cfg.Root, "tools", t), NoCache: noCache, Out: os.Stderr,
 		}); err != nil {
 			return err
 		}

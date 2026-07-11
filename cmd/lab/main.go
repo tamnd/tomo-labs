@@ -3,7 +3,7 @@
 // in a throwaway container, with its LLM traffic routed through the trace proxy
 // and every artifact and resource number captured under the data dir.
 //
-//	lab build [tool]            build base, proxy, and tool images
+//	lab build [tool] [--no-cache]  build base, proxy, and tool images
 //	lab run [tool] [scenario]   run all, or one tool, or one pair
 //	lab -p "<prompt>" [tool...] run one ad-hoc prompt through every tool, or some
 //	lab tools                   list wired tools
@@ -64,7 +64,15 @@ func main() {
 
 	switch args[0] {
 	case "build":
-		die(l.Build(ctx, arg(args, 1)))
+		only, noCache := "", false
+		for _, a := range args[1:] {
+			if a == "--no-cache" {
+				noCache = true
+			} else if only == "" && !strings.HasPrefix(a, "--") {
+				only = a
+			}
+		}
+		die(l.Build(ctx, only, noCache))
 	case "run":
 		die(cmdRun(ctx, l, arg(args, 1), arg(args, 2)))
 	case "-p", "--prompt", "prompt":

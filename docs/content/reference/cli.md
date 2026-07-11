@@ -13,10 +13,16 @@ lab <command> [args]
 ## build
 
 ```
-lab build [tool]
+lab build [tool] [--no-cache]
 ```
 
 Builds the shared base image, the trace proxy image, and every wired tool image. Pass a tool name to build just that one. Only needs to rerun after a `Dockerfile` changes.
+
+`--no-cache` forces every image to build from scratch, ignoring cached layers. Use it after a version bump: the runtime keys a `RUN npm install pkg@${VERSION}` layer on the command string, not the resolved version, so bumping the pin alone reuses the old install. A no-cache build reinstalls at the new pin.
+
+```bash
+go run ./cmd/lab build codex --no-cache    # reinstall codex at its current pin
+```
 
 ## run
 
