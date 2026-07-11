@@ -19,7 +19,7 @@
 // <name> to work on a separate eval tier under evals/<name>/ instead of the core
 // scenarios/, e.g. `lab run tomo --suite aider` or `lab gen --suite evalplus`.
 // gen fetches a public benchmark and writes its tasks; it takes --limit, --all,
-// --langs, and --no-validate after the command.
+// --langs, --difficulty, and --no-validate after the command.
 //
 // It needs OPENCODE_API_KEY (or another OpenAI-compatible key, with LAB_UPSTREAM
 // and LAB_MODEL pointed to match). All logic lives in pkg/lab; this is a thin
@@ -106,7 +106,8 @@ func main() {
 // cmdGen materializes a public benchmark into the active suite's tasks/ dir. The
 // suite is chosen with the global --suite flag; the flags after gen tune the pull:
 // --limit N per track, --all for the whole benchmark, --langs a,b to select
-// tracks (aider) or datasets (evalplus), and --no-validate to skip the proof.
+// tracks (aider) or datasets (evalplus), --difficulty easy,medium,hard to keep
+// only certain LiveCodeBench tiers, and --no-validate to skip the proof.
 func cmdGen(ctx context.Context, l *lab.Lab, rest []string) error {
 	var opts lab.GenOptions
 	langs, rest := takeFlagValue(rest, "--langs")
@@ -124,6 +125,14 @@ func cmdGen(ctx context.Context, l *lab.Lab, rest []string) error {
 			return fmt.Errorf("--limit: %w", err)
 		}
 		opts.Limit = n
+	}
+	diff, rest := takeFlagValue(rest, "--difficulty")
+	if diff != "" {
+		for _, s := range strings.Split(diff, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				opts.Difficulty = append(opts.Difficulty, s)
+			}
+		}
 	}
 	opts.All = hasFlag(rest, "--all")
 	opts.NoValidate = hasFlag(rest, "--no-validate")

@@ -20,6 +20,7 @@ type GenOptions struct {
 	Limit      int      // per-track sample size when All is false
 	All        bool     // take every problem the benchmark offers
 	NoValidate bool     // skip the reference-solution proof (inspection only)
+	Difficulty []string // livecodebench: keep only these difficulty tiers (easy/medium/hard); empty takes any
 }
 
 // Generate materializes a public benchmark into the active suite's tasks/ dir.
@@ -39,8 +40,10 @@ func (l *Lab) Generate(ctx context.Context, opts GenOptions) (int, error) {
 		return l.genAider(ctx, opts)
 	case "evalplus":
 		return l.genEvalPlus(ctx, opts)
+	case "livecodebench":
+		return l.genLiveCodeBench(ctx, opts)
 	case "":
-		return 0, fmt.Errorf("gen needs a suite: try --suite aider or --suite evalplus")
+		return 0, fmt.Errorf("gen needs a suite: try --suite aider, --suite evalplus, or --suite livecodebench")
 	default:
 		return 0, fmt.Errorf("no generator for suite %q", l.cfg.Suite)
 	}

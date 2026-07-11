@@ -1,0 +1,1 @@
+[{"input": "\"leetscode\"\n[\"leet\", \"code\", \"leetcode\"]", "output": "1", "testtype": "functional"}, {"input": "\"sayhelloworld\"\n[\"hello\", \"world\"]", "output": "3", "testtype": "functional"}]
