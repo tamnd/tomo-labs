@@ -44,7 +44,7 @@ func TestWalkResultsIsolatesSuites(t *testing.T) {
 	seen := func(suite string) []string {
 		l := &Lab{cfg: Config{Data: data, Suite: suite}}
 		var names []string
-		l.walkResults(func(_ string, r *Result) { names = append(names, r.Scenario) })
+		_ = l.walkResults(func(_ string, r *Result) { names = append(names, r.Scenario) })
 		return names
 	}
 

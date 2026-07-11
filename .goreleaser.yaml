@@ -1,0 +1,124 @@
+# GoReleaser turns one tag push into a GitHub release: the `lab` and `proxy`
+# binaries as archives for every platform, a checksum file, a CycloneDX SBOM per
+# archive, and a keyless cosign signature over the checksums. `git tag vX.Y.Z &&
+# git push --tags` runs it through .github/workflows/release.yml.
+#
+# tomo-labs is a harness, not a self-contained command: `lab` drives a repo of
+# scenarios and per-tool Dockerfiles and needs podman or docker to run. So this
+# config ships the binaries and nothing that would imply a standalone install:
+# no Linux packages, no container image, no Homebrew or Scoop entry, because a
+# `lab` on its own, without the repo tree and a container runtime, would not do
+# anything. Clone the repo to use it; the archives are here for convenience and
+# for the `proxy`, which is useful on its own.
+version: 2
+
+project_name: tomo-labs
+
+before:
+  # Only fetch modules; never `go mod tidy` during a release, the tree is kept
+  # tidy in CI.
+  hooks:
+    - go mod download
+
+builds:
+  - id: lab
+    binary: lab
+    main: ./cmd/lab
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    targets:
+      - linux_amd64
+      - linux_arm64
+      - darwin_amd64
+      - darwin_arm64
+      - windows_amd64
+      - windows_arm64
+
+  - id: proxy
+    binary: proxy
+    main: ./cmd/proxy
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    targets:
+      - linux_amd64
+      - linux_arm64
+      - darwin_amd64
+      - darwin_arm64
+      - windows_amd64
+      - windows_arm64
+
+archives:
+  # One archive per platform carrying both binaries. tar.gz everywhere except a
+  # zip on Windows.
+  - id: default
+    ids:
+      - lab
+      - proxy
+    name_template: "tomo-labs_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+sboms:
+  # A CycloneDX SBOM per archive via syft; the release workflow installs it.
+  - id: archive
+    artifacts: archive
+
+signs:
+  # Keyless cosign signature over the checksum file. It runs only on a real
+  # release in CI, where the workflow grants the OIDC token cosign needs.
+  - cmd: cosign
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Other
+      order: 999
+
+release:
+  github:
+    owner: tamnd
+    name: tomo-labs
+  draft: false
+  prerelease: auto

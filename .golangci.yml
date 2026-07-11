@@ -1,0 +1,25 @@
+# Defaults plus a short errcheck exclude list: terminal prints, tabwriter
+# flushes, best-effort temp-dir cleanup, trace-file writes, and writes to an
+# HTTP response have no useful error to handle (the client is already gone, or
+# the trace line is advisory). The generated eval answer trees under evals/ are
+# reference solutions, not harness code, so they are excluded from linting; go
+# build and go vet still cover them.
+version: "2"
+
+linters:
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (io.Closer).Close
+        - (*text/tabwriter.Writer).Flush
+        - (*os.File).Write
+        - (*os.File).Sync
+        - (*os.File).Close
+        - (net/http.ResponseWriter).Write
+        - os.RemoveAll
+  exclusions:
+    paths:
+      - evals

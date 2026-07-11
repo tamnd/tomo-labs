@@ -1,5 +1,6 @@
 # tomo-labs
 
+[![ci](https://github.com/tamnd/tomo-labs/actions/workflows/ci.yml/badge.svg)](https://github.com/tamnd/tomo-labs/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/tamnd/tomo-labs.svg)](https://pkg.go.dev/github.com/tamnd/tomo-labs)
 [![Go Report Card](https://goreportcard.com/badge/github.com/tamnd/tomo-labs)](https://goreportcard.com/report/github.com/tamnd/tomo-labs)
 
