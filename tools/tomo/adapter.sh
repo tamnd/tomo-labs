@@ -42,7 +42,11 @@ providers:
     api_key: \${OPENCODE_API_KEY}
     base_url: ${LAB_BASE_URL}
 agent:
-  max_tokens: 4096
+  # No max_tokens here: let tomo use its own default so the harness does not
+  # cap the output budget below what a shipped tomo would run with. The rival
+  # tools do not cap it either, and a reasoning model needs the headroom or it
+  # truncates mid-answer. max_turns stays pinned because LAB_MAX_TURNS is the
+  # one budget every tool shares.
   max_turns: ${LAB_MAX_TURNS:-12}
 policy:
   read: allow
