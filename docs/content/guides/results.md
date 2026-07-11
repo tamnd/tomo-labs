@@ -8,7 +8,9 @@ Eight tools run the same fourteen scenarios against the same free deepseek model
 
 This page is the full table with every column the harness records, not the trimmed version in the README. The numbers come straight from `lab report`, which keeps only the latest run of each scenario, so a tool's row is its current state over the fourteen scenarios, not a history that still counts runs it failed before an adapter bug got fixed. Run `lab report` yourself to reproduce any of it.
 
-Snapshot taken 2026-07-11. tomo's rows are a fresh sweep on the v0.2.4 build; the other seven were captured on 2026-07-10, each at the version shown. All runs hit the same OpenCode Zen deepseek endpoint with the same deterministic settings.
+<!-- lab:results-snapshot:begin -->
+Snapshot taken 2026-07-11. All 8 wired tools were rerun on 2026-07-11, each at the version shown, against the same OpenCode Zen deepseek endpoint with the same deterministic settings.
+<!-- lab:results-snapshot:end -->
 
 ## How to read the table
 
@@ -23,6 +25,7 @@ The report splits the tools by how they work: the ones that ever lay out a plan 
 
 ## Tools that plan
 
+<!-- lab:results-plan:begin -->
 | tool | version | pass | 1st | plans | tokens | avg | cache | cost | rss | ttfb | wall | install |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | tomo | v0.2.4 | 14/14 | 13 | 4/14 | 187,404 | 13,386 | 86% | $0.0267 | 23MB | 708ms | 10s | 21MB |
@@ -31,13 +34,16 @@ The report splits the tools by how they work: the ones that ever lay out a plan 
 | openclaw | 2026.6.11 | 14/14 | 14 | 1/14 | 1,095,701 | 78,264 | 87% | $0.1143 | 453MB | 2490ms | 61s | 407MB |
 | hermes | 0.18.2 | 14/14 | 14 | 3/14 | 1,168,925 | 83,494 | 94% | $0.1064 | 132MB | 3140ms | 41s | 221MB |
 | claude-code | 2.1.207 | 14/14 | 14 | 3/14 | 1,793,716 | 128,122 | 97% | $0.1498 | 290MB | 2946ms | 33s | 322MB |
+<!-- lab:results-plan:end -->
 
 ## Tools that run flat
 
+<!-- lab:results-flat:begin -->
 | tool | version | pass | 1st | plans | tokens | avg | cache | cost | rss | ttfb | wall | install |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | gemini-cli | 0.50.0 | 5/14 | 5 | 0/14 | 112,988 | 8,070 | 93% | $0.0114 | 260MB | 2181ms | 10s | 181MB |
 | pi | 0.80.6 | 14/14 | 14 | 0/14 | 244,455 | 17,461 | 89% | $0.0329 | 159MB | 3163ms | 37s | 156MB |
+<!-- lab:results-flat:end -->
 
 Every version above is that tool's latest published release as of its run, checked against its npm or module registry directly, not a stale pin. `lab meta` captures the version and its release date after every build, so the labels never drift from what ran.
 
@@ -59,6 +65,7 @@ gemini-cli's 5/14 is mostly the model missing a step, not a wiring bug. It makes
 
 The `00-hello` scenario is a baseline, just the prompt `Hi!`, isolating the fixed round-trip cost every tool pays before it does any real work: the system prompt, the tool schemas, and whatever preamble the harness wraps around a single turn.
 
+<!-- lab:hello-baseline:begin -->
 | tool | tokens | ttfb | rss |
 | --- | --- | --- | --- |
 | tomo | 1,585 | 704ms | 12MB |
@@ -69,6 +76,7 @@ The `00-hello` scenario is a baseline, just the prompt `Hi!`, isolating the fixe
 | hermes | 13,619 | 8136ms | 121MB |
 | openclaw | 16,755 | 1163ms | 366MB |
 | claude-code | 19,178 | 7389ms | 290MB |
+<!-- lab:hello-baseline:end -->
 
 tomo pays the least to say hello: 1,585 tokens against 7,000 to 19,000 for the tools that ship a large standing prompt and a wide tool schema on every turn. That fixed cost is paid on every scenario, so a lean baseline compounds across the suite.
 
@@ -76,6 +84,7 @@ tomo pays the least to say hello: 1,585 tokens against 7,000 to 19,000 for the t
 
 The v0.2.4 sweep, scenario by scenario, so the total above is not a black box. Thirteen passed on the first attempt; invoice-join took a second.
 
+<!-- lab:baseline-scenarios:begin -->
 | scenario | tokens | attempt |
 | --- | --- | --- |
 | 00-hello | 1,585 | 1st |
@@ -92,6 +101,7 @@ The v0.2.4 sweep, scenario by scenario, so the total above is not a black box. T
 | 11-storefront-budget | 24,627 | 1st |
 | 13-release-fix | 33,740 | 1st |
 | 12-invoice-join | 37,894 | 2nd |
+<!-- lab:baseline-scenarios:end -->
 
 The cost climbs with the shape of the task, not randomly: a bare greeting and a word problem sit at the bottom, and the two that fetch a page, join it with a local file, and get a test suite green sit at the top. Even the most expensive scenario here, at 38k tokens, is a fraction of what several tools spend on an average one.
 

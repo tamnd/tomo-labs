@@ -43,6 +43,15 @@ This keeps the grading toolchain on the host and entirely separate from whatever
 The generator proves each task the same way the other tiers do.
 It fills `solution.py` with the problem's known-good solution, runs `check.sh`, and keeps the task only if the hidden tests pass, so a problem that cannot be validated never lands as a task.
 
+## How the tools score
+
+Each tool's pass rate over the committed evalplus tasks, on the same free deepseek model as every other run, cheapest tokens breaking a tie. The numbers are regenerated from the captured runs by `scripts/rerun.go`, so they track the versions in [results](/guides/results/).
+
+<!-- lab:evalplus-results:begin -->
+| tool | version | pass | tokens | cost |
+| --- | --- | --- | --- | --- |
+<!-- lab:evalplus-results:end -->
+
 ## Running and regenerating
 
 ```bash

@@ -206,6 +206,7 @@ type ToolSummary struct {
 	InstallMB     int     `json:"install_mb"`
 	TotalTokens   int     `json:"total_tokens"`
 	AvgTokens     int     `json:"avg_tokens"`
+	PromptTokens  int     `json:"prompt_tokens"`
 	CachedTokens  int     `json:"cached_tokens,omitempty"`
 	TotalCostUSD  float64 `json:"total_cost_usd,omitempty"`
 	AvgRSSMB      int     `json:"avg_rss_mb"`
@@ -327,7 +328,7 @@ func summarize(results []*Result) []ToolSummary {
 	var out []ToolSummary
 	for tool, rs := range byTool {
 		s := ToolSummary{Tool: tool, Runs: len(rs)}
-		var tokens, cached, rss, ttfb, wall, attempts, timed, modelCalls int
+		var tokens, prompt, cached, rss, ttfb, wall, attempts, timed, modelCalls int
 		var cost float64
 		for _, r := range rs {
 			if r.Passed {
@@ -347,6 +348,7 @@ func summarize(results []*Result) []ToolSummary {
 			}
 			s.Subagents += r.Orchestration.Subagents
 			tokens += r.Tokens.Total
+			prompt += r.Tokens.Prompt
 			cached += r.Tokens.Cached
 			// A paid provider reports the real cost; the free tier reports none, so
 			// price its tokens at the reference rates to keep the column comparable.
@@ -368,6 +370,7 @@ func summarize(results []*Result) []ToolSummary {
 		n := len(rs)
 		s.TotalTokens = tokens
 		s.AvgTokens = tokens / n
+		s.PromptTokens = prompt
 		s.CachedTokens = cached
 		s.TotalCostUSD = cost
 		s.AvgRSSMB = rss / n / 1024

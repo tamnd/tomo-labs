@@ -82,6 +82,7 @@ Eight tools against the same free deepseek model through the same trace proxy, s
 
 Tools that plan:
 
+<!-- lab:results-plan:begin -->
 | tool | version | pass | plans | tokens | cost | install |
 | --- | --- | --- | --- | --- | --- | --- |
 | tomo | v0.2.4 | 14/14 | 4/14 | 187,404 | $0.027 | 21MB |
@@ -90,13 +91,16 @@ Tools that plan:
 | openclaw | 2026.6.11 | 14/14 | 1/14 | 1,095,701 | $0.114 | 407MB |
 | hermes | 0.18.2 | 14/14 | 3/14 | 1,168,925 | $0.106 | 221MB |
 | claude-code | 2.1.207 | 14/14 | 3/14 | 1,793,716 | $0.150 | 322MB |
+<!-- lab:results-plan:end -->
 
 Tools that run flat:
 
+<!-- lab:results-flat:begin -->
 | tool | version | pass | plans | tokens | cost | install |
 | --- | --- | --- | --- | --- | --- | --- |
 | gemini-cli | 0.50.0 | 5/14 | 0/14 | 112,988 | $0.011 | 181MB |
 | pi | 0.80.6 | 14/14 | 0/14 | 244,455 | $0.033 | 156MB |
+<!-- lab:results-flat:end -->
 
 Every version above is that tool's latest published release as of the run, checked against its npm or module registry directly, not a stale pin. `lab meta` captures the version and its release date after every build so the table never drifts from what actually ran; run `lab report` yourself for the full columns (release dates, cache hit rate, average tokens, RSS, ttfb, wall time).
 

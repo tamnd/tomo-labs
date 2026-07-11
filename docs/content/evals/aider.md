@@ -38,6 +38,15 @@ The upstream benchmark spans six languages, but the tier only runs the ones the 
 The four excluded languages are still in the upstream benchmark; they are skipped here only because grading them would need toolchains the base does not ship.
 When the base grows a toolchain, the tier can grow the language: `check.sh` runs on the host, so the grader for a new language is a host command, not a change to the agent's image.
 
+## How the tools score
+
+Each tool's pass rate over the committed aider tasks, on the same free deepseek model as every other run, cheapest tokens breaking a tie. The numbers are regenerated from the captured runs by `scripts/rerun.go`, so they track the versions in [results](/guides/results/).
+
+<!-- lab:aider-results:begin -->
+| tool | version | pass | tokens | cost |
+| --- | --- | --- | --- | --- |
+<!-- lab:aider-results:end -->
+
 ## Running and regenerating
 
 ```bash
