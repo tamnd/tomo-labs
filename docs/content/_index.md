@@ -26,9 +26,13 @@ go run ./cmd/lab report   # summarize every captured run as a table
 ## Where to go next
 
 - New here?
-  Start with the [installation](/getting-started/installation/) guide, then the [quick start](/getting-started/quick-start/).
+  Start with the [overview](/overview/) for the whole feature set in one place, then the [installation](/getting-started/installation/) guide and the [quick start](/getting-started/quick-start/).
+- Studying an agent?
+  The [tools](/tools/) pages are a deep dive on each one: command surface, architecture, captured system prompt, and a Hi! run traced end to end.
 - Want the numbers?
   See [results](/guides/results/) for the full comparison table and the `00-hello` baseline.
+- Curious what each agent actually sends?
+  The [prompts](/prompts/) pages carry every wired agent's real system prompt, recovered from the trace and versioned so drift shows in the diff.
 - Adding an agent to the comparison?
   [Adding a tool](/guides/adding-a-tool/) covers the two files a new agent needs.
 - Need the exact command surface?

@@ -7,6 +7,9 @@ weight: 30
 This walks the first run end to end.
 By the last step you have a scored table comparing however many agents you have built.
 
+The examples use `go run ./cmd/lab`, which works from a source checkout.
+If you installed a [release](/getting-started/installation/) binary, drop the `go run ./cmd/lab` and use `lab` instead, run from inside the repo checkout.
+
 ## 1. Build the images
 
 ```bash
@@ -44,6 +47,7 @@ go run ./cmd/lab -p "explain this repo in one line"   # one ad-hoc prompt, every
 go run ./cmd/lab meta                                  # capture each tool's version and release date
 go run ./cmd/lab tools                                 # list wired tools
 go run ./cmd/lab scenarios                              # list scenarios
+go run ./cmd/lab prompts tomo                          # recover a tool's system prompt from its traces
 ```
 
 Next: see [results](/guides/results/) for what a full sweep across all eight tools looks like, or [adding a tool](/guides/adding-a-tool/) to wire in another agent.

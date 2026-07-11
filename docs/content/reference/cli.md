@@ -60,6 +60,28 @@ lab scenarios
 
 Lists every scenario with its one-line description.
 
+## prompts
+
+```
+lab prompts <tool> [scenario] [--json] [--brief]
+```
+
+Recovers a tool's system prompt from its captured traces. It reads the request tap across every run in scope, unions the distinct system prompts, groups the per-run renderings that differ only in volatile spans like the date or a session id, and ranks the agent's working prompt, the one carrying a tool schema, first. Pass a scenario to scope to one; omit it to union every run. `--json` emits the structured form, the same shape the [prompts](/prompts/) pages are generated from; `--brief` keeps the per-prompt headers and drops the full text.
+
+```bash
+go run ./cmd/lab prompts tomo                 # every run, full text
+go run ./cmd/lab prompts codex --brief         # headers only
+go run ./cmd/lab prompts opencode --json       # structured, for regenerating a docs page
+```
+
+## gen
+
+```
+lab gen [--limit N] [--all] [--langs a,b] [--no-validate]
+```
+
+Materializes a public benchmark into the active suite's `tasks/` dir, chosen with the global `--suite` flag. It fetches the upstream benchmark, renders each problem into the harness task shape, and proves each task against a known-good solution before keeping it, so a task that cannot be validated never lands. `--limit N` takes N problems per track, `--all` takes the whole benchmark, `--langs a,b` selects language tracks for aider or datasets for evalplus, and `--no-validate` skips the reference-solution proof for a quick inspection. See [evals](/guides/evals/).
+
 ## meta
 
 ```
@@ -76,6 +98,14 @@ lab report [--json]
 
 Reads every run ever captured for every tool and prints a comparison table: pass rate, tokens, latency, memory, install footprint, and more. `--json` prints the same summary as JSON instead of a table.
 
+## reparse
+
+```
+lab reparse
+```
+
+Recomputes the metrics of every captured run from its stored trace, without rerunning any agent. Use it after a change to how a metric is derived, so old runs are scored the same way as new ones.
+
 ## clean
 
 ```
@@ -83,6 +113,19 @@ lab clean
 ```
 
 Removes lab containers and dangling images left behind by builds and runs.
+
+## --suite
+
+```
+lab <command> --suite <name>
+```
+
+Any command that runs, lists, reports, or generates over tasks takes `--suite` to select an eval tier instead of the core `scenarios/`. A suite reads its tasks from `evals/<name>/tasks/` and lands results in a separate tree, so a tier never mixes into the core report. `lab gen --suite <name>` materializes a tier; see [evals](/guides/evals/).
+
+```bash
+go run ./cmd/lab run tomo --suite aider
+go run ./cmd/lab report --suite evalplus
+```
 
 ## Environment
 
