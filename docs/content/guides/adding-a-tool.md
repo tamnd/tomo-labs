@@ -1,7 +1,7 @@
 ---
 title: "Adding a tool"
 description: "The two files a new coding agent needs to join the comparison: a Dockerfile on top of the shared base, and an adapter script the harness never looks past."
-weight: 30
+weight: 40
 ---
 
 A tool is two files under `tools/<name>/`:

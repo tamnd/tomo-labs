@@ -1,7 +1,7 @@
 ---
 title: "Upgrading the tools"
 description: "Keep the wired agents current: how each version is pinned, how to pull newer releases, and how to refresh the captured versions, results, and system prompts after a bump."
-weight: 35
+weight: 50
 ---
 
 The agents under test ship new versions often, some of them daily.

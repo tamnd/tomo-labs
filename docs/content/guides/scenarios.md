@@ -1,7 +1,7 @@
 ---
 title: "Scenarios"
 description: "Every task in the suite, from a baseline greeting through a small project scaffold, each graded by a checker that reads the files an agent left behind."
-weight: 20
+weight: 30
 ---
 
 Ordinary tasks a capable agent should handle, each with a checker that grades the result on disk rather than on what the model said, plus the `00-hello` baseline:

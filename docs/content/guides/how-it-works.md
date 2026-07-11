@@ -1,7 +1,7 @@
 ---
 title: "How it works"
 description: "A run end to end: the trace proxy, the worker pool that runs a sweep in parallel, and the two levers that keep a rerun meaning the same thing."
-weight: 40
+weight: 10
 ---
 
 ```

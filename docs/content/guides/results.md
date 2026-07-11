@@ -1,7 +1,7 @@
 ---
 title: "Results"
 description: "The full comparison across all eight wired tools on the same free deepseek model, with every column the harness records, the 00-hello baseline, and tomo's per-scenario breakdown."
-weight: 10
+weight: 20
 ---
 
 Eight tools run the same fourteen scenarios against the same free deepseek model through the same trace proxy, so the only thing that differs below is the tool: how many turns it takes, how many tokens it burns getting there, how much memory it holds, and how big its install is. The model, the decoding settings, and the grading are held fixed for everyone.
