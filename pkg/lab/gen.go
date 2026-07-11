@@ -39,8 +39,10 @@ func (l *Lab) Generate(ctx context.Context, opts GenOptions) (int, error) {
 		return l.genAider(ctx, opts)
 	case "evalplus":
 		return l.genEvalPlus(ctx, opts)
+	case "livecodebench":
+		return l.genLiveCodeBench(ctx, opts)
 	case "":
-		return 0, fmt.Errorf("gen needs a suite: try --suite aider or --suite evalplus")
+		return 0, fmt.Errorf("gen needs a suite: try --suite aider, --suite evalplus, or --suite livecodebench")
 	default:
 		return 0, fmt.Errorf("no generator for suite %q", l.cfg.Suite)
 	}
