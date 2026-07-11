@@ -1,13 +1,13 @@
 ---
 title: "tomo-labs"
-description: "tomo-labs runs coding agents through the same tasks on the same model and measures what actually happened. A trace proxy holds the model fixed across tomo, codex, opencode, claude-code, openclaw, hermes, and gemini-cli, and every result is graded from the files an agent left on disk."
+description: "tomo-labs runs coding agents through the same tasks on the same model and measures what actually happened. A trace proxy holds the model fixed across tomo, codex, opencode, claude-code, openclaw, hermes, gemini-cli, and pi, and every result is graded from the files an agent left on disk."
 heroTitle: "The model held fixed, the agent left to differ"
 heroLead: "Agent benchmarks usually compare one number by changing three things at once: the model, the prompt scaffolding, and the tool's own overhead. tomo-labs holds the model fixed. A trace proxy forwards every request from every agent to the same free model with the same deterministic decoding, whatever wire dialect the agent's SDK speaks, and every result is graded from the files it left on disk, not from what it claims to have done."
 heroPrimaryURL: "/getting-started/quick-start/"
 heroPrimaryText: "Get started"
 ---
 
-Seven agents run through the same harness today: tomo, codex, opencode, claude-code, openclaw, hermes, and gemini-cli.
+Eight agents run through the same harness today: tomo, codex, opencode, claude-code, openclaw, hermes, gemini-cli, and pi.
 Every one runs in its own throwaway container, every request and response it sends is captured verbatim, and adding one more agent is a `Dockerfile` and a small adapter script, not a fork of the harness.
 
 ```bash
