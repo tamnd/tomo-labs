@@ -4,3 +4,8 @@ proxy/proxy
 *.log
 .DS_Store
 bin/
+
+# The evalplus grader builds a numpy venv beside the tasks the first time it runs.
+# It is a local cache, rebuilt on demand, so it never belongs in the repo.
+evals/*/.venv/
+__pycache__/

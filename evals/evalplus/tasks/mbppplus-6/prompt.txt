@@ -1,0 +1,10 @@
+Complete the function in solution.py so it satisfies its docstring. Keep the exact signature; write only into solution.py. Your solution is graded by a hidden test suite that calls is_Power_Of_Two.
+
+solution.py starts as:
+
+def is_Power_Of_Two(x: int):
+    """Write a python function to check whether the two numbers differ at one bit position only or not.
+
+    Example:
+    >>> assert differ_At_One_Bit_Pos(13,9) == True
+    """
