@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Root     string // repo root holding scenarios/ and tools/
 	Data     string // where traces and results land, per tool/scenario/timestamp
+	Suite    string // empty runs the core scenarios/; a name runs evals/<name>/tasks/ as a separate tier
 	Model    string // bare upstream model id
 	Upstream string // OpenAI-compatible base the proxy forwards to
 	APIKey   string // upstream key, forwarded to the tool, never written to a trace

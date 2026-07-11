@@ -89,7 +89,7 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 	}
 
 	ts := time.Now().UTC().Format("20060102T150405Z")
-	runDir := filepath.Join(l.cfg.Data, tool, sc.Name, ts)
+	runDir := filepath.Join(l.resultsDir(), tool, sc.Name, ts)
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 	if err := writeResult(filepath.Join(runDir, "result.json"), res); err != nil {
 		return nil, err
 	}
-	pruneOldRuns(filepath.Join(l.cfg.Data, tool, sc.Name), l.cfg.KeepRuns)
+	pruneOldRuns(filepath.Join(l.resultsDir(), tool, sc.Name), l.cfg.KeepRuns)
 	l.printSummary(res)
 	return res, nil
 }
