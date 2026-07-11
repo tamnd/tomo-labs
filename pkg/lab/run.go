@@ -150,7 +150,7 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 		MaxRSSKB: m.MaxRSSKB, Requests: m.Requests,
 		Tokens: m.Tokens, Latency: m.Latency, CostUSD: m.CostUSD,
 		Orchestration: m.Orch, RateLimit: m.RateLimit,
-		DiskBeforeKB:  diskBefore, DiskAfterKB: diskAfter, DiskDeltaKB: diskAfter - diskBefore,
+		DiskBeforeKB: diskBefore, DiskAfterKB: diskAfter, DiskDeltaKB: diskAfter - diskBefore,
 		InstallKB: installKB,
 		Check:     firstLineOf(reason),
 		Ungraded:  !sc.graded,
