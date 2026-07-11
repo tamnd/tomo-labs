@@ -1,0 +1,77 @@
+name: release
+
+# Pushing a version tag turns the GoReleaser config (.goreleaser.yaml) into a
+# GitHub release with the `lab` and `proxy` archives, checksums, SBOMs, and a
+# keyless cosign signature. Pull requests and pushes to main run
+# `goreleaser check` only, so a config that would fail a real release is caught
+# long before the tag.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast gate on every PR and push: the config parses and is valid for the
+  # installed GoReleaser version. No artifacts are built here.
+  check:
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+      - uses: goreleaser/goreleaser-action@v7.2.2
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
+
+  # The real release, only on a version tag.
+  release:
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release
+      id-token: write # keyless cosign signing
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      # Tools GoReleaser shells out to for signing and SBOMs.
+      # Pin cosign to the 2.x line. cosign 3.x makes the new bundle format the
+      # default, which ignores the --output-signature/--output-certificate flags
+      # the signs block uses and aborts. Pinning keeps the .sig/.pem outputs and
+      # stops the release tool from floating to a breaking latest.
+      - uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: "v2.6.3"
+      - uses: anchore/sbom-action/download-syft@v0.24.0
+
+      - uses: goreleaser/goreleaser-action@v7.2.2
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

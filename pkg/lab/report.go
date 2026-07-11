@@ -192,25 +192,25 @@ func jobsNeedWeb(jobs []job) bool {
 // row the comparison table is built from. Runs is therefore the number of distinct
 // scenarios the tool has a run for, and Passed is how many of those it passed.
 type ToolSummary struct {
-	Tool         string  `json:"tool"`
-	Version      string  `json:"version,omitempty"`
-	Released     string  `json:"released,omitempty"`
-	Runs         int     `json:"runs"`
-	Passed       int     `json:"passed"`
-	FirstTry     int     `json:"first_try"`
-	Retried      int     `json:"retried"`
-	AvgAttempts  float64 `json:"avg_attempts"`
-	AvgModelCalls int    `json:"avg_model_calls"`
-	PlannedRuns  int     `json:"planned_runs"`
-	Subagents    int     `json:"subagents"`
-	InstallMB    int     `json:"install_mb"`
-	TotalTokens  int     `json:"total_tokens"`
-	AvgTokens    int     `json:"avg_tokens"`
-	CachedTokens int     `json:"cached_tokens,omitempty"`
-	TotalCostUSD float64 `json:"total_cost_usd,omitempty"`
-	AvgRSSMB     int     `json:"avg_rss_mb"`
-	AvgTTFBMS    int     `json:"avg_ttfb_ms"`
-	AvgWallS     int     `json:"avg_wall_s"`
+	Tool          string  `json:"tool"`
+	Version       string  `json:"version,omitempty"`
+	Released      string  `json:"released,omitempty"`
+	Runs          int     `json:"runs"`
+	Passed        int     `json:"passed"`
+	FirstTry      int     `json:"first_try"`
+	Retried       int     `json:"retried"`
+	AvgAttempts   float64 `json:"avg_attempts"`
+	AvgModelCalls int     `json:"avg_model_calls"`
+	PlannedRuns   int     `json:"planned_runs"`
+	Subagents     int     `json:"subagents"`
+	InstallMB     int     `json:"install_mb"`
+	TotalTokens   int     `json:"total_tokens"`
+	AvgTokens     int     `json:"avg_tokens"`
+	CachedTokens  int     `json:"cached_tokens,omitempty"`
+	TotalCostUSD  float64 `json:"total_cost_usd,omitempty"`
+	AvgRSSMB      int     `json:"avg_rss_mb"`
+	AvgTTFBMS     int     `json:"avg_ttfb_ms"`
+	AvgWallS      int     `json:"avg_wall_s"`
 }
 
 // Report reads every result.json under the data dir and aggregates it per tool,
