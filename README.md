@@ -7,7 +7,7 @@
 
 [Install](#install) • [Quick start](#quick-start) • [Results](#results) • [Scenarios](#the-scenarios) • [Adding a tool](#adding-a-tool) • [Docs](https://tomo-labs.tamnd.com/)
 
-Agent benchmarks usually compare one thing everybody actually cares about (did it get the task done) by changing three things at once: the model, the prompt scaffolding, and the tool's own overhead. That is not a comparison, it is three experiments wearing one number. tomo-labs holds the model fixed. A trace proxy sits in front of every agent and forwards every request to the same free model with the same deterministic decoding settings, whatever wire dialect the agent's SDK speaks, OpenAI chat, Anthropic Messages, OpenAI Responses, or Gemini's API. What is left to differ is the agent: how many turns it needs, how many tokens it burns getting there, how much memory it holds, how big its install is. Seven agents run through the same harness today: tomo, codex, opencode, claude-code, openclaw, hermes, and gemini-cli. Adding one more is a `Dockerfile` and a small adapter script, not a fork of the harness.
+Agent benchmarks usually compare one thing everybody actually cares about (did it get the task done) by changing three things at once: the model, the prompt scaffolding, and the tool's own overhead. That is not a comparison, it is three experiments wearing one number. tomo-labs holds the model fixed. A trace proxy sits in front of every agent and forwards every request to the same free model with the same deterministic decoding settings, whatever wire dialect the agent's SDK speaks, OpenAI chat, Anthropic Messages, OpenAI Responses, or Gemini's API. What is left to differ is the agent: how many turns it needs, how many tokens it burns getting there, how much memory it holds, how big its install is. Eight agents run through the same harness today: tomo, codex, opencode, claude-code, openclaw, hermes, gemini-cli, and pi. Adding one more is a `Dockerfile` and a small adapter script, not a fork of the harness.
 
 ## Install
 
@@ -77,29 +77,39 @@ Nothing is summarized away. If a number in the report table looks wrong, the req
 
 ## Results
 
-Seven tools against the same free deepseek model through the same trace proxy, so what differs below is the tool, not the model. `lab report` reads every run ever captured, so a tool's row is its full history, including scenarios it failed before an adapter bug got fixed, not just one clean sweep.
+Eight tools against the same free deepseek model through the same trace proxy, so what differs below is the tool, not the model. `lab report` splits them by how they work, the tools that lay out a plan or spawn a subagent apart from the ones that run a single flat loop, and keeps only the latest run of each scenario, so a tool's row is its current state over the same 14 scenarios, not a history that still counts runs it failed before an adapter bug got fixed. That is what makes the columns comparable: pass reads as N of the 14 scenarios, `plans` is how many of those it chose to plan on, and `tokens` is the total across all 14, so a bigger number means more work spent, not more runs recorded. Both tables are ordered by tokens. Cost prices those tokens at DeepSeek's published paid rates (the runs themselves were free), which is the dollar figure the token gap becomes once you leave the free tier.
 
-| tool | version | released | pass | avg tokens | avg ttfb | install |
+Tools that plan:
+
+| tool | version | pass | plans | tokens | cost | install |
 | --- | --- | --- | --- | --- | --- | --- |
-| tomo | v0.2.2-0.20260709142456-c1a34b365454 | 2026-07-09 | 11/11 | 5,379 | 751ms | 21MB |
-| codex | 0.143.0 | 2026-07-08 | 12/12 | 15,105 | 902ms | 423MB |
-| opencode | 1.17.16 | 2026-07-09 | 11/11 | 26,227 | 820ms | 420MB |
-| claude-code | 2.1.205 | 2026-07-08 | 12/13 | 63,747 | 1205ms | 322MB |
-| openclaw | 2026.6.11 | 2026-06-30 | 11/11 | 56,234 | 1165ms | 407MB |
-| hermes | 0.18.2 | 2026-07-08 | 14/24 | 25,834 | 1015ms | 221MB |
-| gemini-cli | 0.50.0 | 2026-07-08 | 8/14 | 6,885 | 897ms | 181MB |
+| tomo | v0.2.3 | 14/14 | 5/14 | 208,599 | $0.028 | 21MB |
+| opencode | 1.17.16 | 12/14 | 2/14 | 457,807 | $0.051 | 420MB |
+| codex | 0.143.0 | 14/14 | 3/14 | 732,370 | $0.066 | 423MB |
+| openclaw | 2026.6.11 | 14/14 | 1/14 | 1,095,701 | $0.114 | 407MB |
+| hermes | 0.18.2 | 14/14 | 3/14 | 1,168,925 | $0.106 | 221MB |
+| claude-code | 2.1.205 | 14/14 | 3/14 | 1,793,716 | $0.150 | 322MB |
 
-Every version above is that tool's latest published release as of the run, checked against its npm/module registry directly, not a stale pin. `lab meta` captures the version and release date after every build so the table never drifts from what actually ran; run `lab report` yourself for the full columns (cache hit rate, cost, RSS, wall time).
+Tools that run flat:
+
+| tool | version | pass | plans | tokens | cost | install |
+| --- | --- | --- | --- | --- | --- | --- |
+| gemini-cli | 0.50.0 | 5/14 | 0/14 | 112,988 | $0.011 | 181MB |
+| pi | 0.80.6 | 14/14 | 0/14 | 244,455 | $0.033 | 156MB |
+
+Every version above is that tool's latest published release as of the run, checked against its npm or module registry directly, not a stale pin. `lab meta` captures the version and its release date after every build so the table never drifts from what actually ran; run `lab report` yourself for the full columns (release dates, cache hit rate, average tokens, RSS, ttfb, wall time).
 
 A few of these deserve a note.
 
-Token use is the headline: tomo does the same tasks in a fraction of the tokens of every other tool here, because it takes fewer, cleaner turns rather than re-reading its own context on every step.
+Token use is the headline, and cost is the same story in dollars. Among the tools that plan, tomo does all 14 tasks in a fraction of the tokens: 209k total against 732k for codex, 1.10M for openclaw, and 1.79M for claude-code, which on the paid tier is 3 cents against 7, 11, and 15. It plans in context, updating one checklist in the same turn, rather than re-reading its own state in a fresh context per step. pi spends more than tomo but still runs lean; gemini-cli spends the fewest tokens of all, but it does not plan at all and drops 9 of the 14 scenarios, so its cheapness is mostly work it never finished.
 
-Install footprint, not image size, is the honest size axis. Image size is dominated by the shared base every tool sits on (Python, Node, a Go toolchain), so it says more about the base than the tool. The install layer is the tool's own bytes on top of that base: 21MB for tomo's single static binary against hundreds of megabytes for a Node dependency tree.
+Planning is a choice a tool makes per scenario, not a fixed capability, which is what the `plans` column shows: even the planners lay out a plan on only a few of the 14 tasks and run the rest flat. openclaw is the clearest case, it carries a plan tool and a whole subagent layer but planned just 1 of 14 until the prompt asked, in plain terms, for a live plan it kept current as it worked. The split into two tables is by whether a tool ever plans, tomo and the others do on at least one scenario, pi and gemini-cli never.
 
-Time to first byte is bounded by the hosted model, which is the same upstream for every tool, so the gap you might hope for is not on the table here. tomo is still fastest because its prompts are shorter, so the model spends less time reading before it starts answering.
+Install footprint, not image size, is the honest size axis. Image size is dominated by the shared base every tool sits on (Python, Node, a Go toolchain), so it says more about the base than the tool. The install layer is the tool's own bytes on top of that base: 21MB for tomo's single static binary against 150 to 420MB for a Node dependency tree.
 
-hermes and gemini-cli's pass counts include runs recorded while their adapters were still broken. hermes shipped a custom provider that silently dropped the API key until its adapter learned to set it explicitly. gemini-cli needs `~/.gemini/settings.json` written with an explicit auth type, or its headless mode falls back to an interactive prompt that never resolves. Both wire translators work end to end now: hermes passes its scenarios cleanly, and gemini-cli's remaining failures are the model missing a step, not a wiring bug, it makes only 2 to 3 requests per scenario against 20 to 30 for tomo or hermes, so it rarely retries the way the others do.
+Time to first byte is left out of the tables on purpose. It is bounded by the hosted model, the same upstream for every tool, so it clusters in the same couple of seconds for everyone and is not a real axis of difference here; `lab report` still prints it if you want to see for yourself.
+
+gemini-cli's 5/14 is mostly the model missing a step, not a wiring bug: it makes only 2 to 3 requests per scenario, so it rarely retries the way the others do, and it drops the multi-step scenarios where a plan would have kept it on track. Its wire translator works end to end. pi is the opposite kind of flat, a minimal harness that runs the whole task in one loop and passed every scenario cleanly. pi does ship a plan mode, but it is a read-only exploration extension gated behind an interactive prompt: it writes a prose plan and asks, in the TUI, whether to execute, rather than exposing a plan tool the model calls mid-run. In a one-shot headless run there is no prompt to answer and no plan tool to record, so pi stays flat here by design, not for lack of trying.
 
 The `00-hello` scenario is a baseline, just the prompt `Hi!`, isolating the fixed round-trip cost every tool pays before it does any real work. See the [Hi! baseline results](https://github.com/tamnd/tomo#the-hi-baseline) in tomo's own README for that table; it lives there since it's the number tomo's README leads with.
 
@@ -120,6 +130,9 @@ Ordinary tasks a capable agent should handle, each with a checker that grades th
 | 08-data-summary | total a sales CSV and find the top day |
 | 09-project-scaffold | scaffold a small project and run its make target |
 | 10-reasoning-calc | follow a precise two-step calculation into a file |
+| 11-storefront-budget | fetch a page, read a local budget, and write the affordable products in order |
+| 12-invoice-join | fetch a catalog, join it with a local orders CSV, and total the invoice |
+| 13-release-fix | fetch tax rates, fix a bug, build, run, and get the Go test suite green |
 
 ## Adding a tool
 

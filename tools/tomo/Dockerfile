@@ -2,10 +2,11 @@
 # drives it. tomo is built from its public module, so this image is independent
 # of any tomo checkout on the host.
 FROM golang:1.26-bookworm AS build
-# v0.2.2 is the first tagged release carrying the workspace rooting (file and
-# shell tools at /work), `tomo -p` (the one-shot headless mode the adapter
-# drives), and the build-info version fallback.
-ARG TOMO_VERSION=v0.2.2
+# v0.2.3 plans a multi-step job in one turn with the plan tool rather than a
+# fresh context per step, on top of the workspace rooting (file and shell tools
+# at /work) and `tomo -p` (the one-shot headless mode the adapter drives) that
+# landed in v0.2.2.
+ARG TOMO_VERSION=v0.2.3
 RUN CGO_ENABLED=0 go install github.com/tamnd/tomo/cmd/tomo@${TOMO_VERSION}
 
 FROM tomolab-base
