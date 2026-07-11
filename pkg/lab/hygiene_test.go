@@ -3,8 +3,39 @@ package lab
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
+
+func TestOwnedSlots(t *testing.T) {
+	// A killed concurrency-3 sweep leaves worker 0 on the bare names and workers
+	// 1 and 2 on -1/-2 suffixes. All of them are this harness's to remove.
+	names := []string{
+		"tomolab-proxy", "tomolab-run", "tomolab-web",
+		"tomolab-proxy-1", "tomolab-run-1",
+		"tomolab-proxy-2", "tomolab-run-2",
+		// A co-resident harness under a longer prefix must survive a tomolab clean.
+		"tomolab-mc-proxy", "tomolab-mc-run-1",
+		// A tool image name and an unrelated container are never touched here.
+		"tomolab-tool-tomo", "some-other-container",
+	}
+	got := ownedSlots("tomolab", names)
+	want := []string{
+		"tomolab-proxy", "tomolab-run", "tomolab-web",
+		"tomolab-proxy-1", "tomolab-run-1",
+		"tomolab-proxy-2", "tomolab-run-2",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ownedSlots(tomolab) = %v, want %v", got, want)
+	}
+
+	// Cleaning under the longer prefix picks up only its own slots.
+	gotMC := ownedSlots("tomolab-mc", names)
+	wantMC := []string{"tomolab-mc-proxy", "tomolab-mc-run-1"}
+	if !reflect.DeepEqual(gotMC, wantMC) {
+		t.Fatalf("ownedSlots(tomolab-mc) = %v, want %v", gotMC, wantMC)
+	}
+}
 
 func TestStripCaches(t *testing.T) {
 	work := t.TempDir()

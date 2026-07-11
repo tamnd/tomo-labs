@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 )
 
@@ -14,10 +15,38 @@ import (
 // machine has just drifted, exposed as `lab clean`. It leaves the tagged tool
 // images in place, so the next run needs no rebuild.
 func (l *Lab) Clean(ctx context.Context) {
-	for _, name := range []string{l.cfg.proxyName(), l.cfg.webName(), l.cfg.runName()} {
+	for _, name := range l.orphanContainers(ctx) {
 		l.rt.Remove(ctx, name)
 	}
 	l.rt.PruneImages(ctx)
+}
+
+// orphanContainers finds every proxy, web, and tool container this harness owns,
+// across all worker slots. A run at concurrency N creates a proxy and a tool
+// container per slot, worker zero on the bare names and worker i on a -i suffix,
+// so removing only worker zero (which the earlier cleanup did) leaves the higher
+// slots behind whenever a concurrent sweep was killed mid-flight. Those orphans
+// are detached containers that pin their writable layers and published ports,
+// and they pile up run after run until the runtime's disk fills. Discovering the
+// slots by name rather than by the current concurrency also catches a sweep that
+// ran at a higher concurrency than the clean does. The match is anchored on the
+// known roles so a co-resident harness under a longer prefix, say tomolab-mc
+// beside tomolab, is never caught by the shorter prefix's clean.
+func (l *Lab) orphanContainers(ctx context.Context) []string {
+	return ownedSlots(l.cfg.NamePrefix, l.rt.Containers(ctx))
+}
+
+// ownedSlots filters container names to the proxy, web, and tool slots a harness
+// with the given prefix owns, at any worker index.
+func ownedSlots(prefix string, names []string) []string {
+	slot := regexp.MustCompile("^" + regexp.QuoteMeta(prefix) + `-(proxy|web|run)(-\d+)?$`)
+	var owned []string
+	for _, name := range names {
+		if slot.MatchString(name) {
+			owned = append(owned, name)
+		}
+	}
+	return owned
 }
 
 // cacheDirs are directory names that hold build or dependency caches, never a
