@@ -2,6 +2,33 @@
 
 All notable changes to tomo-labs are recorded here.
 
+## v0.1.1
+
+Recovers each tool's real system prompt from its traces, and adds a research
+documentation tier that studies every wired agent in depth.
+
+### Added
+
+- `lab prompts <tool> [scenario]` recovers a tool's system prompt from its
+  captured traces. It reads the request tap across every run, unions the distinct
+  prompts, groups the per-run renderings that differ only in volatile spans like
+  the date or a session id, and ranks the agent's working prompt first. `--json`
+  emits the structured form and `--brief` keeps the headers without the text.
+- A research page per wired agent under the docs, covering what it is, its command
+  surface, how the lab drives it, its architecture, the system prompt it actually
+  sent, and a `00-hello` run traced end to end.
+- A versioned page per tool holding the verbatim system prompt it sent, generated
+  from `lab prompts`, so a prompt change between tool versions shows up in a diff.
+- An overview page for the whole feature set, an evals guide for the eval tiers,
+  and a guide for upgrading the wired tools as they release new versions.
+
+### Changed
+
+- The installation guide now offers the signed release archives alongside the
+  from-source build, with checksum and cosign verification.
+- The CLI reference documents the `prompts`, `gen`, and `reparse` commands and the
+  `--suite` flag.
+
 ## v0.1.0
 
 First release. tomo-labs runs coding agents through the same tasks on the same
