@@ -8,6 +8,7 @@
 //	lab -p "<prompt>" [tool...] run one ad-hoc prompt through every tool, or some
 //	lab tools                   list wired tools
 //	lab scenarios               list scenarios
+//	lab prompts <tool> [scen]   extract the system prompts a tool sent, from its traces
 //	lab meta                    capture each tool's version and release date
 //	lab gen                     materialize a benchmark into the suite's tasks/
 //	lab report [--json]         summarize captured runs
@@ -72,6 +73,8 @@ func main() {
 		die(cmdTools(l))
 	case "scenarios":
 		die(cmdScenarios(l))
+	case "prompts":
+		die(cmdPrompts(l, arg(args, 1), arg(args, 2), hasFlag(args, "--json"), hasFlag(args, "--brief")))
 	case "gen":
 		die(cmdGen(ctx, l, args[1:]))
 	case "meta":
@@ -152,6 +155,30 @@ func cmdPrompt(ctx context.Context, l *lab.Lab, rest []string) error {
 	return nil
 }
 
+// cmdPrompts extracts the system prompt(s) a tool actually sent to the model,
+// read from its captured traces. The full text prints by default so it can be
+// saved next to the tool's docs; --brief drops the text and keeps the headers,
+// and --json emits the structured form.
+func cmdPrompts(l *lab.Lab, tool, scenario string, asJSON, brief bool) error {
+	if tool == "" {
+		return fmt.Errorf("usage: lab prompts <tool> [scenario] [--json] [--brief]")
+	}
+	tp, err := l.Prompts(tool, scenario)
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		b, err := json.MarshalIndent(tp, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	}
+	lab.WritePrompts(os.Stdout, tp, !brief)
+	return nil
+}
+
 func cmdTools(l *lab.Lab) error {
 	tools, err := l.Tools()
 	if err != nil {
@@ -229,7 +256,7 @@ func takeFlagValue(args []string, flag string) (string, []string) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|meta|gen|report|reparse|clean} [--suite <name>] [args]")
+	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|prompts|meta|gen|report|reparse|clean} [--suite <name>] [args]")
 }
 
 func die(err error) {
