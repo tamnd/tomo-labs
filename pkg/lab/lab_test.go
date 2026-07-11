@@ -22,6 +22,8 @@ func TestReadTrace(t *testing.T) {
 	// completions the average should be taken over.
 	write(t, dir, "latency.jsonl", `{"status":200,"path":"/zen/","ttfb_ms":5,"total_ms":9}
 {"status":500,"path":"/zen/v1/chat/completions","ttfb_ms":100,"total_ms":200}
+{"status":429,"path":"/zen/v1/chat/completions","retry_after_s":20}
+{"status":429,"path":"/zen/v1/chat/completions","retry_after_s":8}
 {"status":200,"path":"/zen/v1/chat/completions","ttfb_ms":100,"total_ms":300}
 {"status":200,"path":"/zen/v1/chat/completions","ttfb_ms":200,"total_ms":500}
 `)
@@ -41,6 +43,14 @@ func TestReadTrace(t *testing.T) {
 	}
 	if m.Latency != (Latency{AvgTTFB: 150, AvgTotal: 400, Calls: 2}) {
 		t.Errorf("latency = %+v, want ttfb 150 total 400 calls 2", m.Latency)
+	}
+	// The two 429 rows are counted apart from the timed 200s, and the longest
+	// Retry-After they carried is kept.
+	if m.RateLimit == nil {
+		t.Fatalf("rate_limit = nil, want 2 hits")
+	}
+	if *m.RateLimit != (RateLimit{Hits: 2, MaxRetryAfterS: 20}) {
+		t.Errorf("rate_limit = %+v, want 2 hits / retry-after 20", *m.RateLimit)
 	}
 }
 

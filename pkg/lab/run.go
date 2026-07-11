@@ -149,7 +149,7 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 		WallSeconds: wall, ElapsedClock: m.ElapsedClock,
 		MaxRSSKB: m.MaxRSSKB, Requests: m.Requests,
 		Tokens: m.Tokens, Latency: m.Latency, CostUSD: m.CostUSD,
-		Orchestration: m.Orch,
+		Orchestration: m.Orch, RateLimit: m.RateLimit,
 		DiskBeforeKB:  diskBefore, DiskAfterKB: diskAfter, DiskDeltaKB: diskAfter - diskBefore,
 		InstallKB: installKB,
 		Check:     firstLineOf(reason),
@@ -334,11 +334,25 @@ func (l *Lab) printSummary(r *Result) {
 	case r.Passed:
 		mark = "PASS"
 	}
+	note := firstLineOf(r.Check)
+	if r.RateLimit != nil {
+		// A throttled run leaves no tokens and no answer, so call it out plainly
+		// rather than letting it read as a plain failure.
+		tag := fmt.Sprintf("rate-limited x%d", r.RateLimit.Hits)
+		if r.RateLimit.MaxRetryAfterS > 0 {
+			tag += fmt.Sprintf(" (retry-after %ds)", r.RateLimit.MaxRetryAfterS)
+		}
+		if note == "" {
+			note = tag
+		} else {
+			note = tag + "; " + note
+		}
+	}
 	fmt.Fprintf(os.Stderr, "  %s  %-8s %-20s try=%d/%d tokens=%d reqs=%d plan=%d sub=%d rss=%.1fMB disk=+%dKB ttfb=%dms  %s\n",
 		mark, r.Tool, r.Scenario, r.Attempts, r.AttemptsMax,
 		r.Tokens.Total, r.Orchestration.ModelCalls, r.Orchestration.PlanCalls, r.Orchestration.Subagents,
 		float64(r.MaxRSSKB)/1024, r.DiskDeltaKB, r.Latency.AvgTTFB,
-		firstLineOf(r.Check))
+		note)
 }
 
 // readAnswer reads a tool's stdout from a run's trace and returns its tail,
