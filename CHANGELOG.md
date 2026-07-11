@@ -2,6 +2,42 @@
 
 All notable changes to tomo-labs are recorded here.
 
+## v0.1.2
+
+Adds the LiveCodeBench eval tier, captures upstream rate limits so a throttled
+run reads as throttled rather than failed, and lets a second harness run beside
+the first without colliding.
+
+### Added
+
+- A `livecodebench` eval tier that rebuilds LiveCodeBench, the contamination-free
+  competition benchmark, rendering both the stdin and the functional problem
+  shapes and grading each with LiveCodeBench's own test runner in a suite-local
+  Python venv on the host. `gen --suite livecodebench --difficulty easy|medium|hard`
+  pins the tier so a run can showcase or stress a tool.
+- Rate-limit capture: when the upstream throttles a run, the result records the
+  number of 429s and the longest Retry-After, and the summary marks the run
+  rate-limited instead of counting it as a plain failure.
+- `lab build --no-cache` forces a fresh install of every tool image, so a daily
+  rebuild picks up a tool's newest release even when the layer cache would hide it.
+- A daily workflow that bumps every wired tool to its latest version.
+- `LAB_NAME_PREFIX` gives a run its own container-name prefix, so a second harness
+  can run on the same machine under its own names, network, and proxy port.
+
+### Changed
+
+- Every tool page is now a deep reference: what the tool is, its command surface,
+  how the lab drives it, its architecture, and the system prompt it actually sent.
+- The docs give evals their own section and order the guides by use case.
+- Every wired tool is bumped to its current release.
+
+### Fixed
+
+- `lab clean` now removes every worker slot, not just worker zero. A concurrent
+  sweep killed mid-flight left its higher slots behind as orphan containers, each
+  pinning a writable layer and a published port, and they piled up run after run
+  until the container machine filled its disk.
+
 ## v0.1.1
 
 Recovers each tool's real system prompt from its traces, and adds a research
