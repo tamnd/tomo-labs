@@ -226,22 +226,12 @@ type ToolSummary struct {
 // (report 11).
 func (l *Lab) Report(_ context.Context, scenario string) ([]ToolSummary, error) {
 	var results []*Result
-	err := filepath.WalkDir(l.cfg.Data, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || d.Name() != "result.json" {
-			return nil
-		}
-		b, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		var r Result
+	err := l.walkResults(func(path string, r *Result) {
 		// Ungraded prompt runs (lab -p) have no pass or fail, so they never belong
 		// in the scenario comparison; skip them here.
-		if json.Unmarshal(b, &r) == nil && r.Tool != "" && !r.Ungraded &&
-			(scenario == "" || strings.Contains(r.Scenario, scenario)) {
-			results = append(results, &r)
+		if !r.Ungraded && (scenario == "" || strings.Contains(r.Scenario, scenario)) {
+			results = append(results, r)
 		}
-		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -255,6 +245,39 @@ func (l *Lab) Report(_ context.Context, scenario string) ([]ToolSummary, error) 
 		sums[i].Released = m.Released
 	}
 	return sums, nil
+}
+
+// walkResults reads every result.json under the active suite's results dir and
+// calls fn with the parsed run. In the core suite it skips the evals/ subtree so
+// a suite's runs never leak into the core report, since the eval tiers live under
+// the same data root; a named suite walks only its own subtree, so no skip is
+// needed. Unreadable or malformed files and rows with no tool are dropped.
+func (l *Lab) walkResults(fn func(path string, r *Result)) error {
+	root := l.resultsDir()
+	evalsDir := filepath.Join(l.cfg.Data, "evals")
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if l.cfg.Suite == "" && path == evalsDir {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() != "result.json" {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		var r Result
+		if json.Unmarshal(b, &r) == nil && r.Tool != "" {
+			fn(path, &r)
+		}
+		return nil
+	})
 }
 
 // latestPerScenario keeps only the most recent run of each tool and scenario.

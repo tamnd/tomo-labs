@@ -1,0 +1,13 @@
+Complete the function in solution.py so it satisfies its docstring. Keep the exact signature; write only into solution.py. Your solution is graded by a hidden test suite that calls truncate_number.
+
+solution.py starts as:
+
+def truncate_number(number: float) -> float:
+    """ Given a positive floating point number, it can be decomposed into
+    and integer part (largest integer smaller than given number) and decimals
+    (leftover part always smaller than 1).
+
+    Return the decimal part of the number.
+    >>> truncate_number(3.5)
+    0.5
+    """

@@ -1,0 +1,10 @@
+Complete the function in solution.py so it satisfies its docstring. Keep the exact signature; write only into solution.py. Your solution is graded by a hidden test suite that calls is_not_prime.
+
+solution.py starts as:
+
+def is_not_prime(n):
+    """Write a python function to identify non-prime numbers.
+
+    Example:
+    >>> assert is_not_prime(2) == False
+    """

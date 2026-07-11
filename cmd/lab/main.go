@@ -9,9 +9,16 @@
 //	lab tools                   list wired tools
 //	lab scenarios               list scenarios
 //	lab meta                    capture each tool's version and release date
+//	lab gen                     materialize a benchmark into the suite's tasks/
 //	lab report [--json]         summarize captured runs
 //	lab reparse                 recompute metrics of captured runs from their traces
 //	lab clean                   remove lab containers and dangling images
+//
+// Any command that runs, lists, reports, or generates over tasks takes --suite
+// <name> to work on a separate eval tier under evals/<name>/ instead of the core
+// scenarios/, e.g. `lab run tomo --suite aider` or `lab gen --suite evalplus`.
+// gen fetches a public benchmark and writes its tasks; it takes --limit, --all,
+// --langs, and --no-validate after the command.
 //
 // It needs OPENCODE_API_KEY (or another OpenAI-compatible key, with LAB_UPSTREAM
 // and LAB_MODEL pointed to match). All logic lives in pkg/lab; this is a thin
@@ -25,6 +32,8 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/tamnd/tomo-labs/pkg/lab"
@@ -40,7 +49,14 @@ func main() {
 		os.Exit(2)
 	}
 
-	l, err := lab.New(ctx, lab.DefaultConfig())
+	// --suite selects a task tier before anything else, since it changes both where
+	// tasks are read from and where results land; pull it out of the args so the
+	// positional command and its arguments read the same with or without it.
+	suite, args := takeFlagValue(args, "--suite")
+	cfg := lab.DefaultConfig()
+	cfg.Suite = suite
+
+	l, err := lab.New(ctx, cfg)
 	if err != nil {
 		die(err)
 	}
@@ -56,6 +72,8 @@ func main() {
 		die(cmdTools(l))
 	case "scenarios":
 		die(cmdScenarios(l))
+	case "gen":
+		die(cmdGen(ctx, l, args[1:]))
 	case "meta":
 		die(l.RefreshMeta(ctx))
 	case "report":
@@ -72,6 +90,34 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+}
+
+// cmdGen materializes a public benchmark into the active suite's tasks/ dir. The
+// suite is chosen with the global --suite flag; the flags after gen tune the pull:
+// --limit N per track, --all for the whole benchmark, --langs a,b to select
+// tracks (aider) or datasets (evalplus), and --no-validate to skip the proof.
+func cmdGen(ctx context.Context, l *lab.Lab, rest []string) error {
+	var opts lab.GenOptions
+	langs, rest := takeFlagValue(rest, "--langs")
+	if langs != "" {
+		for _, s := range strings.Split(langs, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				opts.Langs = append(opts.Langs, s)
+			}
+		}
+	}
+	limit, rest := takeFlagValue(rest, "--limit")
+	if limit != "" {
+		n, err := strconv.Atoi(limit)
+		if err != nil {
+			return fmt.Errorf("--limit: %w", err)
+		}
+		opts.Limit = n
+	}
+	opts.All = hasFlag(rest, "--all")
+	opts.NoValidate = hasFlag(rest, "--no-validate")
+	_, err := l.Generate(ctx, opts)
+	return err
 }
 
 func cmdRun(ctx context.Context, l *lab.Lab, tool, scenario string) error {
@@ -160,8 +206,30 @@ func hasFlag(args []string, flag string) bool {
 	return slices.Contains(args, flag)
 }
 
+// takeFlagValue pulls a "--flag value" (or "--flag=value") pair out of args and
+// returns the value and the remaining args, so the caller's positional parsing
+// never has to account for it. A missing flag yields an empty value and the args
+// unchanged.
+func takeFlagValue(args []string, flag string) (string, []string) {
+	out := make([]string, 0, len(args))
+	value := ""
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == flag && i+1 < len(args):
+			value = args[i+1]
+			i++
+		case strings.HasPrefix(a, flag+"="):
+			value = strings.TrimPrefix(a, flag+"=")
+		default:
+			out = append(out, a)
+		}
+	}
+	return value, out
+}
+
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|meta|report|reparse|clean} [args]")
+	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|meta|gen|report|reparse|clean} [--suite <name>] [args]")
 }
 
 func die(err error) {

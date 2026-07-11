@@ -42,6 +42,39 @@ func New(ctx context.Context, cfg Config) (*Lab, error) {
 // Runtime is the resolved container command name, for display.
 func (l *Lab) Runtime() string { return l.rt.Bin }
 
+// tasksDir is the directory the current suite draws tasks from. The empty suite
+// is the core hand-written set under scenarios/; a named suite is a separate tier
+// materialized under evals/<name>/tasks/, so a public dataset never mixes into
+// the core comparison. A task in either place is the same shape (prompt.txt plus
+// an optional setup.sh and check.sh), so the whole run and grade path is shared.
+func (l *Lab) tasksDir() string {
+	if l.cfg.Suite == "" {
+		return filepath.Join(l.cfg.Root, "scenarios")
+	}
+	return filepath.Join(l.cfg.Root, "evals", l.cfg.Suite, "tasks")
+}
+
+// resultsDir is where a suite's runs and results land. Core runs keep the bare
+// data root so nothing about the existing layout moves; a named suite gets its
+// own subtree, which is what keeps its report separate from the core table and
+// lets a heavy public dataset be pruned or thrown away on its own. Tool image
+// metadata (version, install size) is not per suite, so it stays at the data
+// root and is read from there regardless of the active suite.
+func (l *Lab) resultsDir() string {
+	if l.cfg.Suite == "" {
+		return l.cfg.Data
+	}
+	return filepath.Join(l.cfg.Data, "evals", l.cfg.Suite)
+}
+
+// suiteDir is the root of the active suite's tier, the parent of both its tasks/
+// and the sibling dirs a generator keeps out of the agent's reach (answers/ for a
+// reference solution, oracle/ for a hidden test). It is only meaningful for a
+// named suite, since the core scenarios are hand-written and have no generator.
+func (l *Lab) suiteDir() string {
+	return filepath.Join(l.cfg.Root, "evals", l.cfg.Suite)
+}
+
 // Scenario is one task definition on disk.
 type Scenario struct {
 	Name   string // directory name, e.g. 06-codegen-primes
@@ -71,9 +104,10 @@ func (l *Lab) Tools() ([]string, error) {
 	return out, nil
 }
 
-// Scenarios lists every scenario directory that has a prompt.
+// Scenarios lists every scenario directory that has a prompt, drawn from the
+// active suite's task dir.
 func (l *Lab) Scenarios() ([]Scenario, error) {
-	entries, err := os.ReadDir(filepath.Join(l.cfg.Root, "scenarios"))
+	entries, err := os.ReadDir(l.tasksDir())
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +116,7 @@ func (l *Lab) Scenarios() ([]Scenario, error) {
 		if !e.IsDir() {
 			continue
 		}
-		dir := filepath.Join(l.cfg.Root, "scenarios", e.Name())
+		dir := filepath.Join(l.tasksDir(), e.Name())
 		if !exists(filepath.Join(dir, "prompt.txt")) {
 			continue
 		}
@@ -95,9 +129,9 @@ func (l *Lab) Scenarios() ([]Scenario, error) {
 	return out, nil
 }
 
-// scenario looks up one scenario by name.
+// scenario looks up one scenario by name within the active suite.
 func (l *Lab) scenario(name string) (Scenario, error) {
-	dir := filepath.Join(l.cfg.Root, "scenarios", name)
+	dir := filepath.Join(l.tasksDir(), name)
 	if !exists(filepath.Join(dir, "prompt.txt")) {
 		return Scenario{}, fmt.Errorf("unknown scenario: %s", name)
 	}
