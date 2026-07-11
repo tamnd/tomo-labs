@@ -33,6 +33,45 @@ func TestCollectPromptsRanksAgentFirst(t *testing.T) {
 	}
 }
 
+// TestCollectPromptsGroupsRenderings collapses renderings of one base prompt that
+// differ only in volatile spans (the date, the working dir, a session id) into a
+// single prompt, counting the renderings as Variants while keeping one fully
+// rendered representative.
+func TestCollectPromptsGroupsRenderings(t *testing.T) {
+	tmpl := func(date, dir, id string) string {
+		body := `You are the agent. Today is ` + date + `. cwd is ` + dir + `. session ` + id + `.`
+		return `{"method":"POST","path":"/v1/chat/completions","body":{"messages":[` +
+			`{"role":"system","content":"` + body + `"},{"role":"user","content":"go"}],` +
+			`"tools":[{"function":{"name":"read"}}]}}`
+	}
+	r1 := tmpl("2026-07-10", "/home/work/a", "a1b2c3d4e5f6")
+	r2 := tmpl("2026-07-11", "/home/work/bb", "0f9e8d7c6b5a")
+	r3 := tmpl("2026-07-11", "/tmp/run/ccc", "deadbeef1234")
+	got := collectPrompts([]string{writeReqs(t, r1, r2, r3)})
+	if len(got) != 1 {
+		t.Fatalf("renderings of one base prompt should group to 1, got %d", len(got))
+	}
+	if got[0].Variants != 3 {
+		t.Errorf("Variants: want 3 renderings, got %d", got[0].Variants)
+	}
+	if got[0].Requests != 3 {
+		t.Errorf("Requests: want 3, got %d", got[0].Requests)
+	}
+}
+
+// TestPromptSig masks volatile spans so two renderings share a signature, while
+// prompts with genuinely different stable text keep different signatures.
+func TestPromptSig(t *testing.T) {
+	a := promptSig("Today is 2026-07-10T03:21:46Z at /Users/x/proj id 9fceab12ff.")
+	b := promptSig("Today is 2026-07-11T09:00:00Z at /tmp/proj/y id 001188aa55.")
+	if a != b {
+		t.Errorf("renderings should share a signature:\n a=%q\n b=%q", a, b)
+	}
+	if promptSig("You are agent A.") == promptSig("You are agent B.") {
+		t.Error("different stable text must not share a signature")
+	}
+}
+
 // TestParseWire reads the origin wire off the proxy's path tag, and treats an
 // untagged chat request as native chat.
 func TestParseWire(t *testing.T) {

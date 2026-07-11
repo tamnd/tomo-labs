@@ -20,13 +20,20 @@ import (
 // A run usually holds more than one: the main agent prompt that carries the
 // tool schema, plus smaller side prompts a tool makes for itself (opencode asks
 // the model for a thread title first, some tools summarize). Requests is how
-// many captured completions carried this exact text, and WithTools marks the
-// one sent alongside a tool schema, which is the agent's real working prompt.
+// many captured completions carried this prompt, and WithTools marks the one
+// sent alongside a tool schema, which is the agent's real working prompt.
+//
+// Most tools splice volatile context into the prompt each run (the date, the
+// working directory, a session id, git status), so the same base prompt renders
+// as slightly different text every time. Those are grouped as one prompt: Text
+// is a fully-rendered representative, and Variants counts how many distinct
+// renderings collapsed into it. Variants of 1 means the prompt is static.
 type SystemPrompt struct {
 	Text      string   `json:"text"`
 	Chars     int      `json:"chars"`
 	Wire      string   `json:"wire"`
 	Requests  int      `json:"requests"`
+	Variants  int      `json:"variants"`
 	WithTools bool     `json:"with_tools"`
 	Tools     []string `json:"tools,omitempty"`
 }
@@ -48,6 +55,33 @@ type ToolPrompts struct {
 // fromWireRe pulls the origin wire out of a proxy-tagged path like
 // "/v1/chat/completions (from responses)". A plain chat request has no tag.
 var fromWireRe = regexp.MustCompile(`\(from (\w+)\)`)
+
+// volatile spans that a tool splices into its prompt fresh every run. Masking
+// them yields a signature that is stable across runs of the same base prompt, so
+// renderings that differ only in the date, a path, or a session id group as one.
+// Order matters: timestamps before bare dates before digit runs.
+var volatile = []struct {
+	re   *regexp.Regexp
+	mask string
+}{
+	{regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`), "<uuid>"},
+	{regexp.MustCompile(`\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?`), "<ts>"},
+	{regexp.MustCompile(`\b\d+\.\d+\.\d+(?:[.\-]\w+)?\b`), "<ver>"},
+	{regexp.MustCompile(`\d{4}-\d{2}-\d{2}`), "<date>"},
+	{regexp.MustCompile(`(?:/[\w.\-]+){2,}`), "<path>"},
+	{regexp.MustCompile(`\b[0-9a-f]{8,}\b`), "<id>"},
+	{regexp.MustCompile(`\d+`), "<n>"},
+}
+
+// promptSig masks the volatile spans of a prompt so two renderings of the same
+// base prompt share a signature. Two genuinely different prompts still differ in
+// their stable text, so they never collapse together.
+func promptSig(text string) string {
+	for _, v := range volatile {
+		text = v.re.ReplaceAllString(text, v.mask)
+	}
+	return text
+}
 
 // Prompts recovers the system prompts a tool actually sent, read from its
 // captured traces rather than from the tool's source, so it is ground truth for
@@ -119,9 +153,15 @@ func traceRequestFiles(runDir string) []string {
 }
 
 // promptAcc accumulates one distinct system prompt as the requests are scanned.
+// Renderings of the same base prompt share a signature and land here together:
+// repr keeps the longest rendering seen (the most fully filled-in example),
+// variants counts the distinct renderings, and requests counts every completion
+// that carried any of them.
 type promptAcc struct {
+	repr     string
 	wire     string
 	requests int
+	variants map[string]bool
 	tools    map[string]bool
 	order    int
 }
@@ -179,12 +219,17 @@ func collectPrompts(files []string) []SystemPrompt {
 					continue
 				}
 				seen[text] = true
-				a := acc[text]
+				sig := promptSig(text)
+				a := acc[sig]
 				if a == nil {
-					a = &promptAcc{wire: wire, tools: map[string]bool{}, order: len(acc)}
-					acc[text] = a
+					a = &promptAcc{repr: text, wire: wire, variants: map[string]bool{}, tools: map[string]bool{}, order: len(acc)}
+					acc[sig] = a
 				}
 				a.requests++
+				a.variants[text] = true
+				if len(text) > len(a.repr) {
+					a.repr = text
+				}
 				for _, n := range toolNames {
 					a.tools[n] = true
 				}
@@ -193,27 +238,26 @@ func collectPrompts(files []string) []SystemPrompt {
 	}
 
 	out := make([]SystemPrompt, 0, len(acc))
-	for text, a := range acc {
+	order := map[string]int{}
+	for _, a := range acc {
 		tools := make([]string, 0, len(a.tools))
 		for n := range a.tools {
 			tools = append(tools, n)
 		}
 		sort.Strings(tools)
 		out = append(out, SystemPrompt{
-			Text:      text,
-			Chars:     len(text),
+			Text:      a.repr,
+			Chars:     len(a.repr),
 			Wire:      a.wire,
 			Requests:  a.requests,
+			Variants:  len(a.variants),
 			WithTools: len(tools) > 0,
 			Tools:     tools,
 		})
+		order[a.repr] = a.order
 	}
 	// Keep order stable and meaningful: the working prompt (with tools) first, then
 	// by how often it was sent, then by length, then by first appearance.
-	order := map[string]int{}
-	for text, a := range acc {
-		order[text] = a.order
-	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].WithTools != out[j].WithTools {
 			return out[i].WithTools
@@ -298,7 +342,11 @@ func WritePrompts(w io.Writer, tp *ToolPrompts, full bool) {
 		if p.WithTools {
 			role = "agent prompt"
 		}
-		fmt.Fprintf(w, "\n[%d] %s | wire=%s | %d chars | %d request(s)\n", i+1, role, p.Wire, p.Chars, p.Requests)
+		variance := ""
+		if p.Variants > 1 {
+			variance = fmt.Sprintf(" | %d per-run renderings", p.Variants)
+		}
+		fmt.Fprintf(w, "\n[%d] %s | wire=%s | %d chars | %d request(s)%s\n", i+1, role, p.Wire, p.Chars, p.Requests, variance)
 		if len(p.Tools) > 0 {
 			fmt.Fprintf(w, "    tools (%d): %s\n", len(p.Tools), strings.Join(p.Tools, ", "))
 		}
