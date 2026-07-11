@@ -152,11 +152,15 @@ type BuildSpec struct {
 	Context    string
 	Dockerfile string            // empty means <context>/Dockerfile
 	Args       map[string]string // --build-arg
+	NoCache    bool              // ignore cached layers, forcing a fresh install
 	Out        *os.File
 }
 
 func (c *CLI) Build(ctx context.Context, s BuildSpec) error {
 	args := []string{"build", "-t", s.Tag}
+	if s.NoCache {
+		args = append(args, "--no-cache")
+	}
 	if s.Dockerfile != "" {
 		args = append(args, "-f", s.Dockerfile)
 	}
