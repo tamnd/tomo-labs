@@ -67,6 +67,15 @@ A new version can change the tool's prompt, its tool schema, its token appetite,
 
   The [prompts](/prompts/) pages are checked into the repo for exactly this reason: when a tool changes its system prompt between versions, the change lands in a reviewable diff instead of going unnoticed.
 
+The first three steps for the whole set at once are what `scripts/rerun.go` does: it sweeps the core scenarios and both eval tiers, runs `meta`, and rewrites every results table in the docs and the [results](/guides/results/) page from the captured runs, so the published numbers never drift from what actually ran.
+
+```bash
+go run scripts/rerun.go                # rebuild off, sweep every suite, refresh the tables
+go run scripts/rerun.go -run=false     # just refresh the tables from the runs already captured
+```
+
+It regenerates the tables between their markers and leaves the prose alone, so the narrative that quotes specific figures is still worth rereading after a large bump.
+
 ## Bumping every tool at once
 
 The tools ship new releases faster than anyone wants to track by hand, so the pins are moved by a script rather than edited one at a time.
