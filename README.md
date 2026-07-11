@@ -83,12 +83,12 @@ Tools that plan:
 
 | tool | version | pass | plans | tokens | cost | install |
 | --- | --- | --- | --- | --- | --- | --- |
-| tomo | v0.2.3 | 14/14 | 5/14 | 208,599 | $0.028 | 21MB |
-| opencode | 1.17.16 | 12/14 | 2/14 | 457,807 | $0.051 | 420MB |
-| codex | 0.143.0 | 14/14 | 3/14 | 732,370 | $0.066 | 423MB |
+| tomo | v0.2.4 | 14/14 | 4/14 | 187,404 | $0.027 | 21MB |
+| opencode | 1.17.18 | 12/14 | 2/14 | 457,807 | $0.052 | 420MB |
+| codex | 0.144.1 | 14/14 | 3/14 | 732,370 | $0.066 | 423MB |
 | openclaw | 2026.6.11 | 14/14 | 1/14 | 1,095,701 | $0.114 | 407MB |
 | hermes | 0.18.2 | 14/14 | 3/14 | 1,168,925 | $0.106 | 221MB |
-| claude-code | 2.1.205 | 14/14 | 3/14 | 1,793,716 | $0.150 | 322MB |
+| claude-code | 2.1.207 | 14/14 | 3/14 | 1,793,716 | $0.150 | 322MB |
 
 Tools that run flat:
 
@@ -101,7 +101,7 @@ Every version above is that tool's latest published release as of the run, check
 
 A few of these deserve a note.
 
-Token use is the headline, and cost is the same story in dollars. Among the tools that plan, tomo does all 14 tasks in a fraction of the tokens: 209k total against 732k for codex, 1.10M for openclaw, and 1.79M for claude-code, which on the paid tier is 3 cents against 7, 11, and 15. It plans in context, updating one checklist in the same turn, rather than re-reading its own state in a fresh context per step. pi spends more than tomo but still runs lean; gemini-cli spends the fewest tokens of all, but it does not plan at all and drops 9 of the 14 scenarios, so its cheapness is mostly work it never finished.
+Token use is the headline, and cost is the same story in dollars. Among the tools that plan, tomo does all 14 tasks in a fraction of the tokens: 187k total against 732k for codex, 1.10M for openclaw, and 1.79M for claude-code, which on the paid tier is under 3 cents against 7, 11, and 15. It plans in context, updating one checklist in the same turn, rather than re-reading its own state in a fresh context per step. pi spends more than tomo but still runs lean; gemini-cli spends the fewest tokens of all, but it does not plan at all and drops 9 of the 14 scenarios, so its cheapness is mostly work it never finished.
 
 Planning is a choice a tool makes per scenario, not a fixed capability, which is what the `plans` column shows: even the planners lay out a plan on only a few of the 14 tasks and run the rest flat. openclaw is the clearest case, it carries a plan tool and a whole subagent layer but planned just 1 of 14 until the prompt asked, in plain terms, for a live plan it kept current as it worked. The split into two tables is by whether a tool ever plans, tomo and the others do on at least one scenario, pi and gemini-cli never.
 

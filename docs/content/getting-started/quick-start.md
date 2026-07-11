@@ -46,4 +46,4 @@ go run ./cmd/lab tools                                 # list wired tools
 go run ./cmd/lab scenarios                              # list scenarios
 ```
 
-Next: see [results](/guides/results/) for what a full sweep across all seven tools looks like, or [adding a tool](/guides/adding-a-tool/) to wire in another agent.
+Next: see [results](/guides/results/) for what a full sweep across all eight tools looks like, or [adding a tool](/guides/adding-a-tool/) to wire in another agent.
