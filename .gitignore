@@ -9,3 +9,7 @@ bin/
 # It is a local cache, rebuilt on demand, so it never belongs in the repo.
 evals/*/.venv/
 __pycache__/
+
+# The swebench suite keeps bare git mirrors of each repo under .cache so setup.sh
+# clones from local disk. Big and rebuilt on demand, so it stays out of the repo.
+evals/*/.cache/

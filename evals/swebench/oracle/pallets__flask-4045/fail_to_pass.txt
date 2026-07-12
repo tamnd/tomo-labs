@@ -1,0 +1,2 @@
+tests/test_blueprints.py::test_dotted_name_not_allowed
+tests/test_blueprints.py::test_route_decorator_custom_endpoint_with_dots
