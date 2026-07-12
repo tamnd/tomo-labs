@@ -42,12 +42,12 @@ providers:
     api_key: \${OPENCODE_API_KEY}
     base_url: ${LAB_BASE_URL}
 agent:
-  # No max_tokens here: let tomo use its own default so the harness does not
-  # cap the output budget below what a shipped tomo would run with. The rival
-  # tools do not cap it either, and a reasoning model needs the headroom or it
-  # truncates mid-answer. max_turns stays pinned because LAB_MAX_TURNS is the
-  # one budget every tool shares.
-  max_turns: ${LAB_MAX_TURNS:-12}
+  # No max_tokens and no max_turns here: tomo runs to its own natural stop, the
+  # same as every rival. The other adapters do not cap turns (opencode, codex,
+  # aider, claude-code, copilot, gemini-cli, hermes, kilocode, pi ignore
+  # LAB_MAX_TURNS; openclaw reads it only as a wall-clock timeout), so a turn
+  # cap here would uniquely throttle tomo and cut real runs off mid-task. The
+  # per-rep wall-clock timeout the harness already imposes is the only bound.
 policy:
   read: allow
   net: allow
