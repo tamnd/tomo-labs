@@ -22,6 +22,14 @@ prompt="$(cat /scenario/prompt.txt)"
 # so pi interpolates the env var at run time and the real key never lands in the
 # copy we drop in /trace. The proxy forwards to the real upstream with it.
 mkdir -p "$HOME/.pi/agent"
+# The model entry carries only id and name. pi's maxTokens (per-completion output
+# budget) and contextWindow are both optional and pi fills them from its own
+# defaults when omitted: maxTokens 16384, contextWindow 128000 (model-registry.js
+# `modelDef.maxTokens ?? 16384`, `?? 128000`). We leave them out on purpose. An
+# earlier config pinned maxTokens to 8192, half pi's default, which would have
+# capped pi's completions below what pi ships with and let its compaction trip
+# early. Every other adapter leaves the tool's own output budget untouched, so
+# pi's does too: pi runs under exactly the budget it uses off the shelf.
 cat >"$HOME/.pi/agent/models.json" <<JSON
 {
   "providers": {
@@ -32,9 +40,7 @@ cat >"$HOME/.pi/agent/models.json" <<JSON
       "models": [
         {
           "id": "${LAB_MODEL}",
-          "name": "${LAB_MODEL}",
-          "contextWindow": 128000,
-          "maxTokens": 8192
+          "name": "${LAB_MODEL}"
         }
       ]
     }
