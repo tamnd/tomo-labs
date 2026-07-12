@@ -24,10 +24,12 @@ It is a dated record of one build on one day, and a newer report supersedes it r
 The tree nests year, then month, then day, so a report lives at a path like `/experiments/2026/07/12-…`.
 Each item below is one experiment, linked straight to its report, newest first.
 
-<!-- Sidebar order convention: leaf reports carry a descending weight counted down from 1000 (oldest 1000, each newer report one less), so the theme's ascending weight sort lists them newest first. A new report takes the next value below the current smallest. -->
+<!-- Sidebar order convention: weight is scoped per month folder (2026/07/, 2026/08/, ...), since the theme sorts each folder's pages independently. Within a folder, count weights DOWN from 1000 (oldest 1000, each newer report one less) so the ascending weight sort lists newest first. A new report takes the next value below that folder's current smallest; a new month starts fresh at 1000. -->
 
 ### 2026
 
+- **2026-07-13 01:21 (GMT+7)** - [cfn-lint: pi fails it the honest way too](/experiments/2026/07/13-cfn-lint-pi-honest-local-fail/).
+  A second rival, cut short by the free-tier rate limit, never fetches the pull request and never rewrites the source wording, failing the same structural way tomo did.
 - **2026-07-13 01:11 (GMT+7)** - [cfn-lint: opencode passes by fetching the answer PR](/experiments/2026/07/13-cfn-lint-opencode-answer-lookup/).
   opencode passes a task whose graded wording is nowhere in the repo, by fetching the merged pull request 94 times and copying its exact new messages, which proves the task is reachable only by looking up the answer online.
 - **2026-07-13 01:00 (GMT+7)** - [cfn-lint: tomo fixes the issue, the grade wants something else](/experiments/2026/07/13-cfn-lint-tomo-issue-literal/).
