@@ -1,1 +1,0 @@
-tests/framework/cli/test_starters.py::TestTelemetryCLIFlag::test_flag_value_is_invalid
