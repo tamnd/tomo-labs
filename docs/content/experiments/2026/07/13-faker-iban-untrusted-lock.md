@@ -3,7 +3,7 @@ title: "faker: solved, then locked out by a web fetch"
 linkTitle: "faker IBAN lock"
 description: "tomo diagnoses a Belgian IBAN bug and writes the exactly correct fix, then cannot apply it. A reference URL it fetched tripped its own prompt-injection guard, which escalated every later edit to an approval that never comes in headless mode. A close read of a run tomo had already won."
 date: 2026-07-13T00:14:00+07:00
-weight: 20
+weight: 999
 ---
 
 This is one run: tomo, on a real GitHub issue from the [swebench-live](/evals/swebench-live/) tier.
