@@ -111,7 +111,7 @@ func TestSweLiveKeepPerRepoCap(t *testing.T) {
 	kept := 0
 	// Twelve instances from one repo, but the cap bounds how many are kept.
 	for i := 0; i < 12; i++ {
-		if sweLiveKeep(row("acme/widget"), nil, perRepo, true) {
+		if sweLiveKeep(row("acme/widget"), nil, perRepo, true, sweLivePerRepoCap) {
 			kept++
 		}
 	}
@@ -120,7 +120,7 @@ func TestSweLiveKeepPerRepoCap(t *testing.T) {
 	}
 
 	// A second repo gets its own budget.
-	if !sweLiveKeep(row("other/thing"), nil, perRepo, true) {
+	if !sweLiveKeep(row("other/thing"), nil, perRepo, true, sweLivePerRepoCap) {
 		t.Fatal("a different repo should still be kept under its own cap")
 	}
 
@@ -128,12 +128,24 @@ func TestSweLiveKeepPerRepoCap(t *testing.T) {
 	un := map[string]int{}
 	keptUncapped := 0
 	for i := 0; i < 12; i++ {
-		if sweLiveKeep(row("acme/widget"), nil, un, false) {
+		if sweLiveKeep(row("acme/widget"), nil, un, false, sweLivePerRepoCap) {
 			keptUncapped++
 		}
 	}
 	if keptUncapped != 12 {
 		t.Fatalf("uncapped pull kept %d, want all 12", keptUncapped)
+	}
+
+	// A per-repo override of 1 renders a one-task-per-repo, repo-diverse sample.
+	one := map[string]int{}
+	diverse := 0
+	for i := 0; i < 5; i++ {
+		if sweLiveKeep(row("acme/widget"), nil, one, true, 1) {
+			diverse++
+		}
+	}
+	if diverse != 1 {
+		t.Fatalf("with per-repo cap 1, kept %d from one repo, want 1", diverse)
 	}
 }
 
@@ -141,16 +153,16 @@ func TestSweLiveKeepDropsUnrunnableAndUnmatched(t *testing.T) {
 	perRepo := map[string]int{}
 	// A non-pytest command is not host-runnable in this tier.
 	tox := sweLiveRow{Repo: "acme/widget", TestCmds: []byte(`["tox -e py"]`)}
-	if sweLiveKeep(tox, nil, perRepo, true) {
+	if sweLiveKeep(tox, nil, perRepo, true, sweLivePerRepoCap) {
 		t.Error("a non-pytest command should be dropped")
 	}
 	// With an only filter, a repo not named is dropped even if runnable.
 	pt := sweLiveRow{Repo: "acme/widget", TestCmds: []byte(`["pytest -rA"]`)}
 	only := map[string]bool{"other": true}
-	if sweLiveKeep(pt, only, perRepo, false) {
+	if sweLiveKeep(pt, only, perRepo, false, sweLivePerRepoCap) {
 		t.Error("a repo outside the only set should be dropped")
 	}
-	if sweLiveKeep(pt, map[string]bool{"widget": true}, perRepo, false) != true {
+	if sweLiveKeep(pt, map[string]bool{"widget": true}, perRepo, false, sweLivePerRepoCap) != true {
 		t.Error("the named repo should be kept")
 	}
 }

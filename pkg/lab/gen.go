@@ -21,6 +21,7 @@ type GenOptions struct {
 	All        bool     // take every problem the benchmark offers
 	NoValidate bool     // skip the reference-solution proof (inspection only)
 	Difficulty []string // livecodebench: keep only these difficulty tiers (easy/medium/hard); empty takes any
+	PerRepo    int      // swebench-live: max tasks one repo may contribute (0 uses the suite default); 1 = one per repo, a repo-diverse sample
 }
 
 // Generate materializes a public benchmark into the active suite's tasks/ dir.
