@@ -1,9 +1,18 @@
 name: ci
 
+# A docs-only change never touches Go, so skip the build and test matrix when
+# nothing outside docs and Markdown moved. A mixed change still runs, since
+# paths-ignore only skips when every changed file matches.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
 
 permissions:
   contents: read
