@@ -8,7 +8,7 @@ FROM golang:1.26-bookworm AS build
 # job in one turn rather than a fresh context per step), the workspace rooting
 # (file and shell tools at /work), and `tomo -p` (the one-shot headless mode the
 # adapter drives).
-ARG TOMO_VERSION=v0.2.4
+ARG TOMO_VERSION=v0.2.5-0.20260711144441-0442c7ea8a03
 RUN CGO_ENABLED=0 go install github.com/tamnd/tomo/cmd/tomo@${TOMO_VERSION}
 
 FROM tomolab-base
