@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tamnd/tomo-labs/pkg/container"
@@ -226,6 +227,12 @@ func (l *Lab) runAttempt(ctx context.Context, tool string, sc Scenario, work, tr
 
 	fmt.Fprintf(os.Stderr, "[run] %s / %s (attempt %d/%d)\n", tool, sc.Name, attempt, attempts)
 	start := time.Now()
+	// A headless tool is quiet while it works, so the run would sit silent for
+	// minutes. Tail the proxy's trace on a ticker and print a live line, the
+	// requests it has made and the tokens they cost so far, so an operator can
+	// see the loop moving and spot a stall or a runaway without waiting for the
+	// final summary.
+	stopProgress := l.logProgress(tool, sc.Name, trace, start)
 	err = l.rt.Run(ctx, container.RunSpec{
 		Name: sl.run, Image: toolPrefix + tool, Network: l.cfg.Network, Remove: true,
 		Mounts: []container.Mount{
@@ -241,11 +248,51 @@ func (l *Lab) runAttempt(ctx context.Context, tool string, sc Scenario, work, tr
 		},
 		Stdout: os.Stdout, Stderr: os.Stderr,
 	})
+	stopProgress()
 	wall = int(time.Since(start).Seconds())
 	if err != nil {
 		return wall, -1, err
 	}
 	return wall, l.readExitCode(trace), nil
+}
+
+// progressInterval is how often a running attempt prints its live trace line.
+const progressInterval = 15 * time.Second
+
+// logProgress tails the proxy trace while an attempt runs and prints a compact
+// line on a ticker: the completions the tool has made so far, the tokens they
+// cost, and the seconds elapsed. It returns a stop function the caller invokes
+// once the attempt ends, so the ticker never outlives the run. Nothing prints
+// until the first request lands, so a fast task stays quiet, and the elapsed
+// clock keeps ticking even when a single long completion is in flight, so a
+// live run is never mistaken for a stalled one.
+func (l *Lab) logProgress(tool, scenario, trace string, start time.Time) (stop func()) {
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t := time.NewTicker(progressInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				reqs := countLines(filepath.Join(trace, "requests.jsonl"))
+				if reqs == 0 {
+					continue
+				}
+				tok, _ := sumTokens(filepath.Join(trace, "usage.jsonl"))
+				fmt.Fprintf(os.Stderr, "[run] %s / %s  %d reqs, %dk tokens, %ds\n",
+					tool, scenario, reqs, tok.Total/1000, int(time.Since(start).Seconds()))
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		wg.Wait()
+	}
 }
 
 func (l *Lab) startProxy(ctx context.Context, trace string, sl slot) error {
