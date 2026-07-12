@@ -83,6 +83,8 @@ func main() {
 		die(cmdScenarios(l))
 	case "prompts":
 		die(cmdPrompts(l, arg(args, 1), arg(args, 2), hasFlag(args, "--json"), hasFlag(args, "--brief")))
+	case "inspect":
+		die(cmdInspect(l, arg(args, 1), arg(args, 2), hasFlag(args, "--full"), hasFlag(args, "--json")))
 	case "gen":
 		die(cmdGen(ctx, l, args[1:]))
 	case "meta":
@@ -196,6 +198,23 @@ func cmdPrompts(l *lab.Lab, tool, scenario string, asJSON, brief bool) error {
 	return nil
 }
 
+func cmdInspect(l *lab.Lab, tool, scenario string, full, asJSON bool) error {
+	t, err := l.Inspect(tool, scenario)
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		b, err := json.MarshalIndent(t, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	}
+	lab.WriteTranscript(os.Stdout, t, full)
+	return nil
+}
+
 func cmdTools(l *lab.Lab) error {
 	tools, err := l.Tools()
 	if err != nil {
@@ -273,7 +292,7 @@ func takeFlagValue(args []string, flag string) (string, []string) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|prompts|meta|gen|report|reparse|clean} [--suite <name>] [args]")
+	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|prompts|inspect|meta|gen|report|reparse|clean} [--suite <name>] [args]")
 }
 
 func die(err error) {
