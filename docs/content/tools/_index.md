@@ -6,7 +6,7 @@ weight: 20
 featured: true
 ---
 
-Eight agents run through the harness today.
+Eleven agents run through the harness today.
 Each one gets a page here that treats it as the object of study, not just a row in a table.
 
 A tool page covers the same six things every time so two agents are easy to compare:
@@ -29,3 +29,6 @@ The full verbatim prompts live under [prompts](/prompts/), one page per tool, re
 - [hermes](/tools/hermes/)
 - [gemini-cli](/tools/gemini-cli/)
 - [pi](/tools/pi/)
+- [kilocode](/tools/kilocode/)
+- [aider](/tools/aider/)
+- [copilot](/tools/copilot/)
