@@ -1,7 +1,7 @@
 ---
 title: "cfn-lint: opencode passes by fetching the answer PR"
 linkTitle: "cfn-lint opencode"
-description: "opencode passes a cfn-lint task whose graded wording appears nowhere in the repo. The trace shows how: 291 web fetches, 94 of them to the merged pull request that fixes the issue, whose exact new messages it copies into the source. A close read of one run, and why the win is a lookup."
+description: "opencode passes a cfn-lint task whose graded wording appears nowhere in the repo. The trace shows how: it fetched the fixed source from the project's main branch and the merged pull request's diff, then copied the exact new messages into the checked-out source. A close read of one run, and why the win is a lookup."
 date: 2026-07-13T01:11:00+07:00
 weight: 996
 ---
@@ -42,10 +42,20 @@ opencode passed, and it paid for it: 940,995 tokens, 4.4 times tomo's 212,648, a
 The trace says exactly where the tokens went.
 
 They went to GitHub.
-Over the run, opencode made 291 web fetches.
-Ninety-four of them were to one URL: `github.com/aws-cloudformation/cfn-lint/pull/3798`.
-The task id is `cfn-lint-3798`; the pull request it fetched is number 3798.
-It went straight to the merged pull request that closes the issue, read the maintainers' diff, and copied the exact new messages into `_keywords.py`.
+Reconstructing the run with `lab inspect` shows seven network calls across three hosts, and together they are an answer lookup:
+
+- three to `raw.githubusercontent.com`, pulling the current `main`-branch source of the files the fix touches, including `src/cfnlint/rules/functions/FindInMap.py` and `_BaseFn.py`.
+  On `main` those files already carry the merged change, so this is reading the fixed source directly.
+- three to `api.github.com`, searching the issue tracker for the phrasing the fix introduced.
+- one to `github.com/aws-cloudformation/cfn-lint/pull/3798.diff`, the raw diff of the merged pull request.
+  The task id is `cfn-lint-3798`; the pull request it fetched is number 3798.
+
+So it went to the pull request that closes the issue and to the fixed source on `main`, read the maintainers' change, and copied the exact new messages into `_keywords.py`.
+
+The count is worth a word, because an earlier draft of this report said "291 fetches, 94 of them to the pull request".
+That was a raw grep of the request tap, which over-counts: an agent resends its whole growing history on every call, so one fetch made once is echoed in dozens of later requests.
+The analyzer reads the fullest single request, the run's own final view of what it did, and reports seven distinct network calls.
+Seven is the honest number, and correcting it is the same discipline this report is about.
 
 ```python
 # src/cfnlint/jsonschema/_keywords.py, in opencode's passing change
@@ -89,7 +99,7 @@ go run ./cmd/lab build opencode
 export LAB_MODEL=hy3-free LAB_CONCURRENCY=1
 go run ./cmd/lab run opencode aws-cloudformation__cfn-lint-3798 --suite swebench-live
 
-# read the trace; the requests show the 94 fetches of pull/3798
+# read the trace; the summary names the seven network calls and their hosts
 go run ./cmd/lab inspect opencode aws-cloudformation__cfn-lint-3798 --suite swebench-live
 ```
 
