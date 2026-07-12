@@ -12,5 +12,5 @@ CACHE="$SUITE/.cache/$(echo "$REPO" | tr '/' '_').git"
 if [ ! -d "$CACHE" ]; then
   git clone --bare --quiet "https://github.com/$REPO.git" "$CACHE"
 fi
-git clone --quiet --shared "$CACHE" "$W"
+git clone --quiet --no-hardlinks "$CACHE" "$W"
 git -C "$W" checkout --quiet "$SHA"

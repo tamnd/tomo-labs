@@ -1,6 +1,7 @@
 package lab
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -33,15 +34,16 @@ const maxInfraRetries = 3
 type slot struct {
 	proxy string
 	run   string
+	prep  string
 	port  int
 }
 
 func (l *Lab) newSlot(i, basePort int) slot {
 	if i == 0 {
-		return slot{proxy: l.cfg.proxyName(), run: l.cfg.runName(), port: basePort}
+		return slot{proxy: l.cfg.proxyName(), run: l.cfg.runName(), prep: l.cfg.runName() + "-prep", port: basePort}
 	}
 	suf := "-" + strconv.Itoa(i)
-	return slot{proxy: l.cfg.proxyName() + suf, run: l.cfg.runName() + suf, port: basePort + i}
+	return slot{proxy: l.cfg.proxyName() + suf, run: l.cfg.runName() + suf, prep: l.cfg.runName() + "-prep" + suf, port: basePort + i}
 }
 
 // baseURL is the in-network address the tool points its OpenAI base at. It uses
@@ -143,8 +145,15 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 		}
 		diskBefore = dirSizeKB(work)
 
+		// Build the task's Python environment before the agent runs, so it starts
+		// from a prepared venv the way canonical SWE-bench arranges rather than
+		// spending tokens bootstrapping one. The env lives outside the work tree,
+		// so it never lands in the graded diff or the disk footprint.
+		env := filepath.Join(runDir, fmt.Sprintf("attempt-%d", iter), "env")
+		l.prepEnv(ctx, sc, work, env, sl)
+
 		var err error
-		wall, exitCode, err = l.runAttempt(ctx, tool, sc, work, trace, iter, attempts, sl)
+		wall, exitCode, err = l.runAttempt(ctx, tool, sc, work, trace, env, iter, attempts, sl)
 		if err != nil {
 			return nil, err
 		}
@@ -212,7 +221,7 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 // seconds the tool ran and the exit code it left behind. Every container it
 // touches is named from the slot, so a run on another slot can proceed in
 // parallel without stepping on it.
-func (l *Lab) runAttempt(ctx context.Context, tool string, sc Scenario, work, trace string, attempt, attempts int, sl slot) (wall, exitCode int, err error) {
+func (l *Lab) runAttempt(ctx context.Context, tool string, sc Scenario, work, trace, env string, attempt, attempts int, sl slot) (wall, exitCode int, err error) {
 	l.rt.Remove(ctx, sl.proxy)
 	l.rt.Remove(ctx, sl.run)
 
@@ -245,13 +254,22 @@ func (l *Lab) runAttempt(ctx context.Context, tool string, sc Scenario, work, tr
 	// see the loop moving and spot a stall or a runaway without waiting for the
 	// final summary.
 	stopProgress := l.logProgress(tool, sc.Name, trace, start)
+	mounts := []container.Mount{
+		{Host: work, Container: "/work"},
+		{Host: trace, Container: "/trace"},
+		{Host: sc.dir, Container: "/scenario", ReadOnly: true},
+	}
+	// When prep built a Python environment for this attempt, carry it into the
+	// agent container on the same two volumes, so the venv the prep step made is
+	// the one the agent's `python` and `pytest` resolve to. A task with no
+	// prepared env (every non-SWE-bench scenario) mounts nothing extra and runs
+	// exactly as before.
+	if exists(env) {
+		mounts = append(mounts, l.envMounts(env)...)
+	}
 	err = l.rt.Run(runCtx, container.RunSpec{
 		Name: sl.run, Image: toolPrefix + tool, Network: l.cfg.Network, Remove: true,
-		Mounts: []container.Mount{
-			{Host: work, Container: "/work"},
-			{Host: trace, Container: "/trace"},
-			{Host: sc.dir, Container: "/scenario", ReadOnly: true},
-		},
+		Mounts: mounts,
 		Env: []string{
 			"LAB_BASE_URL=" + sl.baseURL(),
 			"LAB_MODEL=" + l.cfg.Model,
@@ -273,7 +291,43 @@ func (l *Lab) runAttempt(ctx context.Context, tool string, sc Scenario, work, tr
 	if err != nil {
 		return wall, -1, err
 	}
+	// The container has exited, but a bind-mounted runtime does not always make
+	// its final writes visible to the host the instant the run returns: podman on
+	// macOS routes /work and /trace through a VM, so the exit_code file, the GNU
+	// time report, and the agent's last edits to the work tree can lag by a
+	// moment. The adapter writes exit_code last, after everything else, so wait
+	// for it to land before reading the exit code, the resource report, or
+	// grading the tree. Without this a real pass reads as an empty grade, peak
+	// memory reads as zero, and the exit code reads as -1, all from looking too
+	// soon. On a runtime with synchronous mounts the file is already there and
+	// the wait returns at once.
+	awaitFlush(trace)
 	return wall, l.readExitCode(trace), nil
+}
+
+// flushWait bounds how long awaitFlush waits for the container's final mounted
+// write to appear on the host; flushPoll is how often it checks. The wait only
+// runs on a clean exit, where the adapter is guaranteed to write the file, so it
+// resolves in a poll or two and never sits out the full bound.
+const (
+	flushWait = 15 * time.Second
+	flushPoll = 50 * time.Millisecond
+)
+
+// awaitFlush waits for the adapter's last artifact, the exit_code file, to be
+// visible and non-empty on the host, so a mount that propagates writes lazily
+// has settled before the harness reads the trace or grades the work tree.
+func awaitFlush(trace string) {
+	deadline := time.Now().Add(flushWait)
+	for {
+		if b, err := os.ReadFile(filepath.Join(trace, "exit_code")); err == nil && len(bytes.TrimSpace(b)) > 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(flushPoll)
+	}
 }
 
 // exitTimeout marks an attempt the wall clock killed, borrowing the shell's
@@ -321,20 +375,12 @@ func (l *Lab) logProgress(tool, scenario, trace string, start time.Time) (stop f
 }
 
 func (l *Lab) startProxy(ctx context.Context, trace string, sl slot) error {
-	det := "1"
-	if !l.cfg.Deterministic {
-		det = "0"
-	}
 	return l.rt.Run(ctx, container.RunSpec{
 		Name: sl.proxy, Image: proxyImage, Network: l.cfg.Network, Detach: true,
 		Mounts: []container.Mount{{Host: trace, Container: "/trace"}},
 		Env: []string{
 			"UPSTREAM=" + l.cfg.Upstream,
 			"TRACE_DIR=/trace",
-			"LAB_DETERMINISTIC=" + det,
-			"LAB_TEMPERATURE=" + l.cfg.Temperature,
-			"LAB_TOP_P=" + l.cfg.TopP,
-			"LAB_SEED=" + l.cfg.Seed,
 		},
 		Publish: fmt.Sprintf("127.0.0.1:%d:8080", sl.port),
 	})

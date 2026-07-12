@@ -26,13 +26,6 @@ type Config struct {
 
 	Network    string // container network name
 	NamePrefix string // prefix for the proxy, web, and run container names
-
-	// Determinism knobs forwarded to the proxy. The proxy forces these onto every
-	// completion request; empty Seed opts out of the seed field.
-	Deterministic bool
-	Temperature   string
-	TopP          string
-	Seed          string
 }
 
 const (
@@ -55,23 +48,19 @@ func (c Config) runName() string   { return c.NamePrefix + "-run" }
 // the shell harness used so a run reproduces whichever front end starts it.
 func DefaultConfig() Config {
 	return Config{
-		Root:          findRoot(),
-		Data:          env("LAB_DATA", filepath.Join(home(), "data")),
-		Model:         env("LAB_MODEL", "deepseek-v4-flash-free"),
-		Upstream:      env("LAB_UPSTREAM", "https://opencode.ai/zen"),
-		APIKey:        os.Getenv("OPENCODE_API_KEY"),
-		MaxTurns:      envInt("LAB_MAX_TURNS", 12),
-		Attempts:      envInt("LAB_ATTEMPTS", 1),
-		AttemptSecs:   envInt("LAB_ATTEMPT_TIMEOUT", 900),
-		ProxyPort:     envInt("LAB_PROXY_PORT", 8899),
-		KeepRuns:      envInt("LAB_KEEP_RUNS", 5),
-		Concurrency:   envInt("LAB_CONCURRENCY", 3),
-		Network:       env("LAB_NETWORK", "tomolab"),
-		NamePrefix:    env("LAB_NAME_PREFIX", "tomolab"),
-		Deterministic: env("LAB_DETERMINISTIC", "1") != "0",
-		Temperature:   env("LAB_TEMPERATURE", "0"),
-		TopP:          env("LAB_TOP_P", "1"),
-		Seed:          env("LAB_SEED", "7"),
+		Root:        findRoot(),
+		Data:        env("LAB_DATA", filepath.Join(home(), "data")),
+		Model:       env("LAB_MODEL", "deepseek-v4-flash-free"),
+		Upstream:    env("LAB_UPSTREAM", "https://opencode.ai/zen"),
+		APIKey:      os.Getenv("OPENCODE_API_KEY"),
+		MaxTurns:    envInt("LAB_MAX_TURNS", 12),
+		Attempts:    envInt("LAB_ATTEMPTS", 1),
+		AttemptSecs: envInt("LAB_ATTEMPT_TIMEOUT", 900),
+		ProxyPort:   envInt("LAB_PROXY_PORT", 8899),
+		KeepRuns:    envInt("LAB_KEEP_RUNS", 5),
+		Concurrency: envInt("LAB_CONCURRENCY", 3),
+		Network:     env("LAB_NETWORK", "tomolab"),
+		NamePrefix:  env("LAB_NAME_PREFIX", "tomolab"),
 	}
 }
 

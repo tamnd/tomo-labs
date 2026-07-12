@@ -383,6 +383,13 @@ func swePrompt(row sweRow) string {
 // .cache/ so a second task on the same repo, or a rerun, clones from local disk
 // instead of the network. The work tree is the harness's, created empty just
 // before this runs, so the clone lands at its root and the agent's cwd is the repo.
+//
+// The clone is --no-hardlinks, not --shared. A --shared clone writes a
+// .git/objects/info/alternates that points back at the host cache dir; once the
+// work tree is mounted into the run container that host path is gone, so every
+// git command the agent runs dies with "bad object HEAD". --no-hardlinks copies
+// the objects into the work tree so its git is self-contained and works in the
+// container, at the cost of a little disk the benchmark can spare.
 const sweSetup = `#!/usr/bin/env bash
 # Check out the repository at the instance's base commit into the work tree.
 set -e
@@ -397,7 +404,7 @@ CACHE="$SUITE/.cache/$(echo "$REPO" | tr '/' '_').git"
 if [ ! -d "$CACHE" ]; then
   git clone --bare --quiet "https://github.com/$REPO.git" "$CACHE"
 fi
-git clone --quiet --shared "$CACHE" "$W"
+git clone --quiet --no-hardlinks "$CACHE" "$W"
 git -C "$W" checkout --quiet "$SHA"
 `
 
