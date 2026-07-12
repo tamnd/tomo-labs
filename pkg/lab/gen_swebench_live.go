@@ -327,6 +327,15 @@ fi
 # Ensure a test runner is present without clobbering a self-provided one.
 "$PY" -c "import pytest" >/dev/null 2>&1 || uv pip install --python "$PY" -q pytest >/dev/null 2>&1
 
+# Restore any test files the agent touched to their base state before applying
+# the hidden test patch. A tool that edited a test would otherwise break the
+# apply, or shift the grade, no matter how good its source fix was. The test
+# patch only ever touches test files, so resetting exactly its paths never
+# discards the source change. The upstream harness resets the tests the same way.
+while IFS= read -r p; do
+  [ -n "$p" ] && git -C "$W" checkout -- "$p" >/dev/null 2>&1
+done < <(grep '^diff --git ' "$ORACLE/test.diff" | sed -E 's#^diff --git a/.* b/##')
+
 if ! git -C "$W" apply "$ORACLE/test.diff" >/dev/null 2>&1; then
   echo "FAIL: test patch did not apply"; exit 1
 fi
