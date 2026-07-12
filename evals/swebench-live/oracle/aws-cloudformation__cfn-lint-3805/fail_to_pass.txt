@@ -1,2 +1,0 @@
-test/unit/rules/resources/properties/test_string_length.py::test_min_length[instance19-20-schema19-1]
-test/unit/rules/resources/properties/test_string_length.py::test_max_length[instance19-4-schema19-1]

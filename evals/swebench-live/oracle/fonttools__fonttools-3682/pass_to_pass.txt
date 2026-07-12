@@ -1,0 +1,6 @@
+Tests/ttLib/reorderGlyphs_test.py::test_reorder_glyphs[True]
+Tests/ttLib/reorderGlyphs_test.py::test_reorder_glyphs[False]
+Tests/ttLib/reorderGlyphs_test.py::test_reorder_glyphs[None]
+Tests/ttLib/reorderGlyphs_test.py::test_ttfont_reorder_glyphs
+Tests/ttLib/reorderGlyphs_test.py::test_reorder_glyphs_bad_length
+Tests/ttLib/reorderGlyphs_test.py::test_reorder_glyphs_bad_set

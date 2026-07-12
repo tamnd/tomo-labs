@@ -1,0 +1,49 @@
+You are working in the sphinx-doc/sphinx repository, already checked out at the commit where a bug was reported.
+Resolve the issue below by editing the project's source code in place. Do not edit or add tests: a hidden test suite grades your change. Make the smallest change that fixes the issue without breaking existing behavior.
+
+Issue:
+
+HTML5/Latex/Text writers: Trailing comma in multi-line signatures
+### Describe the bug
+
+Multi-line signatures have a comma separator even for the last parameter when outputting HTML5 (edit: and LaTeX and Text).
+
+The offender seems to be [writers/html5.py#L232](https://github.com/sphinx-doc/sphinx/blob/76110c3ea05e4eef02bc1689c4b9253aca743392/sphinx/writers/html5.py#L232)
+```python
+ if opt_param_left_at_level or is_required and (is_last_group or next_is_required):
+```
+<del>which I think should be</del>
+```python
+if opt_param_left_at_level or is_required and (not is_last_group or next_is_required):
+```
+Edit: Nm, that would break the closing dd
+
+### How to Reproduce
+
+```rst
+.. cpp:function:: Foo(int bar, float baz)
+```
+with `maximum_signature_line_length = 1`
+outputs
+
+```
+Foo(
+    int bar,
+    float baz,
+)
+```
+
+### Environment Information
+
+```text
+Sphinx 8.0.2
+```
+
+
+### Sphinx extensions
+
+_No response_
+
+### Additional context
+
+_No response_

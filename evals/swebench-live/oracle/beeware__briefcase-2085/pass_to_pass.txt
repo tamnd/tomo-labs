@@ -1,0 +1,11 @@
+tests/commands/base/test_update_cookiecutter_cache.py::test_non_url
+tests/commands/base/test_update_cookiecutter_cache.py::test_new_repo_template
+tests/commands/base/test_update_cookiecutter_cache.py::test_new_repo_template_interrupt
+tests/commands/base/test_update_cookiecutter_cache.py::test_new_repo_template_mkdir_interrupt
+tests/commands/base/test_update_cookiecutter_cache.py::test_new_repo_invalid_template_url
+tests/commands/base/test_update_cookiecutter_cache.py::test_repo_clone_error[tailing-whitespace-no-caps-no-period]
+tests/commands/base/test_update_cookiecutter_cache.py::test_repo_clone_error[tailing-whitespace-has-caps-has-period]
+tests/commands/base/test_update_cookiecutter_cache.py::test_repo_clone_error[no-tailing-whitespace-no-caps-no-period]
+tests/commands/base/test_update_cookiecutter_cache.py::test_repo_clone_error[fallback-hint]
+tests/commands/base/test_update_cookiecutter_cache.py::test_existing_repo_template_corrupted
+tests/commands/base/test_update_cookiecutter_cache.py::test_git_repo_with_missing_origin_remote

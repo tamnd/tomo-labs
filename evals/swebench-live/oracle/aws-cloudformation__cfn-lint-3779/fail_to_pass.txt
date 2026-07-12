@@ -1,1 +1,0 @@
-test/unit/rules/resources/iam/test_identity_policy.py::TestIdentityPolicies::test_string_statements_with_condition

@@ -1,0 +1,6 @@
+tests/test_builders/test_build_html.py
+tests/test_builders/test_build_latex.py
+tests/test_domains/test_domain_c.py
+tests/test_domains/test_domain_cpp.py
+tests/test_domains/test_domain_js.py
+tests/test_domains/test_domain_py.py
