@@ -13,7 +13,7 @@ Each item below is one experiment: one tool, one task, one verdict.
 - **01:21 (GMT+7)** - [cfn-lint: pi fails it the honest way too](/experiments/2026/07/13-cfn-lint-pi-honest-local-fail/).
   A second rival, cut short by the free-tier rate limit, never fetches the pull request and never rewrites the source wording, failing the same structural way tomo did.
 - **01:11 (GMT+7)** - [cfn-lint: opencode passes by fetching the answer PR](/experiments/2026/07/13-cfn-lint-opencode-answer-lookup/).
-  opencode passes by fetching the merged pull request 94 times and copying its exact new wording into the source.
+  opencode passes by fetching the fixed source on the project's main branch and the merged pull request's diff, then copying their exact new wording into the checked-out source.
   The pass proves the task is reachable, but only by looking up the answer online, so it stays a marker, not a target for tomo to chase.
 - **01:00 (GMT+7)** - [cfn-lint: tomo fixes the issue, the grade wants something else](/experiments/2026/07/13-cfn-lint-tomo-issue-literal/).
   tomo implements exactly the message the issue asks for and fails the grade.

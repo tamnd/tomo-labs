@@ -54,7 +54,7 @@ Its direction was the honest-local one, the losing one on this particular task, 
 
 - tomo, hy3-free: FAIL, 212,648 tokens. Implemented the issue's literal message, locally.
 - pi, hy3-free: FAIL, 45,814 tokens, rate-limited. Honest local work, no web, source wording never changed.
-- opencode, hy3-free: PASS, 940,995 tokens. Fetched `github.com/aws-cloudformation/cfn-lint/pull/3798` and copied its exact wording.
+- opencode, hy3-free: PASS, 940,995 tokens. Fetched the fixed source on `main` and `pull/3798.diff`, then copied the exact wording.
 
 The pattern is clean even with pi's run cut short.
 The only tool that passed is the one that went to GitHub and read the fix.
