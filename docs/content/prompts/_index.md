@@ -25,3 +25,6 @@ Regenerate a page with `lab prompts <tool> --json` and any change a tool made to
 - [hermes](/prompts/hermes/)
 - [gemini-cli](/prompts/gemini-cli/)
 - [pi](/prompts/pi/)
+- [kilocode](/prompts/kilocode/)
+- [aider](/prompts/aider/)
+- [copilot](/prompts/copilot/)
