@@ -127,6 +127,42 @@ func TestPiBashSearchReclassified(t *testing.T) {
 	}
 }
 
+// claude-code solves through subagents, so much of its transcript is Agent,
+// SendMessage, and TaskOutput calls that coordinate other agents rather than
+// touch the code. claudeNotes should surface that coordination as a share of the
+// total, and the walkthrough should name those calls plainly.
+func TestClaudeNotesFlagsOrchestration(t *testing.T) {
+	steps := []Step{
+		{Kind: "call", Name: "Bash", Text: `{"command":"grep -rn Matcher conan/"}`},
+		{Kind: "result", Text: "conan/x.py:15:"},
+		{Kind: "call", Name: "Agent", Text: `{"prompt":"investigate the matcher"}`},
+		{Kind: "result", Text: "spawned"},
+		{Kind: "call", Name: "SendMessage", Text: `{"id":"a1","text":"look at negation"}`},
+		{Kind: "result", Text: "ok"},
+		{Kind: "call", Name: "TaskOutput", Text: `{"id":"a1"}`},
+		{Kind: "result", Text: "the matcher is here"},
+		{Kind: "call", Name: "Read", Text: `{"path":"config_installer.py"}`},
+		{Kind: "result", Text: "class Matcher:"},
+		{Kind: "call", Name: "Edit", Text: `{"path":"config_installer.py"}`},
+		{Kind: "result", Text: "edited"},
+	}
+	s := analyze("claude-code", builtinProfiles["claude-code"], steps)
+	// grep-through-Bash counts as a search; the three orchestration calls land in other.
+	if s.Searches != 1 {
+		t.Errorf("Bash grep should be a search, got Searches=%d", s.Searches)
+	}
+	if s.Other != 3 {
+		t.Errorf("Agent, SendMessage, TaskOutput should be other, got Other=%d", s.Other)
+	}
+	joined := strings.Join(s.Notes, " | ")
+	if !strings.Contains(joined, "coordinating subagents") || !strings.Contains(joined, "50%") {
+		t.Errorf("claudeNotes should report the coordination share, got: %v", s.Notes)
+	}
+	if moveLine(steps[2]) != "dispatched a subagent" || moveLine(steps[6]) != "collected a subagent's output" {
+		t.Errorf("orchestration moves not named: %q / %q", moveLine(steps[2]), moveLine(steps[6]))
+	}
+}
+
 // The walkthrough should group a fix into Investigate, Fix, and Verify phases and
 // clip long lines unless full is set.
 func TestWalkthroughPhasesAndClipping(t *testing.T) {
