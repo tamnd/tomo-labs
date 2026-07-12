@@ -93,7 +93,8 @@ The recovered prompts are checked into the repo under [prompts](/prompts/), one 
 It keeps only the latest run per tool and scenario, so every row is scored over the same set of tasks rather than drifting as history piles up.
 It prices tokens at published reference rates, so the free tier's zero bill still yields a comparable dollar figure.
 It splits the agents that planned from the ones that ran flat, because planning is a per-scenario choice even for agents that can plan.
-The current sweep across all eight tools is in [results](/guides/results/).
+The current sweep across the eight fully-swept tools is in [results](/guides/results/).
+The harness wires eleven agents today; kilocode, aider, and copilot are the three newest, validated on the `Hi!` baseline with their full sweep still pending.
 
 ## Adding an agent
 
