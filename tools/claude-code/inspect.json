@@ -1,0 +1,20 @@
+{
+  "lexicon": {
+    "Read": "read",
+    "Grep": "search",
+    "Glob": "search",
+    "LS": "search",
+    "Edit": "edit",
+    "Write": "edit",
+    "MultiEdit": "edit",
+    "NotebookEdit": "edit",
+    "Bash": "shell",
+    "TodoWrite": "plan",
+    "Agent": "other",
+    "Task": "other",
+    "SendMessage": "other",
+    "TaskOutput": "other",
+    "WebFetch": "other",
+    "WebSearch": "other"
+  }
+}

@@ -345,6 +345,20 @@ var builtinProfiles = map[string]toolProfile{
 		"edit": "edit", "write": "edit",
 		"bash": "shell",
 	}},
+	// claude-code works through subagents: it dispatches them (Agent), instructs
+	// them (SendMessage), and polls their output (TaskOutput). Those land in the
+	// other bucket here, and claudeNotes reads them as the coordination tax they
+	// are. It searches through Bash like pi, so the shell-search reclassification
+	// covers its greps too.
+	"claude-code": {Lexicon: map[string]string{
+		"Read": "read",
+		"Grep": "search", "Glob": "search", "LS": "search",
+		"Edit": "edit", "Write": "edit", "MultiEdit": "edit", "NotebookEdit": "edit",
+		"Bash":      "shell",
+		"TodoWrite": "plan",
+		"Agent":     "other", "Task": "other", "SendMessage": "other", "TaskOutput": "other",
+		"WebFetch": "other", "WebSearch": "other",
+	}},
 }
 
 // toolNotes holds each tool's deeper read of its own transcript: the anti-patterns
@@ -352,8 +366,9 @@ var builtinProfiles = map[string]toolProfile{
 // generic counts. tomo is analyzed first and most closely, since it is the tool
 // under study; other tools can register their own reading as they are tuned.
 var toolNotes = map[string]func(toolProfile, []Step) []string{
-	"tomo": tomoNotes,
-	"pi":   piNotes,
+	"tomo":        tomoNotes,
+	"pi":          piNotes,
+	"claude-code": claudeNotes,
 }
 
 // tomoNotes reads a tomo run for the habits tomo is specifically tuned to avoid:
@@ -441,6 +456,72 @@ func piNotes(prof toolProfile, steps []Step) []string {
 	}
 	if shellSearch > 0 {
 		notes = append(notes, fmt.Sprintf("did its searching through the shell (%s), since it ships no dedicated search tool", countNoun(shellSearch, "command", "commands")))
+	}
+	if readAfterWrite > 0 {
+		notes = append(notes, fmt.Sprintf("re-read a file it had just edited %s; the content was already in hand", countNoun(readAfterWrite, "time", "times")))
+	}
+	if repeatShell > 0 {
+		notes = append(notes, fmt.Sprintf("re-ran an identical shell command %s; the output was already in the transcript", countNoun(repeatShell, "time", "times")))
+	}
+	return notes
+}
+
+// claudeNotes reads a claude-code run for the habit that dominates its cost: it
+// solves through subagents, so a large share of its calls are not looking at the
+// code but coordinating other agents that do (Agent to dispatch, SendMessage to
+// instruct, TaskOutput to poll). That orchestration is invisible in the plain
+// read/edit/shell counts, so it is called out here as the tax it is, next to the
+// same re-read and repeated-command checks the other tools get.
+func claudeNotes(prof toolProfile, steps []Step) []string {
+	var notes []string
+	orchestration, total := 0, 0
+	subagentStalled := false
+	wrote := map[string]bool{}
+	readAfterWrite := 0
+	ranShell := map[string]int{}
+	for i := range steps {
+		st := steps[i]
+		if st.Kind != "call" {
+			continue
+		}
+		total++
+		switch st.Name {
+		case "Agent", "Task", "SendMessage", "TaskOutput":
+			orchestration++
+			// The output a poll came back with tells whether the subagent detour
+			// paid off or stalled; a timeout or failure means those coordinating
+			// calls bought nothing and the agent had to fall back.
+			if i+1 < len(steps) && steps[i+1].Kind == "result" {
+				if containsAny(steps[i+1].Text, "retrieval_status>timeout", "\"timeout\"", "agent failed", "did not complete") {
+					subagentStalled = true
+				}
+			}
+		}
+		switch st.Act {
+		case "edit":
+			if f := argPath(st.Text); f != "" {
+				wrote[f] = true
+			}
+		case "read":
+			if f := argPath(st.Text); f != "" && wrote[f] {
+				readAfterWrite++
+			}
+		case "shell":
+			ranShell[st.Text]++
+		}
+	}
+	repeatShell := 0
+	for _, n := range ranShell {
+		if n > 1 {
+			repeatShell += n - 1
+		}
+	}
+	if orchestration > 0 && total > 0 {
+		notes = append(notes, fmt.Sprintf("spent %s coordinating subagents (dispatch, message, and poll), %d%% of its %s",
+			countNoun(orchestration, "call", "calls"), orchestration*100/total, countNoun(total, "tool call", "tool calls")))
+	}
+	if subagentStalled {
+		notes = append(notes, "dispatched a subagent that timed out, then fell back to doing the work itself; the detour cost calls and bought nothing")
 	}
 	if readAfterWrite > 0 {
 		notes = append(notes, fmt.Sprintf("re-read a file it had just edited %s; the content was already in hand", countNoun(readAfterWrite, "time", "times")))
@@ -705,7 +786,20 @@ func moveLine(s Step) string {
 	case "plan":
 		return "wrote a plan"
 	default:
-		return s.Name + " " + s.Text
+		// The multi-agent verbs are shared across harnesses, so name them plainly
+		// rather than dumping their JSON arguments into the walkthrough.
+		switch s.Name {
+		case "Agent", "Task":
+			return "dispatched a subagent"
+		case "SendMessage":
+			return "sent a subagent instructions"
+		case "TaskOutput":
+			return "collected a subagent's output"
+		}
+		if s.Name != "" {
+			return s.Name
+		}
+		return strings.TrimSpace(s.Text)
 	}
 }
 
