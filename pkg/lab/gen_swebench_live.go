@@ -52,8 +52,15 @@ const (
 	// grades a few projects' quirks over and over instead of a broad sample. Cap
 	// how many instances any one repo contributes to the default suite so the
 	// rendered set stays diverse. A --langs pull that names repos on purpose is
-	// exempt: there the caller wants that repo, however many it takes.
+	// exempt: there the caller wants that repo, however many it takes, and
+	// --per-repo overrides the cap (1 renders a one-task-per-repo sample).
 	sweLivePerRepoCap = 3
+	// A validated pull drops any instance whose gold fix does not pass on this
+	// host, so fetching exactly the wanted count would leave the suite short after
+	// the drops. Fetch this many candidates per wanted keeper and validate in order
+	// until the target is met, so gold drops are backfilled instead of shrinking
+	// the suite.
+	sweLiveOverfetch = 6
 )
 
 // sweLiveRow is one SWE-bench-Live record. FAIL_TO_PASS, PASS_TO_PASS, and
@@ -82,13 +89,9 @@ func (l *Lab) genSWEBenchLive(ctx context.Context, opts GenOptions) (int, error)
 	if limit <= 0 {
 		limit = 6
 	}
-	target := limit
-	if opts.All {
-		target = 1500 // enough headroom that the lite split runs out first
-	}
-	split := sweLiveSplit
-	if opts.All {
-		split = sweLiveFullSplit
+	perRepoCap := sweLivePerRepoCap
+	if opts.PerRepo > 0 {
+		perRepoCap = opts.PerRepo
 	}
 
 	// --langs narrows the pull to specific repos by short name.
@@ -97,16 +100,34 @@ func (l *Lab) genSWEBenchLive(ctx context.Context, opts GenOptions) (int, error)
 		only[strings.ToLower(strings.TrimSpace(r))] = true
 	}
 
-	rows, err := sweLiveFetch(ctx, split, target, only)
+	// A validated pull over-fetches so gold drops can be backfilled up to the
+	// wanted count; --all and --no-validate take everything they are handed. Draw
+	// from the lite split first (curated), then the full split, so a repo-diverse
+	// pull has a broad enough pool of repos to reach its target without repeats.
+	target := limit * sweLiveOverfetch
+	splits := []string{sweLiveSplit, sweLiveFullSplit}
+	if opts.All {
+		target = 1500 // enough headroom that the full split runs out first
+		splits = []string{sweLiveFullSplit}
+	}
+
+	rows, err := sweLiveFetch(ctx, splits, target, only, perRepoCap)
 	if err != nil {
 		return 0, err
 	}
 	if len(rows) == 0 {
-		return 0, fmt.Errorf("no swebench-live instances matched (split %s)", split)
+		return 0, fmt.Errorf("no swebench-live instances matched")
 	}
 
+	// Validate in order and stop once the suite has its wanted count of keepers.
+	// Each drop is reported with why, so a repo that never provisions on this host
+	// is a documented substitution (the next repo's task takes its place), not a
+	// silent hole. --all keeps proving every instance it fetched.
 	kept, dropped := 0, 0
 	for _, row := range rows {
+		if !opts.All && !opts.NoValidate && kept >= limit {
+			break
+		}
 		task, oracle, err := l.sweLiveMaterialize(row)
 		if err != nil {
 			return kept, err
@@ -124,58 +145,88 @@ func (l *Lab) genSWEBenchLive(ctx context.Context, opts GenOptions) (int, error)
 			return gitApply(ctx, work, goldPath)
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  DROP %s: %v\n", name, err)
+			fmt.Fprintf(os.Stderr, "  DROP %s (%s): %v\n", name, repoShort(row.Repo), err)
 			os.RemoveAll(task)
 			os.RemoveAll(oracle)
 			dropped++
 			continue
 		}
 		if ok {
-			fmt.Printf("  ok   %s\n", name)
+			fmt.Printf("  ok   %s (%s)\n", name, repoShort(row.Repo))
 			kept++
 		} else {
-			fmt.Fprintf(os.Stderr, "  DROP %s: gold fix did not pass on this host\n%s\n", name, trim(out, 400))
+			fmt.Fprintf(os.Stderr, "  DROP %s (%s): gold fix did not pass on this host\n%s\n", name, repoShort(row.Repo), trim(out, 400))
 			os.RemoveAll(task)
 			os.RemoveAll(oracle)
 			dropped++
 		}
 	}
-	fmt.Printf("\nswebench-live: kept %d, dropped %d\n", kept, dropped)
+	fmt.Printf("\nswebench-live: kept %d, dropped %d (%d distinct repos)\n", kept, dropped, l.sweLiveRepoCount())
 	return kept, nil
 }
 
-// sweLiveFetch pages the dataset viewer and keeps the instances this tier can grade
-// on the host: the ones whose test command is a plain pytest, and, when only is
-// non-empty, the named repos. It stops at target keepers or when the split ends.
-func sweLiveFetch(ctx context.Context, split string, target int, only map[string]bool) ([]sweLiveRow, error) {
+// sweLiveRepoCount counts the distinct repos among the tasks currently on disk,
+// so the gen summary can report the diversity it achieved.
+func (l *Lab) sweLiveRepoCount() int {
+	repos := map[string]bool{}
+	oracleDir := filepath.Join(l.suiteDir(), "oracle")
+	entries, _ := os.ReadDir(oracleDir)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(oracleDir, e.Name(), "repo"))
+		if err == nil {
+			repos[strings.TrimSpace(string(b))] = true
+		}
+	}
+	return len(repos)
+}
+
+// sweLiveFetch pages the dataset viewer across the given splits in order and
+// keeps the instances this tier can grade on the host: the ones whose test
+// command is a plain pytest, and, when only is non-empty, the named repos. It
+// stops at target candidates or when every split ends. Paging lite before full
+// draws the curated instances first and reaches into the larger split only for
+// the breadth a repo-diverse pull needs. The per-repo tally and the seen-id set
+// are shared across splits, so full (a superset of lite) neither repeats an
+// instance nor overshoots a repo's cap.
+func sweLiveFetch(ctx context.Context, splits []string, target int, only map[string]bool, perRepoCap int) ([]sweLiveRow, error) {
 	// Enforce the per-repo cap only on an untargeted pull; a --langs pull that
 	// names repos wants exactly those, however many instances that takes.
 	perRepo := map[string]int{}
+	seen := map[string]bool{}
 	capped := len(only) == 0
 	var out []sweLiveRow
-	for offset := 0; len(out) < target; offset += swePageSize {
-		q := url.Values{
-			"dataset": {sweLiveDataset}, "config": {"default"}, "split": {split},
-			"offset": {fmt.Sprint(offset)}, "length": {fmt.Sprint(swePageSize)},
-		}
-		var page struct {
-			Rows []struct {
-				Row sweLiveRow `json:"row"`
-			} `json:"rows"`
-		}
-		if err := httpGetJSON(ctx, sweRowsAPI+"?"+q.Encode(), &page); err != nil {
-			return nil, err
-		}
-		if len(page.Rows) == 0 {
-			break
-		}
-		for _, r := range page.Rows {
-			if !sweLiveKeep(r.Row, only, perRepo, capped) {
-				continue
+	for _, split := range splits {
+		for offset := 0; len(out) < target; offset += swePageSize {
+			q := url.Values{
+				"dataset": {sweLiveDataset}, "config": {"default"}, "split": {split},
+				"offset": {fmt.Sprint(offset)}, "length": {fmt.Sprint(swePageSize)},
 			}
-			out = append(out, r.Row)
-			if len(out) >= target {
+			var page struct {
+				Rows []struct {
+					Row sweLiveRow `json:"row"`
+				} `json:"rows"`
+			}
+			if err := httpGetJSON(ctx, sweRowsAPI+"?"+q.Encode(), &page); err != nil {
+				return nil, err
+			}
+			if len(page.Rows) == 0 {
 				break
+			}
+			for _, r := range page.Rows {
+				if seen[r.Row.InstanceID] {
+					continue
+				}
+				if !sweLiveKeep(r.Row, only, perRepo, capped, perRepoCap) {
+					continue
+				}
+				seen[r.Row.InstanceID] = true
+				out = append(out, r.Row)
+				if len(out) >= target {
+					break
+				}
 			}
 		}
 	}
@@ -187,7 +238,7 @@ func sweLiveFetch(ctx context.Context, split string, target int, only map[string
 // one. It drops a row whose repo is not in a non-empty only set, whose test
 // command this tier cannot run on the host, or whose repo has already hit the
 // cap on a capped (untargeted) pull.
-func sweLiveKeep(row sweLiveRow, only map[string]bool, perRepo map[string]int, capped bool) bool {
+func sweLiveKeep(row sweLiveRow, only map[string]bool, perRepo map[string]int, capped bool, perRepoCap int) bool {
 	short := repoShort(row.Repo)
 	if len(only) > 0 && !only[short] {
 		return false
@@ -195,7 +246,7 @@ func sweLiveKeep(row sweLiveRow, only map[string]bool, perRepo map[string]int, c
 	if !sweLivePytestRunnable(sweStrList(row.TestCmds)) {
 		return false
 	}
-	if capped && perRepo[short] >= sweLivePerRepoCap {
+	if capped && perRepo[short] >= perRepoCap {
 		return false
 	}
 	perRepo[short]++

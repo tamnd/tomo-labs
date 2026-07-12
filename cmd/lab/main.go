@@ -136,6 +136,14 @@ func cmdGen(ctx context.Context, l *lab.Lab, rest []string) error {
 			}
 		}
 	}
+	perRepo, rest := takeFlagValue(rest, "--per-repo")
+	if perRepo != "" {
+		n, err := strconv.Atoi(perRepo)
+		if err != nil {
+			return fmt.Errorf("--per-repo: %w", err)
+		}
+		opts.PerRepo = n
+	}
 	opts.All = hasFlag(rest, "--all")
 	opts.NoValidate = hasFlag(rest, "--no-validate")
 	_, err := l.Generate(ctx, opts)
