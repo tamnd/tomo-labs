@@ -1,0 +1,2 @@
+test/integration/command/config_test.py::test_config_install_conanignore
+test/integration/command/config_test.py::test_config_install_conanignore_ignore_all_allow_specific_workflow

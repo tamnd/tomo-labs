@@ -1,0 +1,2 @@
+kubernetes/base/config/exec_provider_test.py::ExecProviderTest::test_with_cluster_info
+kubernetes/config/exec_provider_test.py::ExecProviderTest::test_with_cluster_info

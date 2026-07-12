@@ -1,0 +1,6 @@
+test/unittests/client/build/cpp_std_flags_test.py::CompilerFlagsTest::test_apple_clang_cppstd_flags
+test/unittests/client/build/cpp_std_flags_test.py::CompilerFlagsTest::test_clang_cppstd_flags
+test/unittests/client/build/cpp_std_flags_test.py::CompilerFlagsTest::test_gcc_cppstd_flags
+test/unittests/model/settings_test.py::test_possible_values
+test/unittests/tools/gnu/autotoolschain_test.py::test_get_toolchain_cppstd
+test/unittests/tools/gnu/test_gnutoolchain.py::test_get_toolchain_cppstd

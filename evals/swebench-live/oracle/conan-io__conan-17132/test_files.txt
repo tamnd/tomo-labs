@@ -1,0 +1,2 @@
+test/integration/remote/retry_test.py
+test/unittests/client/rest/uploader_test.py

@@ -10,12 +10,13 @@ The core [scenarios](/guides/scenarios/) are hand-written tasks, each exercising
 The eval tiers are the other end of the scale: whole public benchmarks, rendered into the same task shape, so the harness can run an agent over hundreds of problems without any of them being bespoke.
 Everything else stays identical: the same base image, the same trace proxy, the same determinism, the same grading from files on disk.
 
-Four tiers ship today, each with its own page.
+Five tiers ship today, each with its own page.
 
 - [aider](/evals/aider/) rebuilds the Aider polyglot benchmark, a set of Exercism practice exercises graded by their own tests.
 - [evalplus](/evals/evalplus/) rebuilds EvalPlus, the HumanEval+ and MBPP+ function-completion problems with their expanded hidden tests.
 - [livecodebench](/evals/livecodebench/) rebuilds LiveCodeBench, competitive-programming problems graded by their public and hidden test cases.
 - [swebench](/evals/swebench/) rebuilds SWE-bench Lite, real GitHub issues graded by the tests their fix made pass.
+- [swebench-live](/evals/swebench-live/) rebuilds SWE-bench-Live, the continuously updated set of recent GitHub issues, so the tier does not go stale the way Lite has.
 
 ## Selecting a tier
 

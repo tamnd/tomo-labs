@@ -1,0 +1,59 @@
+You are working in the aws-cloudformation/cfn-lint repository, already checked out at the commit where a bug was reported.
+Resolve the issue below by editing the project's source code in place. Do not edit or add tests: a hidden test suite grades your change. Make the smallest change that fixes the issue without breaking existing behavior.
+
+Issue:
+
+AWS::IAM::ManagedPolicy Condition syntax error not detected
+### CloudFormation Lint Version
+
+cfn-lint 1.16.1
+
+### What operating system are you using?
+
+Linux
+
+### Describe the bug
+
+cfn-lint is not detecting missing Condition operator.
+
+```shell
+$ cfn-lint --format json --include-checks I -t ./demo-template.yaml
+[]
+
+$ 
+```
+
+
+CloudFormation throws the following syntax error:
+
+```
+Resource handler returned message: "Syntax errors in policy. (Service: Iam, Status Code: 400, Request ID: <redacted>)" (RequestToken: <redacted>, HandlerErrorCode: InvalidRequest)
+```
+
+### Expected behavior
+
+The missing operator should be detected.
+
+### Reproduction template
+
+```yaml
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Example IAM policy syntax error not detected.
+
+Resources:
+  IAMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Roles:
+        - DemoRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - servicecatalog:*
+            Resource: '*'
+            Condition:
+                servicecatalog:accountLevel: self
+```

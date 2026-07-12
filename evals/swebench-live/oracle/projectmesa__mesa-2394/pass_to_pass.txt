@@ -1,0 +1,7 @@
+tests/test_model.py::test_model_set_up
+tests/test_model.py::test_running
+tests/test_model.py::test_seed
+tests/test_model.py::test_reset_randomizer
+tests/test_model.py::test_reset_rng
+tests/test_model.py::test_agent_types
+tests/test_model.py::test_agents_by_type
