@@ -39,6 +39,32 @@ func TestDeterminismForcesSamplingOnCompletion(t *testing.T) {
 	}
 }
 
+// The proxy never touches max_tokens: whatever a tool sets, or omits, reaches
+// the upstream unchanged, so the output budget is never a value the harness
+// imposed on top of the tool's own choice.
+func TestDeterminismLeavesOutputTokensAlone(t *testing.T) {
+	d := &determinism{fields: map[string]json.RawMessage{"temperature": json.RawMessage("0")}}
+
+	// A request that omits max_tokens still has none after apply.
+	out := d.apply([]byte(`{"model":"m","messages":[{"role":"user","content":"hi"}]}`))
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("output not JSON: %v", err)
+	}
+	if _, ok := got["max_tokens"]; ok {
+		t.Errorf("max_tokens = %v, want none added when the tool omitted it", got["max_tokens"])
+	}
+
+	// A request that sets its own cap keeps exactly that value.
+	out = d.apply([]byte(`{"model":"m","max_tokens":128,"messages":[{"role":"user","content":"hi"}]}`))
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("output not JSON: %v", err)
+	}
+	if got["max_tokens"] != float64(128) {
+		t.Errorf("max_tokens = %v, want the tool's own 128 kept untouched", got["max_tokens"])
+	}
+}
+
 // Anything that is not a completion request is forwarded byte-for-byte: a plain
 // JSON object with no messages or prompt, and a non-JSON body.
 func TestDeterminismLeavesNonCompletionAlone(t *testing.T) {
@@ -107,6 +133,53 @@ func TestExtractUsageStreamNoCache(t *testing.T) {
 	}
 	if u.CachedTokens != 0 || u.CacheWriteTokens != 0 || u.CostUSD != 0 {
 		t.Errorf("unreported cache/cost should stay zero, got %d/%d/%v", u.CachedTokens, u.CacheWriteTokens, u.CostUSD)
+	}
+}
+
+// A completion the upstream dropped mid-stream is caught two ways: an error
+// object sent as an SSE data line, and a stream that stops before its [DONE] and
+// usage. A clean stream (usage plus [DONE]) and a complete non-streamed object
+// are never flagged, so a healthy reply is not mistaken for a fault.
+func TestStreamFailed(t *testing.T) {
+	cases := []struct {
+		name     string
+		body     string
+		hasUsage bool
+		want     bool
+		wantMsg  string
+	}{
+		{
+			name:    "error payload as data line",
+			body:    "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: {\"error\":{\"message\":\"Streaming response failed\",\"type\":\"server_error\"}}\n\n",
+			want:    true,
+			wantMsg: "Streaming response failed",
+		},
+		{
+			name: "truncated stream, no done and no usage",
+			body: "data: {\"choices\":[{\"delta\":{\"content\":\"par\"}}]}\n\n",
+			want: true, wantMsg: "truncated stream",
+		},
+		{
+			name:     "clean stream with usage and done",
+			body:     "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: {\"usage\":{\"total_tokens\":9}}\n\ndata: [DONE]\n",
+			hasUsage: true,
+			want:     false,
+		},
+		{
+			name:     "non-streamed object reply",
+			body:     `{"choices":[{"message":{"content":"hi"}}],"usage":{"total_tokens":9}}`,
+			hasUsage: true,
+			want:     false,
+		},
+	}
+	for _, c := range cases {
+		bad, msg := streamFailed([]byte(c.body), c.hasUsage)
+		if bad != c.want {
+			t.Errorf("%s: streamFailed = %v, want %v", c.name, bad, c.want)
+		}
+		if c.wantMsg != "" && msg != c.wantMsg {
+			t.Errorf("%s: msg = %q, want %q", c.name, msg, c.wantMsg)
+		}
 	}
 }
 

@@ -104,7 +104,7 @@ func (t *tap) serveWire(w http.ResponseWriter, r *http.Request, target *url.URL,
 	chatBody, stream, err := wc.toChat(body)
 	if err != nil {
 		http.Error(w, "wire translate: "+err.Error(), http.StatusBadRequest)
-		t.recordLatency(seq, start, time.Now(), time.Time{}, wc.chatPath, http.StatusBadRequest, 0)
+		t.recordLatency(seq, start, time.Now(), time.Time{}, wc.chatPath, http.StatusBadRequest, 0, false)
 		return
 	}
 	// Force the shared decoding knobs the same way the pass-through path does, so
@@ -123,7 +123,7 @@ func (t *tap) serveWire(w http.ResponseWriter, r *http.Request, target *url.URL,
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, up.String(), bytes.NewReader(chatBody))
 	if err != nil {
 		http.Error(w, "wire upstream: "+err.Error(), http.StatusBadGateway)
-		t.recordLatency(seq, start, time.Now(), time.Time{}, wc.chatPath, http.StatusBadGateway, 0)
+		t.recordLatency(seq, start, time.Now(), time.Time{}, wc.chatPath, http.StatusBadGateway, 0, false)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -148,7 +148,7 @@ func (t *tap) serveWire(w http.ResponseWriter, r *http.Request, target *url.URL,
 	resp, err := t.client.Do(req)
 	if err != nil {
 		http.Error(w, "wire upstream: "+err.Error(), http.StatusBadGateway)
-		t.recordLatency(seq, start, time.Now(), time.Time{}, wc.chatPath, http.StatusBadGateway, 0)
+		t.recordLatency(seq, start, time.Now(), time.Time{}, wc.chatPath, http.StatusBadGateway, 0, false)
 		return
 	}
 	defer resp.Body.Close()
@@ -161,7 +161,7 @@ func (t *tap) serveWire(w http.ResponseWriter, r *http.Request, target *url.URL,
 		b, _ := io.ReadAll(resp.Body)
 		w.Write(b)
 		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
-		t.recordLatency(seq, start, time.Now(), time.Now(), wc.chatPath, resp.StatusCode, retryAfter)
+		t.recordLatency(seq, start, time.Now(), time.Now(), wc.chatPath, resp.StatusCode, retryAfter, false)
 		return
 	}
 
@@ -181,13 +181,16 @@ func (t *tap) jsonWire(w http.ResponseWriter, resp *http.Response, seq int, star
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(out)
-	if u := extractUsage(b); u != nil {
+	u := extractUsage(b)
+	if u != nil {
 		u.Seq = seq
 		u.TS = nowStamp()
 		u.Status = http.StatusOK
 		t.writeJSON(t.usage, u)
 	}
-	t.recordLatency(seq, start, time.Now(), first, wc.chatPath, http.StatusOK, 0)
+	// A 200 reply with no usage is a dropped completion the wire had nothing to
+	// reshape; flag it as an upstream fault so the harness discounts the attempt.
+	t.recordLatency(seq, start, time.Now(), first, wc.chatPath, http.StatusOK, 0, u == nil)
 }
 
 // streamWire re-emits the upstream chat SSE stream in the wire's shape, recording
@@ -223,5 +226,7 @@ func (t *tap) streamWire(w http.ResponseWriter, resp *http.Response, seq int, st
 			t.writeJSON(t.usage, u)
 		}
 	}
-	t.recordLatency(seq, start, done, firstAt, wc.chatPath, http.StatusOK, 0)
+	// No usage block means the upstream stream ended before it reported one, the
+	// fingerprint of a completion dropped mid-flight; flag it for the harness.
+	t.recordLatency(seq, start, done, firstAt, wc.chatPath, http.StatusOK, 0, len(usage) == 0)
 }

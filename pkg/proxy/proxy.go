@@ -218,7 +218,8 @@ func (t *tap) onResponse(resp *http.Response) error {
 	}
 	tc := &teeCloser{src: resp.Body, sink: f}
 	tc.onClose = func(collected []byte) {
-		if u := extractUsage(collected); u != nil {
+		u := extractUsage(collected)
+		if u != nil {
 			u.Seq = seq
 			u.TS = nowStamp()
 			u.Status = status
@@ -232,6 +233,13 @@ func (t *tap) onResponse(resp *http.Response) error {
 				TotalMS: msSince(start, tc.doneAt), RetryAfter: retryAfter}
 			if !tc.firstAt.IsZero() {
 				rec.TTFBMS = msSince(start, tc.firstAt)
+			}
+			// A 200 completion that broke mid-stream is an upstream fault, not the
+			// agent's; flag it so the harness does not score it as a real failure.
+			if status == http.StatusOK && isModelPath(path) {
+				if bad, msg := streamFailed(collected, u != nil); bad {
+					rec.StreamErr, rec.StreamErrMsg = true, msg
+				}
 			}
 			t.writeJSON(t.lat, rec)
 		}
@@ -292,18 +300,31 @@ type latRecord struct {
 	TTFBMS     int64  `json:"ttfb_ms"`
 	TotalMS    int64  `json:"total_ms"`
 	RetryAfter int    `json:"retry_after_s,omitempty"`
+	// StreamErr marks a model call that returned HTTP 200 and then failed
+	// mid-stream: the upstream sent an error payload as an SSE data line, or the
+	// stream was cut off before its terminating [DONE] and usage. Such a call
+	// looks like an empty success in the tokens, so recording it lets the harness
+	// tell an upstream fault apart from a real agent failure. StreamErrMsg carries
+	// the upstream error text when it sent one.
+	StreamErr    bool   `json:"stream_err,omitempty"`
+	StreamErrMsg string `json:"stream_err_msg,omitempty"`
 }
 
 // recordLatency writes one latency row for a call the wire translators forwarded
 // themselves, since those bypass the reverse proxy's ModifyResponse hook. It also
 // clears the pending start so the starts map does not leak. retryAfter is the
 // upstream's Retry-After header in seconds, or 0 when the call did not carry one.
-func (t *tap) recordLatency(seq int, start, done, first time.Time, path string, status, retryAfter int) {
+// streamErr marks a 200 completion that came back with no usage, the fingerprint
+// of a stream the upstream dropped mid-flight, so the harness can discount it.
+func (t *tap) recordLatency(seq int, start, done, first time.Time, path string, status, retryAfter int, streamErr bool) {
 	if start.IsZero() {
 		return
 	}
 	rec := latRecord{Seq: seq, TS: nowStamp(), Path: path, Status: status,
-		TotalMS: msSince(start, done), RetryAfter: retryAfter}
+		TotalMS: msSince(start, done), RetryAfter: retryAfter, StreamErr: streamErr}
+	if streamErr {
+		rec.StreamErrMsg = "truncated stream"
+	}
 	if !first.IsZero() {
 		rec.TTFBMS = msSince(start, first)
 	}
@@ -425,6 +446,58 @@ func extractUsage(body []byte) *usageRecord {
 	return last
 }
 
+// isModelPath reports whether a path is a model completion endpoint, the only
+// place a mid-stream failure is meaningful. It matches the OpenAI chat path and
+// the Anthropic messages path, the two the upstream and the wire shims speak.
+func isModelPath(p string) bool {
+	return strings.Contains(p, "chat/completions") || strings.Contains(p, "/messages")
+}
+
+// streamFailed reports whether a model reply came back broken. A gateway that
+// drops a completion still answers HTTP 200 and then fails inside the body one
+// of two ways: it emits an error object as an SSE data line, or it cuts the
+// stream off before the terminating [DONE] and the usage block. Either way the
+// tokens look like an empty success, so the caller flags the call as an upstream
+// fault instead. hasUsage says whether a usage block was recovered, which a
+// complete stream always carries; a stream missing both [DONE] and usage was
+// truncated. A non-streamed JSON reply has no data lines and is never flagged
+// here, since a 200 object reply is already complete. The returned string is the
+// upstream error text when it sent one, for the trace.
+func streamFailed(body []byte, hasUsage bool) (bool, string) {
+	var errMsg string
+	var sawData, sawDone bool
+	for _, line := range bytes.Split(body, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if !bytes.HasPrefix(line, []byte("data:")) {
+			continue
+		}
+		payload := bytes.TrimSpace(line[len("data:"):])
+		if len(payload) == 0 {
+			continue
+		}
+		if bytes.Equal(payload, []byte("[DONE]")) {
+			sawDone = true
+			continue
+		}
+		sawData = true
+		var v struct {
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(payload, &v) == nil && v.Error != nil {
+			errMsg = strings.TrimSpace(v.Error.Message)
+		}
+	}
+	if errMsg != "" {
+		return true, errMsg
+	}
+	if sawData && !sawDone && !hasUsage {
+		return true, "truncated stream"
+	}
+	return false, ""
+}
+
 // determinism holds the sampling knobs the proxy forces onto every completion
 // request so a run reproduces and tools are compared under one decoding regime.
 // It is deliberately general: it keys off the shape of an OpenAI-style request
@@ -439,7 +512,9 @@ type determinism struct {
 // since a benchmark wants repeatable runs; set LAB_DETERMINISTIC=0 to forward
 // requests untouched. temperature and top_p default to greedy decoding; seed is
 // forced only when non-empty so a provider that rejects the field can opt out
-// with LAB_SEED="".
+// with LAB_SEED="". The proxy never touches max_tokens: whatever a tool sends,
+// or omits, reaches the upstream as-is, so the output budget is the tool's own
+// choice and the upstream's default, never a value the harness imposed.
 func loadDeterminism() *determinism {
 	if off := os.Getenv("LAB_DETERMINISTIC"); off == "0" || strings.EqualFold(off, "false") {
 		return nil
@@ -456,6 +531,7 @@ func loadDeterminism() *determinism {
 	add("temperature", env("LAB_TEMPERATURE", "0"))
 	add("top_p", env("LAB_TOP_P", "1"))
 	add("seed", env("LAB_SEED", "7"))
+
 	if len(fields) == 0 {
 		return nil
 	}
