@@ -1,0 +1,2 @@
+tests/config/test_config.py::test_unknown_option_name
+tests/config/test_config.py::test_unknown_short_option_name

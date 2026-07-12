@@ -10,10 +10,12 @@ The core [scenarios](/guides/scenarios/) are hand-written tasks, each exercising
 The eval tiers are the other end of the scale: whole public benchmarks, rendered into the same task shape, so the harness can run an agent over hundreds of problems without any of them being bespoke.
 Everything else stays identical: the same base image, the same trace proxy, the same determinism, the same grading from files on disk.
 
-Two tiers ship today, each with its own page.
+Four tiers ship today, each with its own page.
 
 - [aider](/evals/aider/) rebuilds the Aider polyglot benchmark, a set of Exercism practice exercises graded by their own tests.
 - [evalplus](/evals/evalplus/) rebuilds EvalPlus, the HumanEval+ and MBPP+ function-completion problems with their expanded hidden tests.
+- [livecodebench](/evals/livecodebench/) rebuilds LiveCodeBench, competitive-programming problems graded by their public and hidden test cases.
+- [swebench](/evals/swebench/) rebuilds SWE-bench Lite, real GitHub issues graded by the tests their fix made pass.
 
 ## Selecting a tier
 
@@ -39,9 +41,10 @@ The grader runs on the host, not in the agent's container, so `check.sh` uses ho
 This keeps the toolchain that grades a task separate from the toolchain the agent had.
 
 The expected answers must never reach the agent.
-Whatever encodes them, a reference solution for aider or a hidden test body for evalplus, is kept in a sibling directory the harness does not mount, `answers/` for aider and `oracle/` for evalplus.
+Whatever encodes them, a reference solution for aider or a hidden test body for evalplus, or a gold fix and hidden tests for swebench, is kept in a sibling directory the harness does not mount, `answers/` for aider and `oracle/` for the rest.
 The generator proves each task before keeping it: it applies the known-good solution, runs `check.sh`, and drops the task if it does not pass.
 A task that cannot be validated is a task that cannot be trusted to grade, so it never lands.
+The swebench tier leans on this hardest: its instances are years old, so most do not provision on a current host and are dropped, and the tier that ships is the validated subset that does.
 
 ## Regenerating a tier
 

@@ -1,0 +1,7 @@
+You are working in the pallets/flask repository, already checked out at the commit where a bug was reported.
+Resolve the issue below by editing the project's source code in place. Do not edit or add tests: a hidden test suite grades your change. Make the smallest change that fixes the issue without breaking existing behavior.
+
+Issue:
+
+Raise error when blueprint name contains a dot
+This is required since every dot is now significant since blueprints can be nested. An error was already added for endpoint names in 1.0, but should have been added for this as well.
