@@ -13,7 +13,9 @@ FROM golang:1.26-bookworm AS build
 # tomo has no tag past v0.2.4 yet, so the image pins the exact main commit under
 # test rather than the stale tag. This is a pseudo-version build: `tomo version`
 # reports v0.2.5-0.<date>-<commit>. Bump this to the tag once v0.2.5 ships.
-ARG TOMO_VERSION=60584e7ffb4d8e543a47a97ce894d19d85b0eff8
+# 4c13896 adds --yolo, the fully autonomous mode the adapter runs so tomo acts
+# unattended like every rival instead of stalling on approval prompts.
+ARG TOMO_VERSION=4c13896f0233f144438fbceaef5052aef087f21d
 RUN CGO_ENABLED=0 go install github.com/tamnd/tomo/cmd/tomo@${TOMO_VERSION}
 
 FROM tomolab-base
