@@ -34,6 +34,7 @@ type Transcript struct {
 	Tokens   int         `json:"tokens,omitempty"`
 	Wall     int         `json:"wall_seconds,omitempty"`
 	Check    string      `json:"check,omitempty"`
+	Throttle *RateLimit  `json:"throttle,omitempty"` // upstream 429s the run hit, so a cut-short run is not read as a plain agent failure
 	Summary  *RunSummary `json:"summary"`
 	Steps    []Step      `json:"steps"`
 }
@@ -52,20 +53,23 @@ type Step struct {
 // smoothly or fought its environment. It is derived, not measured, so it stands
 // beside the hard numbers in result.json rather than replacing them.
 type RunSummary struct {
-	Reads     int      `json:"reads"`
-	Searches  int      `json:"searches"`
-	Edits     int      `json:"edits"`
-	Shells    int      `json:"shells"`
-	Plans     int      `json:"plans"`
-	Other     int      `json:"other"`
-	Thoughts  int      `json:"thoughts"`
-	FilesRead []string `json:"files_read,omitempty"`
-	FilesEdit []string `json:"files_edited,omitempty"`
-	Repeated  int      `json:"repeated_calls"`  // calls that repeated an earlier call verbatim
-	Installs  int      `json:"install_rounds"`  // shell commands that install dependencies
-	Errors    int      `json:"error_results"`   // tool results that carried an error
-	Verified  bool     `json:"verified"`        // ran a test or a syntax check after editing
-	Notes     []string `json:"notes,omitempty"` // tool-specific observations about how the run went
+	Reads      int      `json:"reads"`
+	Searches   int      `json:"searches"`
+	Edits      int      `json:"edits"`
+	Shells     int      `json:"shells"`
+	Plans      int      `json:"plans"`
+	Other      int      `json:"other"`
+	Thoughts   int      `json:"thoughts"`
+	Fetches    int      `json:"fetches"`               // calls that went to the network (a web tool or a curl/wget in the shell)
+	FetchHosts []string `json:"fetch_hosts,omitempty"` // the distinct hosts a run reached, so a run that left the repo is visible
+	FilesRead  []string `json:"files_read,omitempty"`
+	FilesEdit  []string `json:"files_edited,omitempty"`
+	TestEdits  []string `json:"test_edits,omitempty"` // edited files that live in a test tree, split out from the source fix
+	Repeated   int      `json:"repeated_calls"`       // calls that repeated an earlier call verbatim
+	Installs   int      `json:"install_rounds"`       // shell commands that install dependencies
+	Errors     int      `json:"error_results"`        // tool results that carried an error
+	Verified   bool     `json:"verified"`             // ran a test or a syntax check after editing
+	Notes      []string `json:"notes,omitempty"`      // tool-specific observations about how the run went
 }
 
 // Inspect finds the newest run for a tool (optionally narrowed to one scenario)
@@ -138,6 +142,10 @@ func readVerdict(t *Transcript, path string) {
 	t.Tokens = r.Tokens.Total
 	t.Wall = r.WallSeconds
 	t.Check = r.Check
+	// A 429 leaves no tokens and no answer, so a run the upstream throttled reads
+	// like a plain agent failure unless the throttle is carried alongside the
+	// verdict. Copy it up so the narrative can say the run was cut short.
+	t.Throttle = r.RateLimit
 }
 
 // transcribe reads one request tap and walks the fullest conversation it holds
@@ -239,8 +247,15 @@ func analyze(tool string, prof toolProfile, steps []Step) *RunSummary {
 		case "edit":
 			s.Edits++
 			edited = true
+			// A fix belongs in the source, not the tests, and the grader resets the
+			// test tree before it grades, so an edit to a test file is worth keeping
+			// apart from the source change rather than piling both into one list.
 			if f := argPath(st.Text); f != "" {
-				s.FilesEdit = appendUnique(s.FilesEdit, f)
+				if testPathRe.MatchString(f) {
+					s.TestEdits = appendUnique(s.TestEdits, f)
+				} else {
+					s.FilesEdit = appendUnique(s.FilesEdit, f)
+				}
 			}
 		case "shell":
 			// A tool with no dedicated search runs its greps and finds through the
@@ -263,6 +278,17 @@ func analyze(tool string, prof toolProfile, steps []Step) *RunSummary {
 			s.Plans++
 		default:
 			s.Other++
+		}
+		// Network activity cuts across the buckets: a web tool lands in "other" and a
+		// curl lands in "shell", but both leave the repo, which is the move worth
+		// seeing on a task graded only on local files. Count it once, orthogonally,
+		// and remember the hosts so a run that went looking for the answer online is
+		// visible without re-reading the raw trace.
+		if isNetworkTool(st.Name) || (st.Act == "shell" && isNetworkCmd(argField(st.Text, "command", "cmd", "script"))) {
+			s.Fetches++
+			if h := urlHost(fetchURL(*st)); h != "" {
+				s.FetchHosts = appendUnique(s.FetchHosts, h)
+			}
 		}
 		if seen[st.Name+st.Text] {
 			s.Repeated++
@@ -675,6 +701,89 @@ func isSearchCmd(cmd string) bool {
 	return false
 }
 
+// isNetworkTool reports whether a call name is a web tool: a fetch, a web search,
+// or a browser move. These are the named ways an agent leaves the repo, as
+// opposed to a curl smuggled through the shell, which isNetworkCmd catches.
+func isNetworkTool(name string) bool {
+	n := strings.ToLower(name)
+	switch n {
+	case "fetch", "webfetch", "web_fetch", "websearch", "web_search", "browse", "browser", "url_fetch":
+		return true
+	}
+	// A few tools prefix or suffix these, e.g. web.run or fetch_url; keep the match
+	// broad enough to catch them without swallowing fetch_file, which reads locally.
+	if strings.Contains(n, "file") {
+		return false
+	}
+	return containsAny(n, "webfetch", "websearch", "web_", "fetch_url", "url_fetch")
+}
+
+// isNetworkCmd reports whether a shell command reaches out over the network: a
+// curl, wget, or a raw http client. It reads the first real command word after
+// any leading `cd … &&`, the same way isSearchCmd does, so a run that fetches
+// through the shell is counted next to one that uses a web tool.
+func isNetworkCmd(cmd string) bool {
+	c := strings.TrimSpace(strings.ToLower(cmd))
+	for strings.HasPrefix(c, "cd ") {
+		i := strings.Index(c, "&&")
+		if i < 0 {
+			break
+		}
+		c = strings.TrimSpace(c[i+2:])
+	}
+	tok := c
+	if i := strings.IndexAny(c, " \t"); i >= 0 {
+		tok = c[:i]
+	}
+	switch tok {
+	case "curl", "wget", "http", "https", "httpie", "xh", "lynx", "w3m", "aria2c":
+		return true
+	}
+	return false
+}
+
+// fetchURL pulls the URL a network call went to, from the web tool's url field
+// or from the first http(s) token in a shell command, so the host can be named.
+func fetchURL(s Step) string {
+	if u := argField(s.Text, "url", "uri", "link", "href", "target"); u != "" {
+		return u
+	}
+	if cmd := argField(s.Text, "command", "cmd", "script"); cmd != "" {
+		return firstURL(cmd)
+	}
+	return firstURL(s.Text)
+}
+
+// urlRe matches an http(s) URL, used to lift the target out of a shell command
+// that has no structured url field.
+var urlRe = regexp.MustCompile(`https?://[^\s"'` + "`" + `)]+`)
+
+// firstURL returns the first http(s) URL in a string, or empty if none.
+func firstURL(s string) string { return urlRe.FindString(s) }
+
+// urlHost reduces a URL to its host, so distinct pages on the same site collapse
+// to one entry and a run that hammered one host is not listed a hundred times. It
+// is deliberately forgiving: no scheme, a port, or a trailing path all still
+// yield the bare host, and a string with no host yields empty.
+func urlHost(u string) string {
+	if u == "" {
+		return ""
+	}
+	if i := strings.Index(u, "://"); i >= 0 {
+		u = u[i+3:]
+	}
+	if i := strings.IndexAny(u, "/?#"); i >= 0 {
+		u = u[:i]
+	}
+	if i := strings.LastIndex(u, "@"); i >= 0 {
+		u = u[i+1:]
+	}
+	if i := strings.Index(u, ":"); i >= 0 {
+		u = u[:i]
+	}
+	return u
+}
+
 // narrative turns a summary into a few plain sentences a person can read at a
 // glance: the verdict and cost first, then what the agent spent its moves on,
 // then the notable good and bad signs.
@@ -727,7 +836,21 @@ func narrative(t *Transcript) []string {
 	}
 	lines = append(lines, "It "+joinList(did)+".")
 
+	// Leaving the repo is the move worth naming on a task graded only on local
+	// files, so it gets its own line with the hosts, not a slot in the did-list.
+	if s.Fetches > 0 {
+		line := fmt.Sprintf("It went to the network %s", countNoun(s.Fetches, "time", "times"))
+		if len(s.FetchHosts) > 0 {
+			line += " (" + joinList(s.FetchHosts) + ")"
+		}
+		lines = append(lines, line+".")
+	}
+
 	// Signs, good and bad, that a plain reader would want flagged.
+	if len(s.TestEdits) > 0 {
+		lines = append(lines, fmt.Sprintf("It edited %s (%s), which the grader resets before grading, so that change does not count.",
+			countNoun(len(s.TestEdits), "test file", "test files"), strings.Join(s.TestEdits, ", ")))
+	}
 	if s.Installs > 0 {
 		lines = append(lines, fmt.Sprintf("It spent %s bootstrapping the environment; the prepared env should have covered this.", countNoun(s.Installs, "command", "commands")))
 	}
@@ -746,6 +869,17 @@ func narrative(t *Transcript) []string {
 	}
 	if s.Installs == 0 && s.Repeated == 0 {
 		lines = append(lines, "No wasted repetition and no time lost to setup.")
+	}
+	// The throttle is a property of the run's environment, not the agent, so it is
+	// the last word: a run the upstream cut short is a floor on what the tool would
+	// have done, not a ceiling, and a reader should weigh the verdict with that.
+	if t.Throttle != nil && t.Throttle.Hits > 0 {
+		line := fmt.Sprintf("The upstream rate-limited it %s and the run was cut short, so read the verdict as a floor, not the tool's best.", countNoun(t.Throttle.Hits, "time", "times"))
+		if t.Throttle.MaxRetryAfterS > 0 {
+			line = fmt.Sprintf("The upstream rate-limited it %s (longest back-off %ds) and the run was cut short, so read the verdict as a floor, not the tool's best.",
+				countNoun(t.Throttle.Hits, "time", "times"), t.Throttle.MaxRetryAfterS)
+		}
+		lines = append(lines, line)
 	}
 	return lines
 }
@@ -843,6 +977,15 @@ func writeWalkthrough(w io.Writer, steps []Step, full bool) {
 // bucket implies, and the file or the command it acted on, so a reader sees what
 // the agent did without decoding JSON arguments.
 func moveLine(s Step) string {
+	// A network move is named for where it went, whichever bucket it fell in: a web
+	// tool reads as "other" and a curl reads as "shell", but both are fetches, and
+	// the host is the useful thing to show.
+	if isNetworkTool(s.Name) || (s.Act == "shell" && isNetworkCmd(argField(s.Text, "command", "cmd", "script"))) {
+		if u := fetchURL(s); u != "" {
+			return "fetched " + u
+		}
+		return "went to the network"
+	}
 	switch s.Act {
 	case "read":
 		if f := argPath(s.Text); f != "" {
