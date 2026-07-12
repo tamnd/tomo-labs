@@ -171,7 +171,11 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 		}
 		// A graded failure the upstream caused (a dropped stream) is thrown out and
 		// retried without counting, up to the bound; anything else spends a real try.
-		if sc.graded && infraSkips < maxInfra && streamErrorStats(filepath.Join(trace, "latency.jsonl")) != nil {
+		// A mid-run drop leaves a flagged latency row; a final-turn drop the pod tore
+		// down before the proxy could flush leaves only a truncated resp file, so both
+		// paths count as the infra fault they are.
+		if sc.graded && infraSkips < maxInfra &&
+			(streamErrorStats(filepath.Join(trace, "latency.jsonl")) != nil || droppedFinalStream(trace)) {
 			infraSkips++
 			continue
 		}
