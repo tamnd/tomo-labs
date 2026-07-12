@@ -52,7 +52,20 @@ type Result struct {
 	// not the agent. It is omitted on a run that hit no rate limit.
 	RateLimit *RateLimit `json:"rate_limit,omitempty"`
 
+	// StreamFail is set only when the upstream dropped a completion mid-stream, so
+	// its presence marks a result whose failure or retry the gateway caused, not the
+	// agent. It is omitted on a run whose streams all completed cleanly.
+	StreamFail *StreamFail `json:"stream_fail,omitempty"`
+
 	Check string `json:"check"`
+
+	// EditedTests names the hidden test files the tool changed in the work tree
+	// before grading, detected by the checker and reset before the hidden patch
+	// applies. It is observability, not a penalty: the grade already resets these
+	// files so a tool cannot pass by rewriting them, and this field just records
+	// which tools leaned on the tests instead of fixing the source. Omitted when
+	// the tool touched no test file, so its presence alone is the signal.
+	EditedTests []string `json:"edited_tests,omitempty"`
 
 	// Ungraded marks a run with no checker, which is what an ad-hoc prompt run
 	// (lab -p) produces: there is no pass or fail, only the answer and the metrics.
@@ -77,11 +90,14 @@ type Tokens struct {
 	CacheWrite int `json:"cache_write,omitempty"`
 }
 
-// Latency is the average model-call latency over a run, in milliseconds, with
-// the number of calls the average is over.
+// Latency is the model-call latency over a run, in milliseconds. AvgTTFB and
+// AvgTotal are per-call averages over Calls model round-trips; SumTotal is the
+// wall time the run spent waiting on the model, the model half of the run's total
+// time, with the rest (tool execution and agent glue) being wall minus this.
 type Latency struct {
 	AvgTTFB  int `json:"avg_ttfb"`
 	AvgTotal int `json:"avg_total"`
+	SumTotal int `json:"sum_total"`
 	Calls    int `json:"calls"`
 }
 
@@ -94,6 +110,20 @@ type Latency struct {
 type RateLimit struct {
 	Hits           int `json:"hits"`
 	MaxRetryAfterS int `json:"max_retry_after_s,omitempty"`
+}
+
+// StreamFail summarizes the completions the upstream returned as HTTP 200 and
+// then dropped mid-stream, recovered from the proxy's latency log. A dropped
+// stream leaves no usage and can leave the agent's work half-done, so without
+// this a gateway fault looks like the agent failing the task. Calls is how many
+// model calls in the recorded (winning or last) attempt broke this way, and
+// Sample is the upstream's error text when it sent one. RetriedAttempts is how
+// many whole attempts the harness threw out and re-ran because a dropped stream,
+// not the agent, sank them; those retries do not count against the tool.
+type StreamFail struct {
+	Calls           int    `json:"calls,omitempty"`
+	RetriedAttempts int    `json:"retried_attempts,omitempty"`
+	Sample          string `json:"sample,omitempty"`
 }
 
 // Orchestration is what a run reveals about how the tool approached the task,

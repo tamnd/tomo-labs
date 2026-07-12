@@ -42,7 +42,7 @@ Token usage and the exact bytes sent and received are the same measurement for e
 
 ## Keeping a run stable
 
-A benchmark is only fair if a rerun means the same thing, and a hosted model is not naturally repeatable. Two general levers, neither tuned to a scenario, close most of the gap. The proxy forces greedy decoding onto every completion request (temperature 0, top_p 1, a fixed seed), so client-side sampling variance is gone and every tool is judged under one decoding regime. On top of that the harness runs up to `LAB_ATTEMPTS` tries and stops at the first pass, which soaks up the residual nondeterminism a model still shows even at temperature 0. A pass that needed more than one try is recorded as such, so the flakiness is measured rather than papered over.
+A benchmark is only fair if a rerun means the same thing, and a hosted model is not naturally repeatable. The proxy forces greedy decoding onto every completion request (temperature 0, top_p 1, a fixed seed), so client-side sampling variance is gone and every tool is judged under one decoding regime. Each scenario is then scored on a single first-try attempt: pure pass@1, the metric the report ranks on. An upstream fault (a dropped stream or a rate-limit) is re-issued off the books, so a gateway hiccup is never scored as the model failing, kept apart from a genuine miss. Raising `LAB_ATTEMPTS` above 1 turns on opt-in best-of-N, feeding a failing attempt back for another try; a pass that needed more than one is recorded as such, so any retry is measured rather than papered over.
 
 ## What gets measured
 

@@ -8,6 +8,29 @@ The `evalplus` tier rebuilds [EvalPlus](https://github.com/evalplus/evalplus), w
 The original benchmarks each ship a handful of example tests, enough that a plausible-looking answer often passes; EvalPlus adds a much larger hidden test set, so a completion has to actually be correct to score.
 That expansion is the whole point of using EvalPlus over the originals: it is much harder to pass by luck.
 
+## Results
+
+Every tool runs the same problems through the same trace proxy, so the row is the tool: how many completions passed the expanded hidden tests, how many tokens it spent, and what it cost at the reference rates.
+`pass` is graded against the full EvalPlus test set, `1st` is how many passed on the first attempt before the retry kicked in, and `cost` prices the tokens at DeepSeek's paid rates even though the run itself was free.
+The table below is written by `scripts/eval_docs.go`, so a rerun refreshes it in place.
+
+<!-- eval-results:start -->
+Snapshot taken 2026-07-11 on the `deepseek-v4-flash-free` model, every tool over the same tasks through the same trace proxy.
+Rows are ordered by total tokens, cheapest first, and `pass` is how many of the 1 tasks the tool got a passing grade on.
+
+| tool | version | pass | 1st | tokens | avg | cost | rss | wall | install |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| tomo | v0.2.4 | 1/1 | 1 | 9,460 | 9,460 | $0.0018 | 13MB | 11s | 21MB |
+| pi | 0.80.6 | 1/1 | 1 | 10,288 | 10,288 | $0.0022 | 169MB | 13s | 156MB |
+| opencode | 1.17.18 | 1/1 | 1 | 41,451 | 41,451 | $0.0045 | 702MB | 16s | 446MB |
+| gemini-cli | 0.52.0-nightly.20260710.ga4c91ce19 | 1/1 | 1 | 41,460 | 41,460 | $0.0057 | 359MB | 21s | 181MB |
+| codex | 0.145.0-alpha.4 | 1/1 | 1 | 45,826 | 45,826 | $0.0050 | 90MB | 18s | 426MB |
+| hermes | 0.18.2 | 1/1 | 1 | 58,899 | 58,899 | $0.0054 | 127MB | 32s | 221MB |
+| claude-code | 2.1.207 | 1/1 | 1 | 82,337 | 82,337 | $0.0078 | 287MB | 18s | 325MB |
+| openclaw | 2026.7.1-beta.2 | 1/1 | 1 | 88,936 | 88,936 | $0.0096 | 511MB | 43s | 407MB |
+
+<!-- eval-results:end -->
+
 ## The two datasets
 
 The tier covers both EvalPlus datasets, pulled from the Hugging Face dataset viewer.

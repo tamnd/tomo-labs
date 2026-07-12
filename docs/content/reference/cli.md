@@ -145,7 +145,7 @@ Every knob has an environment fallback, so a run reproduces regardless of which 
 | `LAB_DATA` | `$HOME/data` | Where traces and results land, per tool/scenario/timestamp. |
 | `LAB_ROOT` | repo root | Root holding `scenarios/` and `tools/`. |
 | `LAB_MAX_TURNS` | `12` | Agent turn budget handed to the tool. |
-| `LAB_ATTEMPTS` | `3` | Best-of-N: how many tries before a scenario is called failed. |
+| `LAB_ATTEMPTS` | `1` | Capability tries before a scenario is called failed. `1` is pure pass@1; higher turns on opt-in best-of-N. |
 | `LAB_PROXY_PORT` | `8899` | Host port the first worker's proxy publishes; later workers take the next ports. |
 | `LAB_KEEP_RUNS` | `5` | How many timestamped runs to keep per tool/scenario. `0` keeps all. |
 | `LAB_CONCURRENCY` | `3` | How many tool/scenario runs to keep in flight at once. |

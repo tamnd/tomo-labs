@@ -22,6 +22,7 @@ type traceMetrics struct {
 	Latency      Latency
 	Orch         Orchestration
 	RateLimit    *RateLimit
+	StreamFail   *StreamFail
 }
 
 // readTrace parses every metric file the proxy and GNU time left in a trace dir.
@@ -35,7 +36,36 @@ func readTrace(dir string) traceMetrics {
 	m.Latency = latencyStats(filepath.Join(dir, "latency.jsonl"))
 	m.Orch = orchestration(filepath.Join(dir, "requests.jsonl"))
 	m.RateLimit = rateLimitStats(filepath.Join(dir, "latency.jsonl"))
+	m.StreamFail = streamErrorStats(filepath.Join(dir, "latency.jsonl"))
 	return m
+}
+
+// streamErrorStats scans the latency log for model calls the proxy flagged as
+// broken mid-stream: a 200 completion that carried an upstream error payload or
+// was cut off before its usage. It counts them and keeps the first error message
+// seen, so a run whose failure was the gateway dropping a stream is told apart
+// from a run the agent got wrong. It returns nil when the run hit no such fault,
+// so the result omits the field rather than recording a zero.
+func streamErrorStats(path string) *StreamFail {
+	var calls int
+	var sample string
+	forEachJSON(path, func(b []byte) {
+		var r struct {
+			StreamErr bool   `json:"stream_err"`
+			Message   string `json:"stream_err_msg"`
+		}
+		if json.Unmarshal(b, &r) != nil || !r.StreamErr {
+			return
+		}
+		calls++
+		if sample == "" && r.Message != "" {
+			sample = r.Message
+		}
+	})
+	if calls == 0 {
+		return nil
+	}
+	return &StreamFail{Calls: calls, Sample: sample}
 }
 
 // rateLimitStats scans the latency log for upstream rate-limit rejections. The
@@ -267,7 +297,7 @@ func latencyStats(path string) Latency {
 	if n == 0 {
 		return Latency{}
 	}
-	return Latency{AvgTTFB: ttfb / n, AvgTotal: total / n, Calls: n}
+	return Latency{AvgTTFB: ttfb / n, AvgTotal: total / n, SumTotal: total, Calls: n}
 }
 
 // forEachJSON calls fn with each non-empty line of a jsonl file, skipping a

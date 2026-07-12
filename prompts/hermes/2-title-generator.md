@@ -1,0 +1,1 @@
+Generate a short, descriptive title (3-7 words) for a conversation that starts with the following exchange. The title should capture the main topic or intent. Write the title in the same language the user is writing in. Return ONLY the title text, nothing else. No quotes, no punctuation at the end, no prefixes.

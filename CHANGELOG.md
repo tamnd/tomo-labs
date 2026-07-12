@@ -2,6 +2,46 @@
 
 All notable changes to tomo-labs are recorded here.
 
+## Unreleased
+
+Wires three more agents, caps runaway output at the proxy so a tool that omits a
+token limit cannot hang a run, and teaches the version probe and daily updater to
+read PyPI.
+
+### Added
+
+- Kilo Code (`kilocode`), an opencode fork, wired through `kilo run` against a
+  custom `lab` provider pointed at the trace proxy.
+- aider (`aider`), the whole-file-editing pair programmer, wired through
+  `aider --message` in headless mode. aider is the one tool that does not use
+  native tool-calling: it edits through a prose whole-file format, so its requests
+  carry no tool schema, and it routes to the proxy through litellm's OpenAI handler.
+- The GitHub Copilot CLI (`copilot`), wired through `copilot -p` in bring-your-own-key
+  mode, which points the CLI at an OpenAI-compatible provider through environment
+  variables and skips GitHub authentication when a provider base URL is set.
+- pip version probing: `lab meta` reads a PyPI-installed tool's version and release
+  date, so aider's version shows in the report alongside the npm and Go tools.
+- The daily updater now bumps PyPI-pinned tools to their newest release too, not
+  just npm and Go ones.
+- A raw prompt store under `prompts/`, one file per distinct system prompt each
+  tool sends, recovered verbatim from the trace proxy, with a README that tables
+  every prompt by size in tokens.
+- `scripts/eval_docs.go`, which runs an eval suite over every wired tool and
+  writes the results table into that suite's docs page, so a rerun refreshes the
+  numbers in place. Ran it to fill the aider, evalplus, and livecodebench tiers.
+
+### Changed
+
+- The tools and prompts sections now cover eleven wired agents.
+- The prompts pages are now human-written reviews that report each prompt's size
+  in tokens and link to its raw capture, rather than embedding the prompt inline.
+
+### Fixed
+
+- The proxy fills in a `max_tokens` floor (default 32000, `LAB_MAX_OUTPUT_TOKENS`)
+  when a tool sends none, so a tool that omits an output limit cannot stream an
+  unbounded response and hang the run. A tool that sets its own cap keeps it.
+
 ## v0.1.2
 
 Adds the LiveCodeBench eval tier, captures upstream rate limits so a throttled

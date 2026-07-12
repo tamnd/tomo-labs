@@ -1,0 +1,3 @@
+tests/test_config.py::TestConfig::test_default_config
+tests/test_config.py::TestConfig::test_cfg_auto_fill
+tests/test_config.py::test_compare_default_config_testdata

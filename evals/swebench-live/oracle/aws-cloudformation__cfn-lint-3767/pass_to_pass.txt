@@ -1,0 +1,4 @@
+test/unit/rules/resources/iam/test_identity_policy.py::TestIdentityPolicies::test_object_basic
+test/unit/rules/resources/iam/test_identity_policy.py::TestIdentityPolicies::test_object_multiple_effect
+test/unit/rules/resources/iam/test_identity_policy.py::TestIdentityPolicies::test_object_statements
+test/unit/rules/resources/iam/test_identity_policy.py::TestIdentityPolicies::test_string_statements

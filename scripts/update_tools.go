@@ -121,8 +121,25 @@ func newestGoMain(installPath string) (string, error) {
 	return info.Version, nil
 }
 
+// newestPyPI returns the newest stable version of a PyPI package, as the
+// registry reports it in the package's info block.
+func newestPyPI(pkg string) (string, error) {
+	var doc struct {
+		Info struct {
+			Version string `json:"version"`
+		} `json:"info"`
+	}
+	if err := getJSON("https://pypi.org/pypi/"+pkg+"/json", &doc); err != nil {
+		return "", err
+	}
+	if doc.Info.Version == "" {
+		return "", fmt.Errorf("no version found for %s", pkg)
+	}
+	return doc.Info.Version, nil
+}
+
 // tool is one Dockerfile's version pin: the ARG name, its current value, whether
-// it installs from npm or go, and the package or install path it references.
+// it installs from npm, pip, or go, and the package or install path it references.
 type tool struct {
 	name, arg, current, kind, target string
 }
@@ -144,6 +161,9 @@ func parseTool(name, dockerfile string) (tool, bool) {
 	}
 	if goi := regexp.MustCompile(`go install\s+(\S+)@` + ref).FindStringSubmatch(text); goi != nil {
 		return tool{name, arg, current, "go", goi[1]}, true
+	}
+	if pip := regexp.MustCompile(`pip3?\s+install[^\n]*?(\S+)==` + ref).FindStringSubmatch(text); pip != nil {
+		return tool{name, arg, current, "pip", pip[1]}, true
 	}
 	return tool{}, false
 }
@@ -196,9 +216,12 @@ func main() {
 		}
 		var newVer string
 		var err error
-		if t.kind == "go" {
+		switch t.kind {
+		case "go":
 			newVer, err = newestGoMain(t.target)
-		} else {
+		case "pip":
+			newVer, err = newestPyPI(t.target)
+		default:
 			newVer, err = newestNPM(t.target)
 		}
 		if err != nil {

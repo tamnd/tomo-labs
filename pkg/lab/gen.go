@@ -44,8 +44,10 @@ func (l *Lab) Generate(ctx context.Context, opts GenOptions) (int, error) {
 		return l.genLiveCodeBench(ctx, opts)
 	case "swebench":
 		return l.genSWEBench(ctx, opts)
+	case "swebench-live":
+		return l.genSWEBenchLive(ctx, opts)
 	case "":
-		return 0, fmt.Errorf("gen needs a suite: try --suite aider, --suite evalplus, --suite livecodebench, or --suite swebench")
+		return 0, fmt.Errorf("gen needs a suite: try --suite aider, --suite evalplus, --suite livecodebench, --suite swebench, or --suite swebench-live")
 	default:
 		return 0, fmt.Errorf("no generator for suite %q", l.cfg.Suite)
 	}

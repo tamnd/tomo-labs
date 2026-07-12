@@ -8,6 +8,32 @@ The `aider` tier rebuilds the [Aider polyglot benchmark](https://github.com/Aide
 Each exercise is a small, self-contained programming problem: a stub to fill in, a test suite that grades it, and a reference solution that is known to pass those tests.
 This makes it a natural fit for the harness, because every exercise already carries its own grader, so the tier does not have to invent how a task is judged, only how it is set up.
 
+## Results
+
+Every tool runs the same exercises through the same trace proxy, so the row is the tool: how many it got green, how many tokens it spent, and what it cost at the reference rates.
+`pass` is graded by each exercise's own test suite, `1st` is how many passed on the first attempt before the retry kicked in, and `cost` prices the tokens at DeepSeek's paid rates even though the run itself was free.
+The table below is written by `scripts/eval_docs.go`, so a rerun refreshes it in place.
+
+<!-- eval-results:start -->
+Snapshot taken 2026-07-11 on the `nemotron-3-ultra-free` model, every tool over the same tasks through the same trace proxy.
+Rows are ordered by total tokens, cheapest first, and `pass` is how many of the 9 tasks the tool got a passing grade on.
+
+| tool | version | pass | 1st | tokens | avg | cost | rss | wall | install |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| hermes | 0.18.2 | 0/7 | 0 | 0 | 0 | - | 117MB | 0s | 221MB |
+| kilocode | 7.4.5 | 0/9 | 0 | 0 | 0 | - | 544MB | 0s | 591MB |
+| openclaw | 2026.7.1-beta.2 | 1/2 | 1 | 143,850 | 0 | $0.0214 | 394MB | 0s | 407MB |
+| aider | 0.86.2 | 3/9 | 2 | 156,629 | 0 | $0.0863 | 242MB | 0s | 621MB |
+| opencode | 1.17.18 | 2/2 | 2 | 194,561 | 0 | $0.0306 | 684MB | 0s | 446MB |
+| tomo | v0.2.4 | 2/2 | 2 | 231,018 | 0 | $0.0387 | 87MB | 0s | 21MB |
+| pi | 0.80.6 | 2/2 | 2 | 430,537 | 0 | $0.0793 | 163MB | 0s | 156MB |
+| gemini-cli | 0.52.0-nightly.20260710.ga4c91ce19 | 2/9 | 2 | 686,062 | 0 | $0.0928 | 265MB | 0s | 206MB |
+| copilot | 1.0.70 | 7/9 | 7 | 1,270,523 | 0 | $0.1787 | 402MB | 0s | 418MB |
+| codex | 0.145.0-alpha.4 | 8/9 | 4 | 2,420,092 | 0 | $0.3408 | 96MB | 0s | 424MB |
+| claude-code | 2.1.207 | 9/9 | 9 | 3,547,432 | 0 | $0.4702 | 294MB | 0s | 325MB |
+
+<!-- eval-results:end -->
+
 ## What a task looks like
 
 Each exercise becomes one harness task under `evals/aider/tasks/`.

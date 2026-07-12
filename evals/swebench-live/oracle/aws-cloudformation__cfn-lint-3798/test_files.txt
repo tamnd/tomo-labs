@@ -1,0 +1,15 @@
+test/unit/rules/functions/test_dynamic_reference.py
+test/unit/rules/functions/test_find_in_map.py
+test/unit/rules/functions/test_if.py
+test/unit/rules/functions/test_sub.py
+test/unit/rules/functions/test_tojsonstring.py
+test/integration/jsonschema/test_validator_cfn.py
+test/unit/module/jsonschema/test_validator.py
+test/unit/rules/mappings/test_configuration.py
+test/unit/rules/outputs/test_configuration.py
+test/unit/rules/parameters/test_configuration.py
+test/unit/rules/resources/ecs/test_service_health_check_grace_period_seconds.py
+test/unit/rules/resources/elbv2/test_loadbalancer_application_subnets.py
+test/unit/rules/resources/properties/test_tagging.py
+test/unit/rules/resources/route53/test_recordsets.py
+test/unit/rules/templates/test_limitsize_description.py
