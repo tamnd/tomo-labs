@@ -227,13 +227,25 @@ func (l *Lab) runAttempt(ctx context.Context, tool string, sc Scenario, work, tr
 
 	fmt.Fprintf(os.Stderr, "[run] %s / %s (attempt %d/%d)\n", tool, sc.Name, attempt, attempts)
 	start := time.Now()
+	// Bound the attempt by a wall clock. A tool that never ends its turn, or one
+	// driven by a weak model into a loop that keeps calling tools without
+	// converging, would otherwise burn tokens until the upstream cut it off.
+	// When the ceiling fires the container is killed and whatever it left in the
+	// work tree is graded, so a runaway scores as a failed attempt rather than
+	// hanging the sweep. A zero timeout opts out.
+	runCtx := ctx
+	if l.cfg.AttemptSecs > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, time.Duration(l.cfg.AttemptSecs)*time.Second)
+		defer cancel()
+	}
 	// A headless tool is quiet while it works, so the run would sit silent for
 	// minutes. Tail the proxy's trace on a ticker and print a live line, the
 	// requests it has made and the tokens they cost so far, so an operator can
 	// see the loop moving and spot a stall or a runaway without waiting for the
 	// final summary.
 	stopProgress := l.logProgress(tool, sc.Name, trace, start)
-	err = l.rt.Run(ctx, container.RunSpec{
+	err = l.rt.Run(runCtx, container.RunSpec{
 		Name: sl.run, Image: toolPrefix + tool, Network: l.cfg.Network, Remove: true,
 		Mounts: []container.Mount{
 			{Host: work, Container: "/work"},
@@ -250,11 +262,24 @@ func (l *Lab) runAttempt(ctx context.Context, tool string, sc Scenario, work, tr
 	})
 	stopProgress()
 	wall = int(time.Since(start).Seconds())
+	if runCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+		// The tool ran past its wall clock, not the whole sweep being cancelled.
+		// Kill the container with the live parent context and grade the partial
+		// work: a runaway is a failed attempt, not a reason to abort the sweep.
+		l.rt.Remove(ctx, sl.run)
+		fmt.Fprintf(os.Stderr, "[run] %s / %s timed out after %ds\n", tool, sc.Name, wall)
+		return wall, exitTimeout, nil
+	}
 	if err != nil {
 		return wall, -1, err
 	}
 	return wall, l.readExitCode(trace), nil
 }
+
+// exitTimeout marks an attempt the wall clock killed, borrowing the shell's
+// conventional 124 for a timed-out command so a reader of the result can tell a
+// runaway from a clean non-zero exit.
+const exitTimeout = 124
 
 // progressInterval is how often a running attempt prints its live trace line.
 const progressInterval = 15 * time.Second

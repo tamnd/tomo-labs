@@ -47,7 +47,9 @@ agent:
   # aider, claude-code, copilot, gemini-cli, hermes, kilocode, pi ignore
   # LAB_MAX_TURNS; openclaw reads it only as a wall-clock timeout), so a turn
   # cap here would uniquely throttle tomo and cut real runs off mid-task. The
-  # per-rep wall-clock timeout the harness already imposes is the only bound.
+  # per-attempt wall clock the harness enforces (LAB_ATTEMPT_TIMEOUT) is the one
+  # bound every tool shares, so a run that never converges is killed and graded
+  # rather than left to burn.
 policy:
   read: allow
   net: allow
