@@ -199,6 +199,90 @@ func TestOpencodeNotesFlagsNeverEdited(t *testing.T) {
 	}
 }
 
+// A run that leaves the repo should be counted once whether it fetched through a
+// web tool or a curl in the shell, and the distinct hosts it reached should be
+// collected so many pages on one site collapse to one entry.
+func TestAnalyzeCountsNetworkAndHosts(t *testing.T) {
+	steps := []Step{
+		{Kind: "call", Name: "webfetch", Text: `{"url":"https://github.com/aws-cloudformation/cfn-lint/pull/3798"}`},
+		{Kind: "result", Text: "diff --git ..."},
+		{Kind: "call", Name: "webfetch", Text: `{"url":"https://github.com/aws-cloudformation/cfn-lint/pull/3798/files"}`},
+		{Kind: "result", Text: "more diff"},
+		{Kind: "call", Name: "bash", Text: `{"command":"curl -s https://raw.githubusercontent.com/x/y/main/z.py"}`},
+		{Kind: "result", Text: "content"},
+		{Kind: "call", Name: "read", Text: `{"path":"foo.py"}`},
+		{Kind: "result", Text: "def foo(): pass"},
+	}
+	s := analyze("opencode", builtinProfiles["opencode"], steps)
+	if s.Fetches != 3 {
+		t.Fatalf("Fetches = %d, want 3 (two web tools and one curl)", s.Fetches)
+	}
+	if len(s.FetchHosts) != 2 {
+		t.Fatalf("FetchHosts = %v, want two distinct hosts", s.FetchHosts)
+	}
+	if s.FetchHosts[0] != "github.com" || s.FetchHosts[1] != "raw.githubusercontent.com" {
+		t.Errorf("hosts = %v", s.FetchHosts)
+	}
+	// The curl is still a shell command, so it is not miscounted as a search.
+	if steps[4].Act != "shell" {
+		t.Errorf("curl act = %q, want shell", steps[4].Act)
+	}
+	// A local read is not a fetch, even though its name contains a path.
+	if moveLine(steps[0]) != "fetched https://github.com/aws-cloudformation/cfn-lint/pull/3798" {
+		t.Errorf("web-tool move = %q", moveLine(steps[0]))
+	}
+	if moveLine(steps[4]) != "fetched https://raw.githubusercontent.com/x/y/main/z.py" {
+		t.Errorf("curl move = %q", moveLine(steps[4]))
+	}
+}
+
+// fetch_file reads locally despite the "fetch" in its name, so it must not be
+// counted as a network move.
+func TestFetchFileIsNotNetwork(t *testing.T) {
+	if isNetworkTool("fetch_file") {
+		t.Errorf("fetch_file reads a local file, not the network")
+	}
+	if !isNetworkTool("webfetch") || !isNetworkTool("WebFetch") {
+		t.Errorf("webfetch should be a network tool regardless of case")
+	}
+}
+
+// An edit to a test tree should be split out of the source-file list, since the
+// grader resets tests before grading and the fix has to land in the source.
+func TestAnalyzeSplitsTestEdits(t *testing.T) {
+	steps := []Step{
+		{Kind: "call", Name: "edit", Text: `{"path":"src/cfnlint/rules/x.py"}`},
+		{Kind: "result", Text: "edited"},
+		{Kind: "call", Name: "edit", Text: `{"path":"test/rules/test_x.py"}`},
+		{Kind: "result", Text: "edited"},
+	}
+	s := analyze("tomo", builtinProfiles["tomo"], steps)
+	if len(s.FilesEdit) != 1 || s.FilesEdit[0] != "src/cfnlint/rules/x.py" {
+		t.Errorf("source edits = %v, want just the source file", s.FilesEdit)
+	}
+	if len(s.TestEdits) != 1 || s.TestEdits[0] != "test/rules/test_x.py" {
+		t.Errorf("test edits = %v, want just the test file", s.TestEdits)
+	}
+}
+
+// A run the upstream throttled should read as a floor, not the tool's best, so the
+// narrative carries the rate-limit as its last word.
+func TestNarrativeSurfacesThrottle(t *testing.T) {
+	no := false
+	t1 := &Transcript{
+		Tool: "pi", Scenario: "cfn-lint", Passed: &no, Requests: 12, Tokens: 45814,
+		Throttle: &RateLimit{Hits: 1, MaxRetryAfterS: 20291},
+		Summary:  &RunSummary{Reads: 3},
+	}
+	joined := strings.Join(narrative(t1), " ")
+	if !strings.Contains(joined, "rate-limited it 1 time") || !strings.Contains(joined, "20291") {
+		t.Errorf("throttle not surfaced: %q", joined)
+	}
+	if !strings.Contains(joined, "floor") {
+		t.Errorf("throttle caveat should frame the verdict as a floor: %q", joined)
+	}
+}
+
 // The walkthrough should group a fix into Investigate, Fix, and Verify phases and
 // clip long lines unless full is set.
 func TestWalkthroughPhasesAndClipping(t *testing.T) {
