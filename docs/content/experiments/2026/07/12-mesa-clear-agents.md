@@ -3,7 +3,7 @@ title: "mesa: the right name, in the wrong place"
 linkTitle: "mesa clear_agents"
 description: "tomo fixes a real mesa issue correctly, then fails the grade on a method name. The twist: its own throwaway test used the name that would have passed. A close read of one run, and why the task is fair even though every tool failed it."
 date: 2026-07-12T23:49:00+07:00
-weight: 10
+weight: 40
 ---
 
 This is a single run: tomo, on one real GitHub issue from the [swebench-live](/evals/swebench-live/) tier.

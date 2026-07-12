@@ -10,6 +10,12 @@ Each item below is one experiment: one tool, one task, one verdict.
 
 ### 2026-07-13
 
+- **01:11 (GMT+7)** - [cfn-lint: opencode passes by fetching the answer PR](/experiments/2026/07/13-cfn-lint-opencode-answer-lookup/).
+  opencode passes by fetching the merged pull request 94 times and copying its exact new wording into the source.
+  The pass proves the task is reachable, but only by looking up the answer online, so it stays a marker, not a target for tomo to chase.
+- **01:00 (GMT+7)** - [cfn-lint: tomo fixes the issue, the grade wants something else](/experiments/2026/07/13-cfn-lint-tomo-issue-literal/).
+  tomo implements exactly the message the issue asks for and fails the grade.
+  The graded wording is a generic validator message the maintainers changed instead, and it appears nowhere in the checked-out repo.
 - **00:50 (GMT+7)** - [faker: the fix that let tomo apply its own answer](/experiments/2026/07/13-faker-yolo-autonomous-fix/).
   The follow-up to the lockout below.
   tomo gains a `--yolo` mode that runs it fully autonomous, the way every rival already runs, and the task it had solved but could not write now passes.
