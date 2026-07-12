@@ -1,6 +1,0 @@
-test/integration/remote/retry_test.py::RetryDownloadTests::test_error_401
-test/integration/remote/retry_test.py::RetryDownloadTests::test_error_500
-test/integration/remote/retry_test.py::RetryDownloadTests::test_error_requests
-test/unittests/client/rest/uploader_test.py::UploaderUnitTest::test_401_raises_unauthoirzed_exception
-test/unittests/client/rest/uploader_test.py::UploaderUnitTest::test_403_raises_unauthorized_exception_if_no_auth
-test/unittests/client/rest/uploader_test.py::UploaderUnitTest::test_500_raises_internal_error

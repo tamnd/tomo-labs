@@ -1,0 +1,19 @@
+You are working in the dynaconf/dynaconf repository, already checked out at the commit where a bug was reported.
+Resolve the issue below by editing the project's source code in place. Do not edit or add tests: a hidden test suite grades your change. Make the smallest change that fixes the issue without breaking existing behavior.
+
+Issue:
+
+Ports from #1204 to master
+- [x] Insert token (and related tests)
+- [x] load_file source_metadata
+- [x] populate_obj internal attr
+- [x] `--json` on list must not echo
+- [x] New way to find Django settings instance
+- [x] json.dumps defaults to repr on CLI
+- [x] settings_loader must load multiple environments (also build_env_list)
+- [x] env_loader must allow multiple prefixes
+- [x] *_loader must take identifer param
+- [x] redis_loader fix for None prefix
+- [x] Validator set call must take identifier
+- [x] all tests from #1204 
+- [x] Docs for all the above

@@ -1,1 +1,0 @@
-test/unit/rules/resources/stepfunctions/test_state_machine_definition.py

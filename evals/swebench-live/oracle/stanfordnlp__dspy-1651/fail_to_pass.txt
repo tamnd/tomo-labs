@@ -1,0 +1,1 @@
+tests/functional/test_functional.py::test_save_type_predictor

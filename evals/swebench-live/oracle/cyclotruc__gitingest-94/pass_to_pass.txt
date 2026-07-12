@@ -1,0 +1,17 @@
+src/gitingest/tests/test_parse_query.py::test_parse_url_valid_https
+src/gitingest/tests/test_parse_query.py::test_parse_url_invalid
+src/gitingest/tests/test_parse_query.py::test_parse_query_basic
+src/gitingest/tests/test_parse_query.py::test_parse_query_include_pattern
+src/gitingest/tests/test_parse_query.py::test_parse_query_invalid_pattern
+src/gitingest/tests/test_parse_query.py::test_parse_url_with_subpaths
+src/gitingest/tests/test_parse_query.py::test_parse_url_invalid_repo_structure
+src/gitingest/tests/test_parse_query.py::test_parse_patterns_valid
+src/gitingest/tests/test_parse_query.py::test_parse_patterns_invalid_characters
+src/gitingest/tests/test_parse_query.py::test_parse_query_with_large_file_size
+src/gitingest/tests/test_parse_query.py::test_parse_query_empty_patterns
+src/gitingest/tests/test_parse_query.py::test_parse_query_include_and_ignore_overlap
+src/gitingest/tests/test_parse_query.py::test_parse_query_local_path
+src/gitingest/tests/test_parse_query.py::test_parse_query_relative_path
+src/gitingest/tests/test_parse_query.py::test_parse_query_empty_source
+src/gitingest/tests/test_parse_query.py::test_parse_url_branch_and_commit_distinction
+src/gitingest/tests/test_parse_query.py::test_parse_query_uuid_uniqueness

@@ -1,0 +1,4 @@
+tests/test_settings_loader.py::test_load_using_settings_loader_with_environments
+tests/test_settings_loader.py::test_load_using_settings_loader_with_temporary_env
+tests/test_settings_loader.py::test_load_using_settings_loader_with_set_env
+tests/test_settings_loader.py::test_load_using_settings_loader_with_one_env_named_file_file_path

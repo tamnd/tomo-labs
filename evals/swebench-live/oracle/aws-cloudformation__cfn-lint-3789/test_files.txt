@@ -1,2 +1,0 @@
-test/unit/module/jsonschema/test_validator.py
-test/unit/rules/resources/properties/test_enum.py

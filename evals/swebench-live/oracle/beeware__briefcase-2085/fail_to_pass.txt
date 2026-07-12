@@ -1,0 +1,4 @@
+tests/commands/base/test_update_cookiecutter_cache.py::test_existing_repo_template
+tests/commands/base/test_update_cookiecutter_cache.py::test_existing_repo_template_with_different_url
+tests/commands/base/test_update_cookiecutter_cache.py::test_offline_repo_template
+tests/commands/base/test_update_cookiecutter_cache.py::test_cached_missing_branch_template
