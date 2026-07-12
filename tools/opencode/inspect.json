@@ -1,0 +1,14 @@
+{
+  "lexicon": {
+    "read": "read",
+    "grep": "search",
+    "glob": "search",
+    "edit": "edit",
+    "write": "edit",
+    "bash": "shell",
+    "todowrite": "plan",
+    "task": "other",
+    "skill": "other",
+    "webfetch": "other"
+  }
+}

@@ -163,6 +163,42 @@ func TestClaudeNotesFlagsOrchestration(t *testing.T) {
 	}
 }
 
+// opencode's SWE-bench failure mode is analysis paralysis: it greps, reads the
+// buggy source, reads the tests, and then never edits, so the source ships
+// unchanged and the hidden tests fail. opencodeNotes should call out "read the
+// bug, never wrote the fix", and separately flag a run that edits a test file
+// when the task said to leave tests alone.
+func TestOpencodeNotesFlagsNeverEdited(t *testing.T) {
+	steps := []Step{
+		{Kind: "call", Name: "grep", Text: `{"pattern":"conanignore"}`},
+		{Kind: "result", Text: "config_installer.py:16:"},
+		{Kind: "call", Name: "read", Text: `{"filePath":"conan/internal/api/config/config_installer.py"}`},
+		{Kind: "result", Text: "class _ConanIgnoreMatcher:"},
+		{Kind: "call", Name: "read", Text: `{"filePath":"test/integration/command/config_test.py"}`},
+		{Kind: "result", Text: "def test_config_install():"},
+	}
+	s := analyze("opencode", builtinProfiles["opencode"], steps)
+	if s.Edits != 0 {
+		t.Fatalf("this run made no edits, got Edits=%d", s.Edits)
+	}
+	joined := strings.Join(s.Notes, " | ")
+	if !strings.Contains(joined, "never edited") {
+		t.Errorf("opencodeNotes should flag the never-edited run, got: %v", s.Notes)
+	}
+
+	// A run that does edit, but edits a test file, gets the softer flag instead.
+	edited := []Step{
+		{Kind: "call", Name: "read", Text: `{"filePath":"config_installer.py"}`},
+		{Kind: "result", Text: "class _ConanIgnoreMatcher:"},
+		{Kind: "call", Name: "edit", Text: `{"filePath":"test/integration/command/config_test.py"}`},
+		{Kind: "result", Text: "edited"},
+	}
+	se := analyze("opencode", builtinProfiles["opencode"], edited)
+	if !strings.Contains(strings.Join(se.Notes, " | "), "edited a test file") {
+		t.Errorf("opencodeNotes should flag editing a test file, got: %v", se.Notes)
+	}
+}
+
 // The walkthrough should group a fix into Investigate, Fix, and Verify phases and
 // clip long lines unless full is set.
 func TestWalkthroughPhasesAndClipping(t *testing.T) {

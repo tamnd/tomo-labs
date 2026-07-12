@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -359,6 +360,19 @@ var builtinProfiles = map[string]toolProfile{
 		"Agent":     "other", "Task": "other", "SendMessage": "other", "TaskOutput": "other",
 		"WebFetch": "other", "WebSearch": "other",
 	}},
+	// opencode ships a flat toolset (read, grep, glob, edit, write, bash) plus a
+	// planner (todowrite) and delegation (task, skill). It has a dedicated search,
+	// so its greps do not need the shell-search reclassification pi and claude-code
+	// lean on. opencodeNotes reads the one failure its style is prone to: reading
+	// the bug without ever editing the fix.
+	"opencode": {Lexicon: map[string]string{
+		"read": "read",
+		"grep": "search", "glob": "search",
+		"edit": "edit", "write": "edit",
+		"bash":      "shell",
+		"todowrite": "plan",
+		"task":      "other", "skill": "other", "webfetch": "other",
+	}},
 }
 
 // toolNotes holds each tool's deeper read of its own transcript: the anti-patterns
@@ -369,6 +383,77 @@ var toolNotes = map[string]func(toolProfile, []Step) []string{
 	"tomo":        tomoNotes,
 	"pi":          piNotes,
 	"claude-code": claudeNotes,
+	"opencode":    opencodeNotes,
+}
+
+// testPathRe matches a path that lives in a test tree or is named like a test
+// file, so a run that edits one when the task said to fix the source (not the
+// tests) can be called out. It is deliberately broad: any tests/ or test/
+// directory segment, or a file named test_*.py / *_test.* .
+var testPathRe = regexp.MustCompile(`(^|/)tests?/|(^|/)test_[^/]*$|_test\.[a-z]+$|\.test\.[a-z]+$`)
+
+// opencodeNotes reads an opencode run for the failure its transcript on the
+// SWE-bench tasks kept showing: it investigates thoroughly (grep, then read the
+// source, then read the tests) and then never edits. A coding fix that reads the
+// buggy source and stops has done the hard part of localizing the bug and skipped
+// the only part that is graded. Surfacing "read the bug, never wrote the fix"
+// turns a cheap-looking run (fewest tokens of the four, because it gave up early)
+// into the analysis-paralysis it actually was. It also flags the softer miss of
+// editing a test file when the task said to leave tests alone, and reuses the
+// same re-read and repeated-command checks the other tools get.
+func opencodeNotes(prof toolProfile, steps []Step) []string {
+	var notes []string
+	reads, searches, edits := 0, 0, 0
+	editedTest := false
+	wrote := map[string]bool{}
+	readAfterWrite := 0
+	ranShell := map[string]int{}
+	for _, st := range steps {
+		if st.Kind != "call" {
+			continue
+		}
+		switch prof.classify(st.Name) {
+		case "read":
+			reads++
+			if f := argPath(st.Text); f != "" && wrote[f] {
+				readAfterWrite++
+			}
+		case "search":
+			searches++
+		case "edit":
+			edits++
+			if f := argPath(st.Text); f != "" {
+				wrote[f] = true
+				if testPathRe.MatchString(f) {
+					editedTest = true
+				}
+			}
+		case "shell":
+			ranShell[st.Text]++
+		}
+	}
+	// The headline: it looked but never touched. Only meaningful when it did look,
+	// so a run that legitimately did nothing is not scolded for finding nothing.
+	if edits == 0 && reads+searches > 0 {
+		notes = append(notes, fmt.Sprintf("read %s and searched %s but never edited a file; it localized the bug and stopped short of writing the fix, so the source went in unchanged",
+			countNoun(reads, "file", "files"), countNoun(searches, "time", "times")))
+	}
+	if editedTest {
+		notes = append(notes, "edited a test file, which the task said to leave alone; the fix belongs in the source, not the tests")
+	}
+	if readAfterWrite > 0 {
+		notes = append(notes, fmt.Sprintf("re-read a file it had just edited %s; the content was already in hand", countNoun(readAfterWrite, "time", "times")))
+	}
+	repeatShell := 0
+	for _, n := range ranShell {
+		if n > 1 {
+			repeatShell += n - 1
+		}
+	}
+	if repeatShell > 0 {
+		notes = append(notes, fmt.Sprintf("re-ran an identical shell command %s; the output was already in the transcript", countNoun(repeatShell, "time", "times")))
+	}
+	return notes
 }
 
 // tomoNotes reads a tomo run for the habits tomo is specifically tuned to avoid:
@@ -539,7 +624,7 @@ func argPath(args string) string {
 	if json.Unmarshal([]byte(args), &m) != nil {
 		return ""
 	}
-	for _, k := range []string{"path", "file", "file_path", "filename", "filepath", "target_file"} {
+	for _, k := range []string{"path", "file", "file_path", "filePath", "filename", "fileName", "filepath", "target_file"} {
 		if v, ok := m[k].(string); ok && v != "" {
 			return v
 		}
