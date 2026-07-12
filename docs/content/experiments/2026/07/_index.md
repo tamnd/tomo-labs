@@ -10,6 +10,10 @@ Each item below is one experiment: one tool, one task, one verdict.
 
 ### 2026-07-13
 
+- **00:50 (GMT+7)** - [faker: the fix that let tomo apply its own answer](/experiments/2026/07/13-faker-yolo-autonomous-fix/).
+  The follow-up to the lockout below.
+  tomo gains a `--yolo` mode that runs it fully autonomous, the way every rival already runs, and the task it had solved but could not write now passes.
+  It passes leaner too: 40 percent fewer tokens and half the model calls.
 - **00:14 (GMT+7)** - [faker: solved, then locked out by a web fetch](/experiments/2026/07/13-faker-iban-untrusted-lock/).
   tomo writes the exactly correct Belgian IBAN fix, then cannot apply it.
   A reference URL it fetched tripped its own prompt-injection guard, which escalated every later edit to an approval that never comes headless.
