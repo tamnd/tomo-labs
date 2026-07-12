@@ -3,7 +3,7 @@ title: "faker: the fix that let tomo apply its own answer"
 linkTitle: "faker --yolo fix"
 description: "The follow-up to the faker lockout. tomo gains a --yolo mode that runs it fully autonomous, the same way every rival already runs. The exact task tomo had solved but could not write now passes, and passes leaner: 40 percent fewer tokens and half the model calls."
 date: 2026-07-13T00:50:00+07:00
-weight: 20
+weight: 998
 ---
 
 This is the second half of a story.

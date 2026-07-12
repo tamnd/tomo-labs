@@ -3,7 +3,7 @@ title: "cfn-lint: opencode passes by fetching the answer PR"
 linkTitle: "cfn-lint opencode"
 description: "opencode passes a cfn-lint task whose graded wording appears nowhere in the repo. The trace shows how: 291 web fetches, 94 of them to the merged pull request that fixes the issue, whose exact new messages it copies into the source. A close read of one run, and why the win is a lookup."
 date: 2026-07-13T01:11:00+07:00
-weight: 10
+weight: 996
 ---
 
 This is a single run: opencode, on one real GitHub issue from the [swebench-live](/evals/swebench-live/) tier.

@@ -3,7 +3,7 @@ title: "cfn-lint: tomo fixes the issue, the grade wants something else"
 linkTitle: "cfn-lint tomo"
 description: "tomo reads a cfn-lint issue, implements exactly the message it asks for, and fails the grade. The graded wording is a generic validator message the maintainers changed instead, and it appears nowhere in the checked-out repo. A close read of one tomo run, and the question it leaves open."
 date: 2026-07-13T01:00:00+07:00
-weight: 15
+weight: 997
 ---
 
 This is a single run: tomo, on one real GitHub issue from the [swebench-live](/evals/swebench-live/) tier.
