@@ -321,20 +321,12 @@ func (l *Lab) logProgress(tool, scenario, trace string, start time.Time) (stop f
 }
 
 func (l *Lab) startProxy(ctx context.Context, trace string, sl slot) error {
-	det := "1"
-	if !l.cfg.Deterministic {
-		det = "0"
-	}
 	return l.rt.Run(ctx, container.RunSpec{
 		Name: sl.proxy, Image: proxyImage, Network: l.cfg.Network, Detach: true,
 		Mounts: []container.Mount{{Host: trace, Container: "/trace"}},
 		Env: []string{
 			"UPSTREAM=" + l.cfg.Upstream,
 			"TRACE_DIR=/trace",
-			"LAB_DETERMINISTIC=" + det,
-			"LAB_TEMPERATURE=" + l.cfg.Temperature,
-			"LAB_TOP_P=" + l.cfg.TopP,
-			"LAB_SEED=" + l.cfg.Seed,
 		},
 		Publish: fmt.Sprintf("127.0.0.1:%d:8080", sl.port),
 	})

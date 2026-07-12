@@ -1,14 +1,14 @@
 ---
 title: "Overview"
 linkTitle: "Overview"
-description: "What tomo-labs is, every part of it, and why each part exists: the fixed-model idea, the trace proxy, deterministic reruns, the metric set, the scenario and eval tiers, system-prompt recovery, and reproducible reporting."
+description: "What tomo-labs is, every part of it, and why each part exists: the fixed-model idea, the trace proxy, repeatable reruns, the metric set, the scenario and eval tiers, system-prompt recovery, and reproducible reporting."
 weight: 5
 featured: true
 ---
 
 tomo-labs answers one question about coding agents: with the model held constant, how much does the agent itself cost you to get the same work done?
 Most agent benchmarks change three things at once when they compare a number, the model, the prompt scaffolding, and the tool's own overhead, so the number tells you nothing clean.
-tomo-labs pins the model and the decoding, routes every agent's traffic through one proxy, and grades the files an agent left on disk rather than the prose it wrote about itself.
+tomo-labs pins the model, routes every agent's traffic through one proxy, and grades the files an agent left on disk rather than the prose it wrote about itself.
 What is left to differ is the agent: its prompt, its tool design, its planning, its token appetite, and its footprint.
 
 This page is the whole feature set in one place.
@@ -17,7 +17,7 @@ Each section is a real capability with a reason it exists, and a pointer to wher
 ## The fixed-model idea
 
 Every agent under test points its model base URL at the trace proxy.
-The proxy forwards to one upstream model, the same model, with the same greedy decoding for all of them.
+The proxy forwards to one upstream model, the same model, for all of them, with each tool's own sampling left untouched.
 So when tomo finishes a task in 14,000 tokens and another agent finishes it in 180,000, that gap is the agent, not a stronger or weaker model on one side.
 The default upstream is a free hosted deepseek model that does tool calling, so a full comparison sweep costs nothing to run.
 
@@ -29,8 +29,8 @@ The proxy is the one thing on the network path, and it does four jobs at once.
 - It normalizes wire dialects.
   Agents speak different protocols: native chat-completions, the OpenAI Responses API, the Anthropic Messages API, and Google's Gemini wire.
   The proxy translates each one to a single chat-completions call upstream, and tags the origin in the recorded path, so a codex request reads `(from responses)` and a claude-code request reads `(from messages)`.
-- It forces determinism.
-  Every completion is rewritten to temperature 0, top_p 1, and a fixed seed, so client-side sampling variance is gone and every tool is judged under one decoding regime.
+- It leaves the request alone.
+  The proxy is a transparent tap: it forwards each tool's completion with the sampling knobs the tool chose, so every agent is measured as it actually ships rather than under a decoding regime the lab pinned on top of it.
 - It times the call and counts the tokens, so time to first byte, total latency, and token usage are the lab's measurement rather than each tool's own reporting, which no two tools expose the same way.
 
 The `Authorization` header is never written to a trace, so a key a tool carried never lands on disk.
@@ -42,11 +42,11 @@ Each agent runs in its own throwaway container, built on a shared base image, wi
 The proxy runs as a per-run sidecar, so one run's trace never bleeds into another's, and a crashed container never blocks the next run.
 tomo is containerized too, on the same base, so it is measured on the same footing as every other agent rather than getting a home-field advantage.
 
-## Deterministic reruns
+## Repeatable reruns
 
 A benchmark is only fair if a rerun means the same thing, and a hosted model is not naturally repeatable.
-Two levers close most of the gap, and neither is tuned to a scenario.
-The proxy forces greedy decoding, and the harness runs up to a few attempts per task and stops at the first pass, which soaks up the residual nondeterminism a model still shows at temperature 0.
+The lab does not force this by rewriting each tool's decoding, because that would measure a tool under sampling it never uses; every agent runs under its own knobs, the same way it runs for a real user.
+What closes the gap is the harness, which runs up to a few attempts per task and stops at the first pass, so the residual nondeterminism a hosted model still shows is soaked up by best-of-N rather than pinned away at the wire.
 A pass that needed more than one attempt is recorded as such, so flakiness is measured rather than papered over.
 
 ## What it measures

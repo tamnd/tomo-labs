@@ -150,6 +150,5 @@ Every knob has an environment fallback, so a run reproduces regardless of which 
 | `LAB_KEEP_RUNS` | `5` | How many timestamped runs to keep per tool/scenario. `0` keeps all. |
 | `LAB_CONCURRENCY` | `3` | How many tool/scenario runs to keep in flight at once. |
 | `LAB_RUNTIME` | auto-detected | Force `docker` or `podman` instead of detecting which is present. |
-| `LAB_DETERMINISTIC` | `1` | Whether the proxy forces greedy decoding onto every completion request. |
 
 Nothing here is invented. If a flag or variable is not on this page, `lab` does not read it.

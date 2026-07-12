@@ -44,8 +44,8 @@ Sidecars are per run, so one run's trace never bleeds into another's, and a cras
 ### Keeping a run stable
 
 A benchmark is only fair if a rerun means the same thing, and a hosted model is not naturally repeatable.
-The proxy forces greedy decoding onto every completion request (temperature 0, top_p 1, a fixed seed), so client-side sampling variance is gone and every tool is judged under one decoding regime.
-Each scenario is then scored on a single first-try attempt: pure pass@1, the metric the report ranks on.
+The proxy does not rewrite a tool's decoding to force this, because that would measure a tool under sampling it never uses; it forwards each request with the sampling knobs the tool chose, so every agent runs the way it ships.
+Repeatability rests on the harness instead: each scenario is scored on a single first-try attempt, pure pass@1, the metric the report ranks on.
 An upstream fault (a dropped stream or a rate-limit) is re-issued off the books, so a gateway hiccup is never scored as the model failing, kept apart from a genuine miss.
 Raising `LAB_ATTEMPTS` above 1 turns on opt-in best-of-N, feeding a failing attempt back for another try; a pass that needed more than one is recorded as such, so any retry is measured rather than papered over.
 

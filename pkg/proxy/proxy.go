@@ -19,7 +19,6 @@ import (
 	"errors"
 	"io"
 	"log"
-	"maps"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -68,13 +67,9 @@ func Run(ctx context.Context, opts Options) error {
 		usage:  mustAppend(filepath.Join(opts.TraceDir, "usage.jsonl")),
 		lat:    mustAppend(filepath.Join(opts.TraceDir, "latency.jsonl")),
 		starts: map[int]time.Time{},
-		det:    loadDeterminism(),
 		// No overall timeout: an agent turn can stream for minutes, so lean on the
 		// request context (cancelled when the tool gives up) instead.
 		client: &http.Client{},
-	}
-	if t.det != nil {
-		log.Printf("determinism: forcing %s on every completion request", t.det)
 	}
 
 	rp := &httputil.ReverseProxy{
@@ -142,7 +137,6 @@ type tap struct {
 	usage  *os.File
 	lat    *os.File
 	starts map[int]time.Time
-	det    *determinism
 	client *http.Client // used by the wire translators, which forward on their own
 }
 
@@ -181,12 +175,11 @@ func (t *tap) onRequest(r *http.Request) {
 	r.Header.Set("X-Lab-Seq", strconv.Itoa(seq))
 	var body []byte
 	if r.Body != nil {
+		// Read the body so it can be recorded, then hand the same bytes back for
+		// forwarding. The proxy is a transparent tap: it never rewrites the
+		// request, so every tool reaches the upstream under the exact sampling it
+		// shipped with, and the recorded body is byte-for-byte what upstream saw.
 		body, _ = io.ReadAll(r.Body)
-		// Normalize the sampling knobs before forwarding so a repeat run
-		// reproduces and every tool is judged under the same decoding, not under
-		// whatever defaults it happened to send. The recorded body is the
-		// forwarded one, so the trace shows exactly what upstream saw.
-		body = t.det.apply(body)
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		r.ContentLength = int64(len(body))
 		r.Header.Set("Content-Length", strconv.Itoa(len(body)))
@@ -496,77 +489,6 @@ func streamFailed(body []byte, hasUsage bool) (bool, string) {
 		return true, "truncated stream"
 	}
 	return false, ""
-}
-
-// determinism holds the sampling knobs the proxy forces onto every completion
-// request so a run reproduces and tools are compared under one decoding regime.
-// It is deliberately general: it keys off the shape of an OpenAI-style request
-// (a messages or prompt field), not off any scenario, and rewrites only the
-// sampling fields, leaving the rest of the body byte-for-byte intact.
-type determinism struct {
-	fields map[string]json.RawMessage // field name -> literal JSON value to force
-	desc   string                     // human summary for the startup log
-}
-
-// loadDeterminism reads the knobs from the environment. It is on by default,
-// since a benchmark wants repeatable runs; set LAB_DETERMINISTIC=0 to forward
-// requests untouched. temperature and top_p default to greedy decoding; seed is
-// forced only when non-empty so a provider that rejects the field can opt out
-// with LAB_SEED="". The proxy never touches max_tokens: whatever a tool sends,
-// or omits, reaches the upstream as-is, so the output budget is the tool's own
-// choice and the upstream's default, never a value the harness imposed.
-func loadDeterminism() *determinism {
-	if off := os.Getenv("LAB_DETERMINISTIC"); off == "0" || strings.EqualFold(off, "false") {
-		return nil
-	}
-	fields := map[string]json.RawMessage{}
-	var parts []string
-	add := func(key, val string) {
-		if val == "" {
-			return
-		}
-		fields[key] = json.RawMessage(val)
-		parts = append(parts, key+"="+val)
-	}
-	add("temperature", env("LAB_TEMPERATURE", "0"))
-	add("top_p", env("LAB_TOP_P", "1"))
-	add("seed", env("LAB_SEED", "7"))
-
-	if len(fields) == 0 {
-		return nil
-	}
-	return &determinism{fields: fields, desc: strings.Join(parts, " ")}
-}
-
-func (d *determinism) String() string {
-	if d == nil {
-		return "off"
-	}
-	return d.desc
-}
-
-// apply forces the configured sampling fields onto a JSON completion request. A
-// body that is not JSON, or JSON that is not a completion request, passes
-// through unchanged, so the proxy stays a transparent tap for anything else.
-func (d *determinism) apply(body []byte) []byte {
-	if d == nil || len(bytes.TrimSpace(body)) == 0 {
-		return body
-	}
-	var m map[string]json.RawMessage
-	if json.Unmarshal(body, &m) != nil {
-		return body
-	}
-	_, hasMessages := m["messages"]
-	_, hasPrompt := m["prompt"]
-	if !hasMessages && !hasPrompt {
-		return body
-	}
-	maps.Copy(m, d.fields)
-	out, err := json.Marshal(m)
-	if err != nil {
-		return body
-	}
-	return out
 }
 
 // sanitize redacts the Authorization value if the request body happened to echo

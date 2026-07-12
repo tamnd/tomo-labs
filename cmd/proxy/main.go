@@ -1,6 +1,6 @@
 // Command proxy runs the lab's trace tap. It is a thin wrapper: all the logic
 // lives in pkg/proxy so it can be embedded and tested. Configuration comes from
-// the environment (UPSTREAM, ADDR, TRACE_DIR, and the LAB_* determinism knobs).
+// the environment (UPSTREAM, ADDR, TRACE_DIR).
 package main
 
 import (

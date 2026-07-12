@@ -107,9 +107,9 @@ func (t *tap) serveWire(w http.ResponseWriter, r *http.Request, target *url.URL,
 		t.recordLatency(seq, start, time.Now(), time.Time{}, wc.chatPath, http.StatusBadRequest, 0, false)
 		return
 	}
-	// Force the shared decoding knobs the same way the pass-through path does, so
-	// the translated tool is judged under the identical regime as every other one.
-	chatBody = t.det.apply(chatBody)
+	// The translated body is forwarded and recorded as-is: the proxy is a
+	// transparent tap on this path too, so a wire-translated tool reaches the
+	// upstream under its own sampling, the same as every pass-through tool.
 	t.writeJSON(t.reqs, reqRecord{
 		Seq:    seq,
 		TS:     nowStamp(),
