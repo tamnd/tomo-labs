@@ -14,6 +14,12 @@ import (
 	"github.com/tamnd/tomo-labs/pkg/container"
 )
 
+// maxInfraRetries bounds how many times a run re-issues after an upstream fault
+// (a dropped stream) without spending a capability attempt. It floors the infra
+// tolerance so a pass@1 run, which has only one capability attempt, still shrugs
+// off a few gateway hiccups instead of scoring them as the model failing.
+const maxInfraRetries = 3
+
 // slot is one worker's private set of container names and host port. Giving each
 // concurrent run its own slot is what lets several tool/scenario runs be in
 // flight at once without two of them colliding on a container name or on the
@@ -44,14 +50,15 @@ func (s slot) baseURL() string { return "http://" + s.proxy + ":8080/v1" }
 
 // RunOne drives one tool through one scenario and writes a result.json.
 //
-// It gives the tool up to cfg.Attempts tries and stops at the first pass. The
-// retry is a general harness lever, not a per-scenario patch: the deterministic
-// proxy strips client-side sampling variance, and a bounded best-of-N absorbs
-// the residual run-to-run nondeterminism a hosted model still shows even under
-// greedy decoding, so a capable agent lands a stable green without any coaching
-// aimed at a specific task. Each attempt keeps its own trace under attempt-N/;
-// the returned Result and the canonical result.json reflect the winning attempt,
-// or the last one if none passed, and record how many tries it took.
+// By default cfg.Attempts is 1, so a scenario is scored on the single first-try
+// result: pure pass@1, the metric the report ranks on. The proxy still forces
+// greedy decoding so a rerun means the same thing, and an upstream fault (a
+// dropped stream) is re-issued off the books so a gateway hiccup is never scored
+// as the model failing. Raising LAB_ATTEMPTS turns on opt-in best-of-N, feeding a
+// failing attempt back for another try; it is a general harness lever, not a
+// per-scenario patch. Each attempt keeps its own trace under attempt-N/; the
+// returned Result and the canonical result.json reflect the winning attempt, or
+// the last one if none passed, and record how many tries it took.
 func (l *Lab) RunOne(ctx context.Context, tool, scenarioName string) (*Result, error) {
 	if err := l.rt.EnsureNetwork(ctx, l.cfg.Network); err != nil {
 		return nil, err
@@ -78,11 +85,12 @@ func (l *Lab) runOn(ctx context.Context, tool, scenarioName string, sl slot) (*R
 }
 
 // runScenario drives one tool through one scenario on one worker slot. A graded
-// scenario gets up to cfg.Attempts tries and stops at the first pass; an ungraded
-// one (an ad-hoc prompt) has nothing to retry against, so it runs exactly once and
-// captures the tool's answer instead of a pass or fail. Each attempt keeps its own
-// trace under attempt-N/; the returned Result reflects the winning attempt, or the
-// last one if none passed.
+// scenario gets up to cfg.Attempts capability tries and stops at the first pass;
+// with the default of 1 that is a single first-try grade (pass@1). An ungraded
+// scenario (an ad-hoc prompt) has nothing to retry against, so it runs exactly
+// once and captures the tool's answer instead of a pass or fail. Each attempt
+// keeps its own trace under attempt-N/; the returned Result reflects the winning
+// attempt, or the last one if none passed.
 func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot) (*Result, error) {
 	if !l.rt.ImageExists(ctx, toolPrefix+tool) {
 		return nil, fmt.Errorf("tool image missing, run: lab build %s", tool)
@@ -102,13 +110,26 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 		work, trace                 string
 		passed                      bool
 		reason, answer              string
+		edited                      []string
 		wall, exitCode              int
 		diskBefore, diskAfter, used int
+		infraSkips                  int
 	)
-	for attempt := 1; attempt <= attempts; attempt++ {
-		used = attempt
-		work = filepath.Join(runDir, fmt.Sprintf("attempt-%d", attempt), "work")
-		trace = filepath.Join(runDir, fmt.Sprintf("attempt-%d", attempt), "trace")
+	// A failed attempt whose upstream dropped a completion mid-stream is not the
+	// agent's fault, so it does not spend one of the graded attempts: it is re-run
+	// up to maxInfra extra times. That keeps the free tier's flakiness from being
+	// scored as the tool failing the task, while a persistently broken upstream
+	// still terminates the loop. graded counts the genuine attempts; iter names the
+	// attempt dir so every try, discounted or not, keeps its own trace.
+	//
+	// The infra budget is deliberately independent of the capability budget: pass@1
+	// runs with attempts==1, but a single gateway drop must not be scored as the
+	// model failing, so it stays at least maxInfraRetries regardless.
+	maxInfra := max(attempts, maxInfraRetries)
+	graded := 0
+	for iter := 1; ; iter++ {
+		work = filepath.Join(runDir, fmt.Sprintf("attempt-%d", iter), "work")
+		trace = filepath.Join(runDir, fmt.Sprintf("attempt-%d", iter), "trace")
 		if err := os.MkdirAll(work, 0o755); err != nil {
 			return nil, err
 		}
@@ -122,24 +143,44 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 		diskBefore = dirSizeKB(work)
 
 		var err error
-		wall, exitCode, err = l.runAttempt(ctx, tool, sc, work, trace, attempt, attempts, sl)
+		wall, exitCode, err = l.runAttempt(ctx, tool, sc, work, trace, iter, attempts, sl)
 		if err != nil {
 			return nil, err
 		}
 
 		if sc.graded {
-			passed, reason = l.grade(ctx, sc, work)
+			passed, reason, edited = l.grade(ctx, sc, work)
 		} else {
 			answer = readAnswer(trace)
 		}
 		stripCaches(work)
 		diskAfter = dirSizeKB(work)
 		if passed {
+			graded++
+			break
+		}
+		// A graded failure the upstream caused (a dropped stream) is thrown out and
+		// retried without counting, up to the bound; anything else spends a real try.
+		if sc.graded && infraSkips < maxInfra && streamErrorStats(filepath.Join(trace, "latency.jsonl")) != nil {
+			infraSkips++
+			continue
+		}
+		graded++
+		if graded >= attempts {
 			break
 		}
 	}
+	used = graded
 
 	m := readTrace(trace)
+	// Fold the discounted infra retries into the run's stream-fail record, so a
+	// clean winning attempt still shows the upstream drops the loop swallowed.
+	if infraSkips > 0 {
+		if m.StreamFail == nil {
+			m.StreamFail = &StreamFail{}
+		}
+		m.StreamFail.RetriedAttempts = infraSkips
+	}
 	installKB, _ := l.imageKB(tool)
 	res := &Result{
 		Tool: tool, Scenario: sc.Name, Time: ts,
@@ -149,12 +190,13 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 		WallSeconds: wall, ElapsedClock: m.ElapsedClock,
 		MaxRSSKB: m.MaxRSSKB, Requests: m.Requests,
 		Tokens: m.Tokens, Latency: m.Latency, CostUSD: m.CostUSD,
-		Orchestration: m.Orch, RateLimit: m.RateLimit,
+		Orchestration: m.Orch, RateLimit: m.RateLimit, StreamFail: m.StreamFail,
 		DiskBeforeKB: diskBefore, DiskAfterKB: diskAfter, DiskDeltaKB: diskAfter - diskBefore,
-		InstallKB: installKB,
-		Check:     firstLineOf(reason),
-		Ungraded:  !sc.graded,
-		Answer:    answer,
+		InstallKB:   installKB,
+		Check:       firstLineOf(reason),
+		EditedTests: edited,
+		Ungraded:    !sc.graded,
+		Answer:      answer,
 	}
 	if err := writeResult(filepath.Join(runDir, "result.json"), res); err != nil {
 		return nil, err
@@ -304,14 +346,32 @@ func (l *Lab) runSetup(ctx context.Context, sc Scenario, work string) error {
 }
 
 // grade runs the scenario's checker over the work tree on the host. Exit zero is
-// a pass; the combined output is the reason either way.
-func (l *Lab) grade(ctx context.Context, sc Scenario, work string) (bool, string) {
+// a pass; the combined output is the reason either way. A checker may also print
+// an "EDITED_TESTS:" line naming test files the tool changed; grade lifts that
+// out of the reason and returns it separately, so the marker never becomes the
+// pass or fail reason itself.
+func (l *Lab) grade(ctx context.Context, sc Scenario, work string) (bool, string, []string) {
 	check := filepath.Join(sc.dir, "check.sh")
 	if !exists(check) {
-		return false, "no check.sh"
+		return false, "no check.sh", nil
 	}
 	out, err := exec.CommandContext(ctx, "bash", check, work).CombinedOutput()
-	return err == nil, strings.TrimSpace(string(out))
+	reason, edited := splitEditedTests(string(out))
+	return err == nil, strings.TrimSpace(reason), edited
+}
+
+// splitEditedTests pulls any "EDITED_TESTS: a b c" lines out of checker output
+// and returns the rest of the output plus the names those lines carried.
+func splitEditedTests(out string) (string, []string) {
+	var kept, edited []string
+	for _, line := range strings.Split(out, "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "EDITED_TESTS:"); ok {
+			edited = append(edited, strings.Fields(rest)...)
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n"), edited
 }
 
 func (l *Lab) readExitCode(trace string) int {

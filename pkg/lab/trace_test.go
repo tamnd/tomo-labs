@@ -21,6 +21,41 @@ func writeReqs(t *testing.T, lines ...string) string {
 	return p
 }
 
+// writeLat writes a latency.jsonl with the given lines and returns its path.
+func writeLat(t *testing.T, lines ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "latency.jsonl")
+	body := ""
+	for _, l := range lines {
+		body += l + "\n"
+	}
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// streamErrorStats counts the model calls the proxy flagged as dropped
+// mid-stream and keeps the first error message; a log with no such row yields
+// nil so the result omits the field.
+func TestStreamErrorStats(t *testing.T) {
+	if got := streamErrorStats(writeLat(t,
+		`{"seq":1,"status":200,"path":"/v1/chat/completions"}`,
+		`{"seq":2,"status":200,"path":"/v1/chat/completions","stream_err":true,"stream_err_msg":"Streaming response failed"}`,
+		`{"seq":3,"status":200,"path":"/v1/chat/completions","stream_err":true,"stream_err_msg":"truncated stream"}`,
+	)); got == nil || got.Calls != 2 || got.Sample != "Streaming response failed" {
+		t.Errorf("stream fail = %+v, want 2 calls sampling the first message", got)
+	}
+
+	if got := streamErrorStats(writeLat(t,
+		`{"seq":1,"status":200,"path":"/v1/chat/completions"}`,
+		`{"seq":2,"status":429,"path":"/v1/chat/completions"}`,
+	)); got != nil {
+		t.Errorf("no stream drop should yield nil, got %+v", got)
+	}
+}
+
 // TestOrchestrationPlanSpellings pins the metric to each wired tool's own name
 // for its plan primitive: the union is what keeps a real plan from reading as a
 // flat loop just because the tool spells it differently.

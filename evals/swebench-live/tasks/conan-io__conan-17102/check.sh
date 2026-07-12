@@ -32,6 +32,24 @@ fi
 # Ensure a test runner is present without clobbering a self-provided one.
 "$PY" -c "import pytest" >/dev/null 2>&1 || uv pip install --python "$PY" -q pytest >/dev/null 2>&1
 
+TESTPATHS="$(grep '^diff --git ' "$ORACLE/test.diff" | sed -E 's#^diff --git a/.* b/##')"
+
+# Catch, then restore. First note any hidden test file the agent changed in the
+# work tree: a tool leaning on the tests instead of fixing the source. This is
+# observability across every tool, printed for the harness to record on the
+# result, not a penalty, because the restore right after makes the grade fair no
+# matter who edited what.
+edited=""
+while IFS= read -r p; do
+  [ -z "$p" ] && continue
+  if [ -n "$(git -C "$W" status --porcelain -- "$p" 2>/dev/null)" ]; then
+    edited="$edited $p"
+  fi
+done <<EOF
+$TESTPATHS
+EOF
+[ -n "$edited" ] && echo "EDITED_TESTS:$edited"
+
 # Restore any test files the agent touched to their base state before applying
 # the hidden test patch. A tool that edited a test would otherwise break the
 # apply, or shift the grade, no matter how good its source fix was. The test
@@ -39,7 +57,9 @@ fi
 # discards the source change. The upstream harness resets the tests the same way.
 while IFS= read -r p; do
   [ -n "$p" ] && git -C "$W" checkout -- "$p" >/dev/null 2>&1
-done < <(grep '^diff --git ' "$ORACLE/test.diff" | sed -E 's#^diff --git a/.* b/##')
+done <<EOF
+$TESTPATHS
+EOF
 
 if ! git -C "$W" apply "$ORACLE/test.diff" >/dev/null 2>&1; then
   echo "FAIL: test patch did not apply"; exit 1

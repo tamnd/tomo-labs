@@ -47,6 +47,13 @@ const (
 	// is dropped, so one sane default beats a per-repo table that cannot keep up
 	// with a set that grows every month.
 	sweLivePython = "3.12"
+	// The live set is heavily skewed: a handful of repos supply most instances
+	// (conan, cfn-lint, matplotlib, haystack, and so on), so an unbounded pull
+	// grades a few projects' quirks over and over instead of a broad sample. Cap
+	// how many instances any one repo contributes to the default suite so the
+	// rendered set stays diverse. A --langs pull that names repos on purpose is
+	// exempt: there the caller wants that repo, however many it takes.
+	sweLivePerRepoCap = 3
 )
 
 // sweLiveRow is one SWE-bench-Live record. FAIL_TO_PASS, PASS_TO_PASS, and
@@ -141,6 +148,10 @@ func (l *Lab) genSWEBenchLive(ctx context.Context, opts GenOptions) (int, error)
 // on the host: the ones whose test command is a plain pytest, and, when only is
 // non-empty, the named repos. It stops at target keepers or when the split ends.
 func sweLiveFetch(ctx context.Context, split string, target int, only map[string]bool) ([]sweLiveRow, error) {
+	// Enforce the per-repo cap only on an untargeted pull; a --langs pull that
+	// names repos wants exactly those, however many instances that takes.
+	perRepo := map[string]int{}
+	capped := len(only) == 0
 	var out []sweLiveRow
 	for offset := 0; len(out) < target; offset += swePageSize {
 		q := url.Values{
@@ -159,10 +170,7 @@ func sweLiveFetch(ctx context.Context, split string, target int, only map[string
 			break
 		}
 		for _, r := range page.Rows {
-			if len(only) > 0 && !only[repoShort(r.Row.Repo)] {
-				continue
-			}
-			if !sweLivePytestRunnable(sweStrList(r.Row.TestCmds)) {
+			if !sweLiveKeep(r.Row, only, perRepo, capped) {
 				continue
 			}
 			out = append(out, r.Row)
@@ -172,6 +180,26 @@ func sweLiveFetch(ctx context.Context, split string, target int, only map[string
 		}
 	}
 	return out, nil
+}
+
+// sweLiveKeep decides whether to keep one row, given the optional repo filter
+// and the per-repo cap, and updates the running per-repo tally when it keeps
+// one. It drops a row whose repo is not in a non-empty only set, whose test
+// command this tier cannot run on the host, or whose repo has already hit the
+// cap on a capped (untargeted) pull.
+func sweLiveKeep(row sweLiveRow, only map[string]bool, perRepo map[string]int, capped bool) bool {
+	short := repoShort(row.Repo)
+	if len(only) > 0 && !only[short] {
+		return false
+	}
+	if !sweLivePytestRunnable(sweStrList(row.TestCmds)) {
+		return false
+	}
+	if capped && perRepo[short] >= sweLivePerRepoCap {
+		return false
+	}
+	perRepo[short]++
+	return true
 }
 
 // sweLivePytestRunnable reports whether an instance's test command is a plain
@@ -327,6 +355,24 @@ fi
 # Ensure a test runner is present without clobbering a self-provided one.
 "$PY" -c "import pytest" >/dev/null 2>&1 || uv pip install --python "$PY" -q pytest >/dev/null 2>&1
 
+TESTPATHS="$(grep '^diff --git ' "$ORACLE/test.diff" | sed -E 's#^diff --git a/.* b/##')"
+
+# Catch, then restore. First note any hidden test file the agent changed in the
+# work tree: a tool leaning on the tests instead of fixing the source. This is
+# observability across every tool, printed for the harness to record on the
+# result, not a penalty, because the restore right after makes the grade fair no
+# matter who edited what.
+edited=""
+while IFS= read -r p; do
+  [ -z "$p" ] && continue
+  if [ -n "$(git -C "$W" status --porcelain -- "$p" 2>/dev/null)" ]; then
+    edited="$edited $p"
+  fi
+done <<EOF
+$TESTPATHS
+EOF
+[ -n "$edited" ] && echo "EDITED_TESTS:$edited"
+
 # Restore any test files the agent touched to their base state before applying
 # the hidden test patch. A tool that edited a test would otherwise break the
 # apply, or shift the grade, no matter how good its source fix was. The test
@@ -334,7 +380,9 @@ fi
 # discards the source change. The upstream harness resets the tests the same way.
 while IFS= read -r p; do
   [ -n "$p" ] && git -C "$W" checkout -- "$p" >/dev/null 2>&1
-done < <(grep '^diff --git ' "$ORACLE/test.diff" | sed -E 's#^diff --git a/.* b/##')
+done <<EOF
+$TESTPATHS
+EOF
 
 if ! git -C "$W" apply "$ORACLE/test.diff" >/dev/null 2>&1; then
   echo "FAIL: test patch did not apply"; exit 1

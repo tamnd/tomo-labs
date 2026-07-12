@@ -35,6 +35,19 @@ func (l *Lab) Reparse(_ context.Context) (int, error) {
 		r.CostUSD = m.CostUSD
 		r.Orchestration = m.Orch
 		r.RateLimit = m.RateLimit
+		// Reparse sees only the recorded attempt's trace, so it recovers the stream
+		// drops in that attempt but not the discounted retries (which lived in other
+		// attempt dirs); keep any retry count the run already recorded.
+		if m.StreamFail != nil {
+			if r.StreamFail != nil {
+				m.StreamFail.RetriedAttempts = r.StreamFail.RetriedAttempts
+			}
+			r.StreamFail = m.StreamFail
+		} else if r.StreamFail != nil && r.StreamFail.RetriedAttempts > 0 {
+			r.StreamFail = &StreamFail{RetriedAttempts: r.StreamFail.RetriedAttempts}
+		} else {
+			r.StreamFail = nil
+		}
 		if writeErr := writeResult(path, r); writeErr != nil {
 			firstErr = writeErr
 			return

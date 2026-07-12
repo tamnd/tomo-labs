@@ -22,7 +22,7 @@ func TestSweLivePytestRunnable(t *testing.T) {
 		{"hatch run test:unit -rA -vv"},
 		{"tox -e py311"},
 		{"pytest -rA", "pytest tests/extra"}, // more than one command is ambiguous
-		{},                                    // no command
+		{},                                   // no command
 	}
 	for _, c := range no {
 		if sweLivePytestRunnable(c) {
@@ -100,5 +100,57 @@ func TestSweLivePrompt(t *testing.T) {
 	}
 	if !strings.Contains(p, "Do not edit or add tests") {
 		t.Error("prompt should forbid editing tests")
+	}
+}
+
+func TestSweLiveKeepPerRepoCap(t *testing.T) {
+	row := func(repo string) sweLiveRow {
+		return sweLiveRow{Repo: repo, TestCmds: []byte(`["pytest -rA"]`)}
+	}
+	perRepo := map[string]int{}
+	kept := 0
+	// Twelve instances from one repo, but the cap bounds how many are kept.
+	for i := 0; i < 12; i++ {
+		if sweLiveKeep(row("acme/widget"), nil, perRepo, true) {
+			kept++
+		}
+	}
+	if kept != sweLivePerRepoCap {
+		t.Fatalf("kept %d from one repo, want the cap %d", kept, sweLivePerRepoCap)
+	}
+
+	// A second repo gets its own budget.
+	if !sweLiveKeep(row("other/thing"), nil, perRepo, true) {
+		t.Fatal("a different repo should still be kept under its own cap")
+	}
+
+	// An uncapped (targeted) pull ignores the cap entirely.
+	un := map[string]int{}
+	keptUncapped := 0
+	for i := 0; i < 12; i++ {
+		if sweLiveKeep(row("acme/widget"), nil, un, false) {
+			keptUncapped++
+		}
+	}
+	if keptUncapped != 12 {
+		t.Fatalf("uncapped pull kept %d, want all 12", keptUncapped)
+	}
+}
+
+func TestSweLiveKeepDropsUnrunnableAndUnmatched(t *testing.T) {
+	perRepo := map[string]int{}
+	// A non-pytest command is not host-runnable in this tier.
+	tox := sweLiveRow{Repo: "acme/widget", TestCmds: []byte(`["tox -e py"]`)}
+	if sweLiveKeep(tox, nil, perRepo, true) {
+		t.Error("a non-pytest command should be dropped")
+	}
+	// With an only filter, a repo not named is dropped even if runnable.
+	pt := sweLiveRow{Repo: "acme/widget", TestCmds: []byte(`["pytest -rA"]`)}
+	only := map[string]bool{"other": true}
+	if sweLiveKeep(pt, only, perRepo, false) {
+		t.Error("a repo outside the only set should be dropped")
+	}
+	if sweLiveKeep(pt, map[string]bool{"widget": true}, perRepo, false) != true {
+		t.Error("the named repo should be kept")
 	}
 }

@@ -199,18 +199,25 @@ type ToolSummary struct {
 	Passed        int     `json:"passed"`
 	FirstTry      int     `json:"first_try"`
 	Retried       int     `json:"retried"`
-	AvgAttempts   float64 `json:"avg_attempts"`
 	AvgModelCalls int     `json:"avg_model_calls"`
 	PlannedRuns   int     `json:"planned_runs"`
 	Subagents     int     `json:"subagents"`
 	InstallMB     int     `json:"install_mb"`
 	TotalTokens   int     `json:"total_tokens"`
-	AvgTokens     int     `json:"avg_tokens"`
 	CachedTokens  int     `json:"cached_tokens,omitempty"`
 	TotalCostUSD  float64 `json:"total_cost_usd,omitempty"`
 	AvgRSSMB      int     `json:"avg_rss_mb"`
 	AvgTTFBMS     int     `json:"avg_ttfb_ms"`
-	AvgWallS      int     `json:"avg_wall_s"`
+	// The three time totals over the tool's runs, in seconds: TotalS is the whole
+	// wall time, ModelS is the part spent waiting on the model, and ToolS is the
+	// rest (tool execution and agent glue), TotalS minus ModelS.
+	TotalS int `json:"total_s"`
+	ModelS int `json:"model_s"`
+	ToolS  int `json:"tool_s"`
+	// StreamFailRuns is how many of the tool's runs hit an upstream stream drop,
+	// whether it was retried away or left in the recorded attempt. It is the honest
+	// count of gateway faults the tool ran into, kept apart from real failures.
+	StreamFailRuns int `json:"stream_fail_runs,omitempty"`
 }
 
 // Report reads every result.json under the data dir and aggregates it per tool,
@@ -327,14 +334,13 @@ func summarize(results []*Result) []ToolSummary {
 	var out []ToolSummary
 	for tool, rs := range byTool {
 		s := ToolSummary{Tool: tool, Runs: len(rs)}
-		var tokens, cached, rss, ttfb, wall, attempts, timed, modelCalls int
+		var tokens, cached, rss, ttfb, wall, model, timed, modelCalls int
 		var cost float64
 		for _, r := range rs {
 			if r.Passed {
 				s.Passed++
 			}
 			a := max(r.Attempts, 1)
-			attempts += a
 			if a == 1 && r.Passed {
 				s.FirstTry++
 			}
@@ -357,6 +363,10 @@ func summarize(results []*Result) []ToolSummary {
 			}
 			rss += r.MaxRSSKB
 			wall += r.WallSeconds
+			model += r.Latency.SumTotal / 1000
+			if r.StreamFail != nil {
+				s.StreamFailRuns++
+			}
 			if r.Latency.Calls > 0 {
 				ttfb += r.Latency.AvgTTFB
 				timed++
@@ -367,19 +377,36 @@ func summarize(results []*Result) []ToolSummary {
 		}
 		n := len(rs)
 		s.TotalTokens = tokens
-		s.AvgTokens = tokens / n
 		s.CachedTokens = cached
 		s.TotalCostUSD = cost
 		s.AvgRSSMB = rss / n / 1024
-		s.AvgWallS = wall / n
-		s.AvgAttempts = float64(attempts) / float64(n)
+		s.TotalS = wall
+		s.ModelS = model
+		s.ToolS = max(wall-model, 0)
 		s.AvgModelCalls = modelCalls / n
 		if timed > 0 {
 			s.AvgTTFBMS = ttfb / timed
 		}
 		out = append(out, s)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Tool < out[j].Tool })
+	// Rank on pass@1 first, then cost. pass@1 (a task solved on the first attempt,
+	// no retry) is the capability metric every code benchmark headlines, so the tool
+	// that solves the most goes to the top. Cost breaks ties: among tools that solve
+	// the same number first-try, the cheapest wins, since cost is what the tokens
+	// actually buy. When a suite is saturated and every tool ties on pass@1 (as on
+	// LiveCodeBench), this degrades to a pure cheapest-first order. Cost weights a
+	// cached-input token far below a generated one, so a cache-heavy multi-turn tool
+	// reads as the bargain it is, not as a spendthrift on raw token count. The tool
+	// name is the final tie-break for a stable order.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].FirstTry != out[j].FirstTry {
+			return out[i].FirstTry > out[j].FirstTry
+		}
+		if out[i].TotalCostUSD != out[j].TotalCostUSD {
+			return out[i].TotalCostUSD < out[j].TotalCostUSD
+		}
+		return out[i].Tool < out[j].Tool
+	})
 	return out
 }
 
@@ -418,25 +445,25 @@ func WriteTable(w io.Writer, sums []ToolSummary) {
 func writeSummaryTable(w io.Writer, sums []ToolSummary, withPlan bool) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if withPlan {
-		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tRUNS\tPASS\t1ST-TRY\tRETRIED\tAVG-TRIES\tREQS\tPLANNED\tSUBAG\tTOKENS\tAVG-TOK\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tINSTALL-MB")
+		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tRUNS\tPASS@1\tPASS\tDROPS\tREQS\tPLANNED\tSUBAG\tTOKENS\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tTOTAL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
 	} else {
-		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tRUNS\tPASS\t1ST-TRY\tRETRIED\tAVG-TRIES\tREQS\tTOKENS\tAVG-TOK\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tINSTALL-MB")
+		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tRUNS\tPASS@1\tPASS\tDROPS\tREQS\tTOKENS\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tTOTAL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
 	}
 	for _, s := range sums {
 		if withPlan {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%.2f\t%d\t%d\t%d\t%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n",
 				s.Tool, blankDash(s.Version), blankDash(s.Released),
-				s.Runs, s.Passed, s.FirstTry, s.Retried, s.AvgAttempts,
+				s.Runs, s.FirstTry, s.Passed, blankZero(s.StreamFailRuns),
 				s.AvgModelCalls, s.PlannedRuns, s.Subagents,
-				s.TotalTokens, s.AvgTokens, blankZero(s.CachedTokens), blankCost(s.TotalCostUSD),
-				s.AvgRSSMB, s.AvgTTFBMS, s.AvgWallS, s.InstallMB)
+				s.TotalTokens, blankZero(s.CachedTokens), blankCost(s.TotalCostUSD),
+				s.AvgRSSMB, s.AvgTTFBMS, s.TotalS, s.ModelS, s.ToolS, s.InstallMB)
 		} else {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%.2f\t%d\t%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n",
 				s.Tool, blankDash(s.Version), blankDash(s.Released),
-				s.Runs, s.Passed, s.FirstTry, s.Retried, s.AvgAttempts,
+				s.Runs, s.FirstTry, s.Passed, blankZero(s.StreamFailRuns),
 				s.AvgModelCalls,
-				s.TotalTokens, s.AvgTokens, blankZero(s.CachedTokens), blankCost(s.TotalCostUSD),
-				s.AvgRSSMB, s.AvgTTFBMS, s.AvgWallS, s.InstallMB)
+				s.TotalTokens, blankZero(s.CachedTokens), blankCost(s.TotalCostUSD),
+				s.AvgRSSMB, s.AvgTTFBMS, s.TotalS, s.ModelS, s.ToolS, s.InstallMB)
 		}
 	}
 	tw.Flush()

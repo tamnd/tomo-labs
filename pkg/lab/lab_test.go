@@ -41,7 +41,7 @@ func TestReadTrace(t *testing.T) {
 	if m.Tokens != (Tokens{Prompt: 30, Completion: 12, Total: 42}) {
 		t.Errorf("tokens = %+v, want 30/12/42", m.Tokens)
 	}
-	if m.Latency != (Latency{AvgTTFB: 150, AvgTotal: 400, Calls: 2}) {
+	if m.Latency != (Latency{AvgTTFB: 150, AvgTotal: 400, SumTotal: 800, Calls: 2}) {
 		t.Errorf("latency = %+v, want ttfb 150 total 400 calls 2", m.Latency)
 	}
 	// The two 429 rows are counted apart from the timed 200s, and the longest
@@ -73,8 +73,8 @@ func TestDirSizeKB(t *testing.T) {
 	}
 }
 
-// summarize rolls per-run results into per-tool rows: pass count, first-try vs
-// retried, and the flakiness signal in average attempts.
+// summarize rolls per-run results into per-tool rows: pass count and the pass@1
+// (first-try) count the table ranks on.
 func TestSummarize(t *testing.T) {
 	results := []*Result{
 		{Tool: "tomo", Passed: true, Attempts: 1, AttemptsMax: 3, Tokens: Tokens{Total: 100, Cached: 20}, CostUSD: 0.01, MaxRSSKB: 1024 * 30, WallSeconds: 10, Latency: Latency{AvgTTFB: 200, Calls: 2}, InstallKB: 1024 * 40},
@@ -85,10 +85,11 @@ func TestSummarize(t *testing.T) {
 	if len(sums) != 2 {
 		t.Fatalf("got %d tools, want 2", len(sums))
 	}
-	// Sorted by tool name: openclaw, then tomo.
-	oc, tomo := sums[0], sums[1]
+	// Ranked on pass@1 first: tomo solved one task on the first attempt, openclaw
+	// solved none, so tomo leads regardless of cost.
+	tomo, oc := sums[0], sums[1]
 	if tomo.Tool != "tomo" || oc.Tool != "openclaw" {
-		t.Fatalf("order = %s,%s want openclaw,tomo", oc.Tool, tomo.Tool)
+		t.Fatalf("order = %s,%s want tomo,openclaw", sums[0].Tool, sums[1].Tool)
 	}
 	if tomo.Runs != 2 || tomo.Passed != 2 {
 		t.Errorf("tomo runs/passed = %d/%d, want 2/2", tomo.Runs, tomo.Passed)
@@ -96,11 +97,8 @@ func TestSummarize(t *testing.T) {
 	if tomo.FirstTry != 1 || tomo.Retried != 1 {
 		t.Errorf("tomo first_try/retried = %d/%d, want 1/1", tomo.FirstTry, tomo.Retried)
 	}
-	if tomo.AvgAttempts != 1.5 {
-		t.Errorf("tomo avg_attempts = %v, want 1.5", tomo.AvgAttempts)
-	}
-	if tomo.AvgTokens != 150 || tomo.TotalTokens != 300 {
-		t.Errorf("tomo tokens avg/total = %d/%d, want 150/300", tomo.AvgTokens, tomo.TotalTokens)
+	if tomo.TotalTokens != 300 {
+		t.Errorf("tomo total tokens = %d, want 300", tomo.TotalTokens)
 	}
 	if tomo.AvgRSSMB != 40 {
 		t.Errorf("tomo avg_rss_mb = %d, want 40", tomo.AvgRSSMB)

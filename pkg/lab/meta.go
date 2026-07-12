@@ -86,6 +86,10 @@ func (l *Lab) probeToolMeta(ctx context.Context, tool string) toolMeta {
 		ver := l.npmInstalledVersion(ctx, img, pkg)
 		return toolMeta{Version: ver, Released: l.npmReleaseDate(ctx, img, pkg, ver)}
 	}
+	if pkg := pipPackageOf(string(body)); pkg != "" {
+		ver := l.pipInstalledVersion(ctx, img, pkg)
+		return toolMeta{Version: ver, Released: l.pipReleaseDate(ctx, img, pkg, ver)}
+	}
 	if strings.Contains(string(body), "go install") {
 		return l.goBuildMeta(ctx, img, tool)
 	}
@@ -147,6 +151,60 @@ func (l *Lab) npmReleaseDate(ctx context.Context, img, pkg, version string) stri
 		return ""
 	}
 	return dayOf(times[version])
+}
+
+// pipInstallRe pulls the package name out of a pip install line, dropping the
+// ==version pin (or ==${VERSION} build arg) and skipping any flags like
+// --break-system-packages that sit between install and the package.
+var pipInstallRe = regexp.MustCompile(`pip3?\s+install\s+(?:--\S+\s+)*(\S+?)==`)
+
+// pipPackageOf returns the PyPI package a Dockerfile installs, or empty if it
+// installs none. It matches an install pinned with ==, which is how a wired pip
+// tool records its version.
+func pipPackageOf(dockerfile string) string {
+	m := pipInstallRe.FindStringSubmatch(dockerfile)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
+// pipInstalledVersion reads the version pip actually installed for a package in
+// the image, straight out of the package metadata.
+func (l *Lab) pipInstalledVersion(ctx context.Context, img, pkg string) string {
+	out, err := l.rt.Output(ctx, "run", "--rm", "--entrypoint", "pip3", img, "show", pkg)
+	if err != nil && out == "" {
+		return ""
+	}
+	for line := range strings.SplitSeq(out, "\n") {
+		if v, ok := strings.CutPrefix(line, "Version:"); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// pipReleaseDate asks PyPI when a specific version was uploaded and returns just
+// the day. It needs network, which the image has, and comes back empty when the
+// lookup fails, so a version still shows even without its date.
+func (l *Lab) pipReleaseDate(ctx context.Context, img, pkg, version string) string {
+	if version == "" {
+		return ""
+	}
+	url := "https://pypi.org/pypi/" + pkg + "/" + version + "/json"
+	out, err := l.rt.Output(ctx, "run", "--rm", "--entrypoint", "sh", img, "-c", "curl -sf "+url)
+	if err != nil && out == "" {
+		return ""
+	}
+	var doc struct {
+		URLs []struct {
+			UploadTime string `json:"upload_time"`
+		} `json:"urls"`
+	}
+	if json.Unmarshal([]byte(out), &doc) != nil || len(doc.URLs) == 0 {
+		return ""
+	}
+	return dayOf(doc.URLs[0].UploadTime)
 }
 
 // pseudoStampRe matches the 14-digit UTC timestamp a Go module pseudo-version
