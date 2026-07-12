@@ -10,7 +10,13 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  # A docs-only pull request cannot break a release, so skip the goreleaser
+  # check on it. Tag and branch pushes are left untouched so a real release is
+  # never filtered out.
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
   workflow_dispatch:
 
 permissions:
