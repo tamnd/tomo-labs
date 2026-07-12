@@ -68,6 +68,85 @@ func streamErrorStats(path string) *StreamFail {
 	return &StreamFail{Calls: calls, Sample: sample}
 }
 
+// droppedFinalStream recovers the stream-drop the latency log misses. The proxy
+// writes a call's latency row (and its stream-error flag) from the tee's onClose,
+// which runs when the response body closes cleanly. A client that dies mid-stream
+// closes nothing, and the pod is torn down the instant the agent process exits,
+// so a final turn the gateway cut off before its [DONE]/usage leaves a resp file
+// and no latency row at all. streamErrorStats reads only latency.jsonl, so it
+// never sees that call, and the infra retry that a mid-run drop triggers stays
+// dormant, scoring a gateway truncation as a real failure. This folds the resp
+// files back in: any response whose stream shows the truncation fingerprint yet
+// carries no latency row is a dropped stream the proxy never got to flag. It is
+// deliberately narrow, only the no-row case, so a normally finished turn (which
+// always closes with [DONE] and usage) is never mistaken for a fault.
+func droppedFinalStream(dir string) bool {
+	seen := map[int]bool{}
+	forEachJSON(filepath.Join(dir, "latency.jsonl"), func(b []byte) {
+		var r struct {
+			Seq int `json:"seq"`
+		}
+		if json.Unmarshal(b, &r) == nil {
+			seen[r.Seq] = true
+		}
+	})
+	matches, _ := filepath.Glob(filepath.Join(dir, "resp-*.txt"))
+	for _, p := range matches {
+		seq := respSeq(p)
+		if seq <= 0 || seen[seq] {
+			continue
+		}
+		if truncatedStream(p) {
+			return true
+		}
+	}
+	return false
+}
+
+// respSeq pulls the N out of a resp-N.txt path, or 0 when the name does not fit.
+func respSeq(path string) int {
+	base := filepath.Base(path)
+	base = strings.TrimSuffix(strings.TrimPrefix(base, "resp-"), ".txt")
+	n, err := strconv.Atoi(base)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// truncatedStream reports whether an SSE response body streamed content but was
+// cut off before its terminating [DONE] and usage block, the same fingerprint
+// the proxy's streamFailed uses: data lines arrived, no [DONE] closed them, and
+// no usage was ever sent. A complete reply always carries both, so this fires
+// only on a genuinely severed stream, not on a turn the model finished cleanly.
+func truncatedStream(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var sawData, sawDone, hasUsage bool
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if strings.Contains(line, `"usage"`) && strings.Contains(line, "_tokens") {
+			hasUsage = true
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		switch {
+		case payload == "[DONE]":
+			sawDone = true
+		case payload != "":
+			sawData = true
+		}
+	}
+	return sawData && !sawDone && !hasUsage
+}
+
 // rateLimitStats scans the latency log for upstream rate-limit rejections. The
 // proxy writes one row per call with its status and, on a 429, the Retry-After it
 // carried, so this counts the 429s and keeps the longest back-off asked for. It

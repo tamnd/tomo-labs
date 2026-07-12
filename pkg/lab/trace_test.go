@@ -56,6 +56,50 @@ func TestStreamErrorStats(t *testing.T) {
 	}
 }
 
+// droppedFinalStream is the grade-time safety net for the proxy's blind spot: a
+// final turn the gateway cut off before its [DONE]/usage, torn down before the
+// proxy could write its latency row. It should fire when a resp file shows the
+// truncation fingerprint and has no matching latency row, and stay quiet when the
+// stream closed cleanly or when the truncated call did leave a row (already
+// caught by streamErrorStats).
+func TestDroppedFinalStreamCatchesUnflushedTruncation(t *testing.T) {
+	clean := "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: {\"usage\":{\"total_tokens\":9}}\n\ndata: [DONE]\n"
+	truncated := "data: {\"choices\":[{\"delta\":{\"reasoning\":\"thinking\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"reasoning\":\"more\"}}]}\n"
+	write := func(t *testing.T, dir, name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Five clean turns each left a latency row; the sixth was cut off and, because
+	// the pod died before onClose ran, left no row at all.
+	dir := t.TempDir()
+	write(t, dir, "resp-1.txt", clean)
+	write(t, dir, "resp-2.txt", clean)
+	write(t, dir, "resp-6.txt", truncated)
+	write(t, dir, "latency.jsonl", "{\"seq\":1,\"status\":200}\n{\"seq\":2,\"status\":200}\n")
+	if !droppedFinalStream(dir) {
+		t.Fatal("a truncated resp with no latency row should be flagged as a dropped stream")
+	}
+
+	// If that same truncated call had left a latency row, streamErrorStats owns it
+	// and droppedFinalStream must not double-count it.
+	withRow := t.TempDir()
+	write(t, withRow, "resp-6.txt", truncated)
+	write(t, withRow, "latency.jsonl", "{\"seq\":6,\"status\":200,\"stream_err\":true}\n")
+	if droppedFinalStream(withRow) {
+		t.Error("a truncated call that already has a latency row must not be re-flagged here")
+	}
+
+	// A run whose every turn closed cleanly is not a dropped stream.
+	allClean := t.TempDir()
+	write(t, allClean, "resp-1.txt", clean)
+	if droppedFinalStream(allClean) {
+		t.Error("a cleanly closed stream must not be flagged")
+	}
+}
+
 // TestOrchestrationPlanSpellings pins the metric to each wired tool's own name
 // for its plan primitive: the union is what keeps a real plan from reading as a
 // flat loop just because the tool spells it differently.
