@@ -242,6 +242,15 @@ func analyze(tool string, prof toolProfile, steps []Step) *RunSummary {
 				s.FilesEdit = appendUnique(s.FilesEdit, f)
 			}
 		case "shell":
+			// A tool with no dedicated search runs its greps and finds through the
+			// shell; count those as the searches they are, and keep only the real
+			// commands as shell, so a bash-only agent's summary is not one big
+			// undifferentiated pile of shell calls.
+			if cmd := argField(st.Text, "command", "cmd", "script"); isSearchCmd(cmd) {
+				st.Act = "search"
+				s.Searches++
+				break
+			}
 			s.Shells++
 			if isInstall(st.Text) {
 				s.Installs++
@@ -328,6 +337,14 @@ var builtinProfiles = map[string]toolProfile{
 		"bash": "shell", "shell": "shell",
 		"plan": "plan", "fetch": "other", "time": "other",
 	}},
+	// pi ships just three tools: read, edit, and bash. It has no dedicated search,
+	// so everything it looks up runs through bash; analyze reclassifies those
+	// commands into searches, and piNotes reads what the shell was really doing.
+	"pi": {Lexicon: map[string]string{
+		"read": "read",
+		"edit": "edit", "write": "edit",
+		"bash": "shell",
+	}},
 }
 
 // toolNotes holds each tool's deeper read of its own transcript: the anti-patterns
@@ -336,6 +353,7 @@ var builtinProfiles = map[string]toolProfile{
 // under study; other tools can register their own reading as they are tuned.
 var toolNotes = map[string]func(toolProfile, []Step) []string{
 	"tomo": tomoNotes,
+	"pi":   piNotes,
 }
 
 // tomoNotes reads a tomo run for the habits tomo is specifically tuned to avoid:
@@ -381,6 +399,58 @@ func tomoNotes(prof toolProfile, steps []Step) []string {
 	return notes
 }
 
+// piNotes reads a pi run for what its bash-centric style hides. pi drives every
+// lookup through the shell, so analyze has already split its bash calls into the
+// greps and finds (searches) and the rest (real shell); this counts how much of
+// pi's work was searching-by-shell, and flags the same waste tomo is judged on so
+// the two read on the same terms: re-reading a file it just edited, and re-running
+// a shell command whose output it already had.
+func piNotes(prof toolProfile, steps []Step) []string {
+	var notes []string
+	shellSearch := 0
+	ranShell := map[string]int{}
+	wrote := map[string]bool{}
+	readAfterWrite := 0
+	for _, st := range steps {
+		if st.Kind != "call" {
+			continue
+		}
+		switch st.Act {
+		case "search":
+			if st.Name == "bash" {
+				shellSearch++
+				ranShell[st.Text]++
+			}
+		case "shell":
+			ranShell[st.Text]++
+		case "edit":
+			if f := argPath(st.Text); f != "" {
+				wrote[f] = true
+			}
+		case "read":
+			if f := argPath(st.Text); f != "" && wrote[f] {
+				readAfterWrite++
+			}
+		}
+	}
+	repeatShell := 0
+	for _, n := range ranShell {
+		if n > 1 {
+			repeatShell += n - 1
+		}
+	}
+	if shellSearch > 0 {
+		notes = append(notes, fmt.Sprintf("did its searching through the shell (%s), since it ships no dedicated search tool", countNoun(shellSearch, "command", "commands")))
+	}
+	if readAfterWrite > 0 {
+		notes = append(notes, fmt.Sprintf("re-read a file it had just edited %s; the content was already in hand", countNoun(readAfterWrite, "time", "times")))
+	}
+	if repeatShell > 0 {
+		notes = append(notes, fmt.Sprintf("re-ran an identical shell command %s; the output was already in the transcript", countNoun(repeatShell, "time", "times")))
+	}
+	return notes
+}
+
 // argPath pulls a file path out of a call's JSON arguments, trying the field
 // names different tools use, so the summary can name the files a run touched.
 func argPath(args string) string {
@@ -412,6 +482,31 @@ func isVerify(cmd string) bool {
 	return containsAny(strings.ToLower(cmd),
 		"pytest", "unittest", "python -m test", "go test", "npm test", "npm run test",
 		"ast.parse", "py_compile", "tox", "make test", "./run_tests")
+}
+
+// isSearchCmd reports whether a shell command is really a search: a grep, find,
+// or listing whose point is to locate code, not to change or test it. A bash-only
+// agent has no other way to search, so recognizing these keeps its summary honest
+// about how much of its work was orienting itself. It strips leading `cd … &&`
+// prefixes and matches on the first real command word.
+func isSearchCmd(cmd string) bool {
+	c := strings.TrimSpace(strings.ToLower(cmd))
+	for strings.HasPrefix(c, "cd ") {
+		i := strings.Index(c, "&&")
+		if i < 0 {
+			break
+		}
+		c = strings.TrimSpace(c[i+2:])
+	}
+	tok := c
+	if i := strings.IndexAny(c, " \t"); i >= 0 {
+		tok = c[:i]
+	}
+	switch tok {
+	case "grep", "egrep", "fgrep", "rg", "ag", "ack", "find", "fd", "ls", "locate", "tree", "glob":
+		return true
+	}
+	return false
 }
 
 // narrative turns a summary into a few plain sentences a person can read at a
@@ -512,6 +607,12 @@ func WriteTranscript(w io.Writer, t *Transcript, full bool) {
 	for _, line := range narrative(t) {
 		fmt.Fprintf(w, "  %s\n", line)
 	}
+	// The per-tool notes are this tool's own reading of the run: surface them under
+	// the generic narrative, prefixed with the tool name so it is clear whose habit
+	// is being called out.
+	for _, note := range t.Summary.Notes {
+		fmt.Fprintf(w, "  %s %s.\n", t.Tool, note)
+	}
 
 	writeWalkthrough(w, t.Steps, full)
 }
@@ -585,6 +686,10 @@ func moveLine(s Step) string {
 	case "search":
 		if q := argField(s.Text, "pattern", "query", "regex"); q != "" {
 			return "searched for " + q
+		}
+		// A search that ran through the shell carries the command, not a pattern.
+		if c := argField(s.Text, "command", "cmd", "script"); c != "" {
+			return "searched: " + c
 		}
 		return "searched the tree"
 	case "edit":

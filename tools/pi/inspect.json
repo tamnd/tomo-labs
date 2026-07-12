@@ -1,0 +1,8 @@
+{
+  "lexicon": {
+    "read": "read",
+    "edit": "edit",
+    "write": "edit",
+    "bash": "shell"
+  }
+}

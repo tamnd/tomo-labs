@@ -92,6 +92,41 @@ func TestTomoNotesFlagsWaste(t *testing.T) {
 	}
 }
 
+// pi has no dedicated search tool, so it greps and finds through bash. analyze
+// should reclassify those bash calls as searches while leaving pytest and git as
+// real shell, and piNotes should report how much searching went through the shell.
+func TestPiBashSearchReclassified(t *testing.T) {
+	steps := []Step{
+		{Kind: "call", Name: "bash", Text: `{"command":"grep -rn _ConanIgnoreMatcher conan/"}`},
+		{Kind: "result", Text: "conan/internal/api/config/config_installer.py:15:"},
+		{Kind: "call", Name: "bash", Text: `{"command":"cd /work && find . -name conftest.py"}`},
+		{Kind: "result", Text: "./test/conftest.py"},
+		{Kind: "call", Name: "read", Text: `{"path":"config_installer.py"}`},
+		{Kind: "result", Text: "class _ConanIgnoreMatcher:"},
+		{Kind: "call", Name: "edit", Text: `{"path":"config_installer.py"}`},
+		{Kind: "result", Text: "edited config_installer.py"},
+		{Kind: "call", Name: "bash", Text: `{"command":"cd /work && python -m pytest -q"}`},
+		{Kind: "result", Text: "1 passed"},
+	}
+	s := analyze("pi", builtinProfiles["pi"], steps)
+	if s.Searches != 2 {
+		t.Errorf("grep and find should be searches, got Searches=%d", s.Searches)
+	}
+	if s.Shells != 1 {
+		t.Errorf("only pytest should remain shell, got Shells=%d", s.Shells)
+	}
+	if !s.Verified {
+		t.Errorf("pytest after the edit should count as verification")
+	}
+	// The reclassified bash searches carry their command into the walkthrough.
+	if steps[0].Act != "search" || moveLine(steps[0]) != "searched: grep -rn _ConanIgnoreMatcher conan/" {
+		t.Errorf("bash search move = %q (act %q)", moveLine(steps[0]), steps[0].Act)
+	}
+	if !strings.Contains(strings.Join(s.Notes, " | "), "searching through the shell (2 commands)") {
+		t.Errorf("piNotes should count shell searches, got: %v", s.Notes)
+	}
+}
+
 // The walkthrough should group a fix into Investigate, Fix, and Verify phases and
 // clip long lines unless full is set.
 func TestWalkthroughPhasesAndClipping(t *testing.T) {
