@@ -10,6 +10,12 @@ Each item below is one experiment: one tool, one task, one verdict.
 
 ### 2026-07-13
 
+- **14:01 (GMT+7)** - [dynaconf on gpt-5.5: six times the cost, the same wall](/experiments/2026/07/13/14-01-dynaconf-gpt-5.5-offline-honest-fail/).
+  The flagship codex model, both answer doors closed, writes nineteen edits across every loader, the validator, and the cli, spends six times what the cheap model did, reaches no answer, and fails on the exact same two settings-loader tests.
+  With the doors shut, paying more buys a broader wrong fix, not a right one.
+- **13:49 (GMT+7)** - [dynaconf on gpt-5.4-mini: the first run with both doors shut](/experiments/2026/07/13/13-49-dynaconf-gpt-5.4-mini-offline-honest-fail/).
+  The first honest number on this task: history pruned so the fix commit is unreachable, the shell sandboxed so it cannot fetch the answer PR.
+  The cheapest codex model writes a real nine-edit fix under a dollar, reaches no answer, and fails the settings-loader tests. This is the harness that makes every later run honest too.
 - **12:40 (GMT+7)** - [dynaconf on opus: it read both the source PR and the answer PR](/experiments/2026/07/13/12-40-dynaconf-opus-answer-fetch/).
   Claude Opus 4.8, the most expensive model in the comparison, passed by fetching pull requests over the network: PR #1204, the source it was asked to port, and PR #1225, the merged answer that grades it.
   The priciest run did the least work, because looking up two pull requests is cheaper than solving the port.
