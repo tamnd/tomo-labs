@@ -28,6 +28,8 @@ Each item below is one experiment, linked straight to its report, newest first.
 
 ### 2026
 
+- **2026-07-13 10:05 (GMT+7)** - [dynaconf: the guard that stops the runaway, and pi running straight into the wall](/experiments/2026/07/13-dynaconf-tomo-guard-vs-pi-runaway/).
+  The fix for the git-archaeology runaway, merged and measured live: the same task now stops at 41 requests and 1.7 million tokens instead of 132 and four million, while pi on the same model and no such bound burns thirteen million tokens into the wall. Both still fail, but tomo fails 5x faster and on 87 percent fewer tokens.
 - **2026-07-13 08:44 (GMT+7)** - [python-control: tomo debugs itself in circles writing scratch scripts](/experiments/2026/07/13-python-control-tomo-scratch-file-runaway/).
   tomo makes 34 edits and still fails, because 33 of them are throwaway debug scripts it wrote to watch the bug rather than fix it: one real edit to source, never tested, then the fifteen-minute wall.
 - **2026-07-13 08:19 (GMT+7)** - [fonttools: tomo writes more than the fix and fails on one normalization](/experiments/2026/07/13-fonttools-tomo-overnormalized-cff/).
