@@ -81,8 +81,11 @@ func ParseCatalog(b []byte) (*Catalog, error) {
 	return c, nil
 }
 
-// Selectable returns the models a run may pick, highest priority first, so the
-// discovery list leads with the model Codex itself would default to.
+// Selectable returns the models a run may pick, best first, so the discovery
+// list leads with the model Codex itself defaults to. Codex ranks by a
+// priority field where a lower number is a higher rank (gpt-5.6-sol is 1), so
+// the sort is ascending, which also matches the order Codex lists them in its
+// own picker.
 func (c *Catalog) Selectable() []Model {
 	var out []Model
 	for _, m := range c.Models {
@@ -91,7 +94,7 @@ func (c *Catalog) Selectable() []Model {
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		return out[i].Priority > out[j].Priority
+		return out[i].Priority < out[j].Priority
 	})
 	return out
 }
