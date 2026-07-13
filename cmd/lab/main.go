@@ -14,6 +14,8 @@
 //	lab report [--json]         summarize captured runs
 //	lab reparse                 recompute metrics of captured runs from their traces
 //	lab clean                   remove lab containers and dangling images
+//	lab codex models            list the models the local Codex subscription can pick
+//	lab codex analyze [rollout] summarize a Codex rollout, with its token cost detail
 //
 // Any command that runs, lists, reports, or generates over tasks takes --suite
 // <name> to work on a separate eval tier under evals/<name>/ instead of the core
@@ -55,6 +57,16 @@ func main() {
 	// tasks are read from and where results land; pull it out of the args so the
 	// positional command and its arguments read the same with or without it.
 	suite, args := takeFlagValue(args, "--suite")
+
+	// codex reads the local Codex install: its models and its session rollouts. It
+	// taps a tool running on its own real subscription, not a benchmark run on the
+	// shared model, so it needs no container and no key. Dispatch it before lab.New
+	// so it works without a container runtime.
+	if args[0] == "codex" {
+		die(cmdCodex(args[1:]))
+		return
+	}
+
 	cfg := lab.DefaultConfig()
 	cfg.Suite = suite
 
@@ -301,7 +313,7 @@ func takeFlagValue(args []string, flag string) (string, []string) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|prompts|inspect|meta|gen|report|reparse|clean} [--suite <name>] [args]")
+	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|prompts|inspect|meta|gen|report|reparse|clean|codex} [--suite <name>] [args]")
 }
 
 func die(err error) {
