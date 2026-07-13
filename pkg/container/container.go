@@ -68,14 +68,14 @@ type RunSpec struct {
 	// tool it serves cannot reach the internet.
 	ExtraNetworks []string
 	Mounts        []Mount
-	Env     []string // "KEY=VALUE", order preserved
-	Publish string   // host:container, e.g. "127.0.0.1:8899:8080"
-	Workdir string
-	Cmd     []string // overrides the image entrypoint's default args
-	Remove  bool     // --rm
-	Detach  bool     // -d
-	Stdout  *os.File // where a foreground run streams; nil discards
-	Stderr  *os.File
+	Env           []string // "KEY=VALUE", order preserved
+	Publish       string   // host:container, e.g. "127.0.0.1:8899:8080"
+	Workdir       string
+	Cmd           []string // overrides the image entrypoint's default args
+	Remove        bool     // --rm
+	Detach        bool     // -d
+	Stdout        *os.File // where a foreground run streams; nil discards
+	Stderr        *os.File
 }
 
 func (c *CLI) runArgs(s RunSpec) []string {
