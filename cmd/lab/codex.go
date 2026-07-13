@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -18,6 +20,7 @@ import (
 //
 //	lab codex models [--json]                      list the models the subscription can pick
 //	lab codex analyze [rollout] [--patch] [--json] summarize a rollout (latest if omitted)
+//	lab codex leakscan [dir] [--json]              audit every rollout under dir for answer leaks
 func cmdCodex(args []string) error {
 	sub := ""
 	if len(args) > 0 {
@@ -28,8 +31,10 @@ func cmdCodex(args []string) error {
 		return codexModels(hasFlag(args, "--json"))
 	case "analyze", "":
 		return codexAnalyze(arg(args, 1), hasFlag(args, "--json"), hasFlag(args, "--patch"))
+	case "leakscan":
+		return codexLeakScan(arg(args, 1), hasFlag(args, "--json"))
 	default:
-		return fmt.Errorf("usage: lab codex {models|analyze [rollout] [--patch]} [--json]")
+		return fmt.Errorf("usage: lab codex {models|analyze [rollout] [--patch]|leakscan [dir]} [--json]")
 	}
 }
 
@@ -145,25 +150,156 @@ func codexAnalyze(path string, asJSON, showPatch bool) error {
 	return nil
 }
 
+// codexLeakScan audits every rollout under a directory and prints one row per
+// run: where it ran, which model, how many shell commands it issued, and which
+// answer doors it took. It is the batch form of the fairness check in
+// codexAnalyze, for sweeping a whole tree of past runs at once and seeing at a
+// glance which are trustworthy. With no dir it scans the local Codex sessions
+// tree; a run that issued no commands is an empty session and reads as no-work,
+// kept apart from a clean run that did real work and took no door.
+func codexLeakScan(dir string, asJSON bool) error {
+	var paths []string
+	var err error
+	if dir == "" {
+		paths, err = codex.FindRollouts(codex.Home())
+	} else {
+		paths, err = findRolloutsUnder(dir)
+	}
+	if err != nil {
+		return err
+	}
+
+	type row struct {
+		Path     string          `json:"path"`
+		Where    string          `json:"where"`
+		Model    string          `json:"model"`
+		Commands int             `json:"commands"`
+		Doors    []string        `json:"doors"`
+		Leaks    []codex.LeakHit `json:"leaks,omitempty"`
+	}
+	var rows []row
+	for _, p := range paths {
+		r, perr := codex.ParseRolloutFile(p)
+		if perr != nil {
+			continue
+		}
+		s := r.Summarize()
+		leaks := r.LeakScan()
+		rows = append(rows, row{
+			Path:     p,
+			Where:    filepath.Base(strings.TrimSuffix(s.Cwd, "/work")),
+			Model:    lastModel(s),
+			Commands: len(r.Commands()),
+			Doors:    doorSet(leaks),
+			Leaks:    leaks,
+		})
+	}
+
+	if asJSON {
+		return writeJSON(rows)
+	}
+
+	if len(rows) == 0 {
+		fmt.Println("no rollouts found")
+		return nil
+	}
+	leaked, clean, empty := 0, 0, 0
+	for _, r := range rows {
+		verdict := "CLEAN"
+		switch {
+		case len(r.Doors) > 0:
+			verdict = "LEAK:" + strings.Join(r.Doors, "+")
+			leaked++
+		case r.Commands == 0:
+			verdict = "no-work"
+			empty++
+		default:
+			clean++
+		}
+		fmt.Printf("%-11s %-16s cmds=%3d  %-24s %s\n",
+			verdict, truncate(r.Model, 16), r.Commands, truncate(r.Where, 24), filepath.Base(r.Path))
+	}
+	fmt.Printf("\n%d rollouts: %d leaked, %d clean, %d no-work\n", len(rows), leaked, clean, empty)
+	return nil
+}
+
+// findRolloutsUnder walks an arbitrary directory for Codex rollout files, so the
+// audit can point at an evals tree or a copied set of sessions rather than only
+// the local Codex install.
+func findRolloutsUnder(dir string) ([]string, error) {
+	var paths []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, "rollout-") && strings.HasSuffix(name, ".jsonl") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	sort.Sort(sort.Reverse(sort.StringSlice(paths)))
+	return paths, err
+}
+
+// doorSet returns the distinct doors a run's leaks took, in a stable order, so a
+// row reads "network+package" rather than listing a door once per command.
+func doorSet(leaks []codex.LeakHit) []string {
+	seen := map[codex.LeakDoor]bool{}
+	var out []string
+	for _, door := range []codex.LeakDoor{codex.DoorNetwork, codex.DoorHistory, codex.DoorPackage} {
+		for _, h := range leaks {
+			if h.Door == door && !seen[door] {
+				seen[door] = true
+				out = append(out, string(door))
+			}
+		}
+	}
+	return out
+}
+
+// lastModel is the model the run settled on, the same choice printCost makes, so
+// a run that switched reads by where it ended.
+func lastModel(s codex.Summary) string {
+	if n := len(s.Models); n > 0 {
+		return s.Models[n-1].Model
+	}
+	return "?"
+}
+
+// truncate caps a field for the fixed-width table, so a long cwd or model slug
+// does not break the columns.
+func truncate(s string, max int) string {
+	if len(s) > max {
+		return s[:max-1] + "…"
+	}
+	return s
+}
+
 // printLeakVerdict prints the fairness verdict for a run: whether it reached the
-// answer through the network or through post-base git history, and if so the
-// exact commands, so the finding is auditable rather than a label. A clean run
-// prints a single confirming line.
+// answer through the network, post-base git history, or a cached fixed release,
+// and if so the exact commands, so the finding is auditable rather than a label.
+// A clean run prints a single confirming line.
 func printLeakVerdict(leaks []codex.LeakHit) {
 	if len(leaks) == 0 {
 		fmt.Println("fairness: CLEAN, no answer fetch over network or git history")
 		return
 	}
-	net, hist := 0, 0
+	net, hist, pkg := 0, 0, 0
 	for _, h := range leaks {
 		switch h.Door {
 		case codex.DoorNetwork:
 			net++
 		case codex.DoorHistory:
 			hist++
+		case codex.DoorPackage:
+			pkg++
 		}
 	}
-	fmt.Printf("fairness: LEAK, reached the answer (%d network, %d git-history) -- this run is NOT a solve:\n", net, hist)
+	fmt.Printf("fairness: LEAK, reached the answer (%d network, %d git-history, %d package-cache) -- this run is NOT a solve:\n", net, hist, pkg)
 	for _, h := range leaks {
 		pr := ""
 		if h.PR != "" {
