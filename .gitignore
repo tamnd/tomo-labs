@@ -15,3 +15,9 @@ evals/*/.cache/
 
 # The cmd/lab binary, built for local runs.
 /lab
+
+# Local docs build output. CI builds the site into its own output dirs.
+docs/public/
+docs/public-pages/
+docs/public-cf/
+docs/content-lastmods.json

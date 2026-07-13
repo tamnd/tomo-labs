@@ -5,6 +5,10 @@ contentDir  = "content"
 outputDir   = "public"
 theme       = "tago-doks"
 syntaxHighlight = "true"
+# The experiments archive is captured live through the day, so a report or a day
+# index can carry a timestamp a few hours ahead of the build clock. Build future
+# dated pages so nothing drops out of the timeline while the day is still running.
+buildFuture = true
 
 [params]
 github = "https://github.com/tamnd/tomo-labs"
