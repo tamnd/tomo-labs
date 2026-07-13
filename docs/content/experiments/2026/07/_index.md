@@ -10,6 +10,9 @@ Each item below is one experiment: one tool, one task, one verdict.
 
 ### 2026-07-13
 
+- **10:05 (GMT+7)** - [dynaconf: the guard that stops the runaway, and pi running straight into the wall](/experiments/2026/07/13-dynaconf-tomo-guard-vs-pi-runaway/).
+  The git-archaeology runaway, fixed and measured live: the guard stops the same run at 41 requests and 1.7 million tokens instead of 132 and four million.
+  pi on the same task and model has no such bound and burns thirteen million tokens into the wall, so both fail but tomo fails 5x faster on 87 percent fewer tokens.
 - **08:44 (GMT+7)** - [python-control: tomo debugs itself in circles writing scratch scripts](/experiments/2026/07/13-python-control-tomo-scratch-file-runaway/).
   tomo makes 34 edits and still fails, because 33 of them are throwaway debug scripts it wrote to watch the bug rather than fix it.
   One edit to real source, never tested, then the wall: a second runaway with a different face and the same missing convergence discipline.
