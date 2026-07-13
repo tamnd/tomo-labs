@@ -101,6 +101,14 @@ func TestSweLivePrompt(t *testing.T) {
 	if !strings.Contains(p, "Do not edit or add tests") {
 		t.Error("prompt should forbid editing tests")
 	}
+	// The two closed doors this harness holds shut are stated up front, so a tool
+	// does not spend its opening rounds discovering them.
+	if !strings.Contains(p, "no network access") {
+		t.Error("prompt should state that the network is closed")
+	}
+	if !strings.Contains(p, "history is truncated") || !strings.Contains(p, "do not mine history") {
+		t.Error("prompt should state that git history is truncated and not worth mining")
+	}
 }
 
 func TestSweLiveKeepPerRepoCap(t *testing.T) {
