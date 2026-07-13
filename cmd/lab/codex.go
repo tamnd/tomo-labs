@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/tamnd/tomo-labs/pkg/analyzer/codex"
+	"github.com/tamnd/tomo-labs/pkg/pricing"
 )
 
 // cmdCodex reads the local Codex install: the models it can reach and the
@@ -98,20 +99,22 @@ func codexAnalyze(path string, asJSON, showPatch bool) error {
 	fmt.Printf("outcome: %s wall=%dms\n", outcome(s), s.WallMs)
 
 	t := s.Tokens
-	// The cost that matters is not the raw total: cached input is served cheap, so
-	// the billable prompt work is the uncached input, and the output plus reasoning
-	// is the generated side. Break it out so a cache-heavy run reads as cheap even
-	// when its total is huge, which is the whole point of comparing fairly.
 	uncached := t.InputTokens - t.CachedInputTokens
 	if uncached < 0 {
 		uncached = 0
 	}
 	fmt.Println("tokens:")
-	fmt.Printf("  input       %9d  (uncached %d + cached %d, %s cache hit)\n",
+	fmt.Printf("  input   %9d  (uncached %d + cached %d, %s cache hit)\n",
 		t.InputTokens, uncached, t.CachedInputTokens, hitRate(t.CachedInputTokens, t.InputTokens))
-	fmt.Printf("  output      %9d  (reasoning %d of it)\n", t.OutputTokens, t.ReasoningOutputTokens)
-	fmt.Printf("  total       %9d\n", t.TotalTokens)
-	fmt.Printf("  billable    %9d  (uncached input + output, the full-rate work)\n", uncached+t.OutputTokens)
+	fmt.Printf("  output  %9d  (reasoning %d of it)\n", t.OutputTokens, t.ReasoningOutputTokens)
+	fmt.Printf("  total   %9d\n", t.TotalTokens)
+
+	// Turn the tokens into a dollar figure at the model's published rate, so a run
+	// on a subscription (which is not metered per token) still reads as what the
+	// same work would cost on the metered API, and cached input reads as cheap but
+	// not free. The rate comes from the shared pricing table, the single source of
+	// truth across every model and provider the lab compares.
+	printCost(s, t)
 	if s.Prompt != "" {
 		fmt.Printf("prompt:  %s\n", firstLine(s.Prompt, 100))
 	}
@@ -130,6 +133,43 @@ func codexAnalyze(path string, asJSON, showPatch bool) error {
 		}
 	}
 	return nil
+}
+
+// printCost prices a run at its model's published rate and prints the dollar
+// breakdown, input, cached, and output kept apart. The model is the last one the
+// run used, since a run that switched settled there. When the table has no rate
+// for it, we say so plainly rather than invent a number, and note that a
+// subscription run is not itself metered per token, so this is the equivalent API
+// list price, not a bill.
+func printCost(s codex.Summary, t codex.TokenUsage) {
+	model := ""
+	if n := len(s.Models); n > 0 {
+		model = s.Models[n-1].Model
+	}
+	rate, ok := pricing.Default().Lookup(model)
+	if !ok {
+		fmt.Printf("  cost      (no published rate for %q, tokens only)\n", model)
+		return
+	}
+	c := rate.Cost(pricing.Usage{
+		InputTokens:       t.InputTokens,
+		CachedInputTokens: t.CachedInputTokens,
+		OutputTokens:      t.OutputTokens,
+	})
+	fmt.Printf("cost (%s API list price, a subscription run is not metered per token):\n", model)
+	fmt.Printf("  input   %s  (uncached)\n", usd(c.InputUSD))
+	fmt.Printf("  cached  %s  (cached input, billed at the discounted read rate)\n", usd(c.CachedUSD))
+	fmt.Printf("  output  %s\n", usd(c.OutputUSD))
+	fmt.Printf("  total   %s\n", usd(c.TotalUSD))
+}
+
+// usd renders a dollar amount at a fixed width, in cents when it is small enough
+// that dollars would print as $0.00, so a lean run still shows a real number.
+func usd(v float64) string {
+	if v < 0.01 && v > 0 {
+		return fmt.Sprintf("%.3f¢", v*100)
+	}
+	return fmt.Sprintf("$%.4f", v)
 }
 
 // patchFileList renders a patch's files with their op, e.g. "update xferfcn.py",
