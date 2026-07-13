@@ -15,8 +15,8 @@ import (
 // subscription, not a benchmark run on the shared free model, so it needs no
 // container and no key. It dispatches before lab.New for that reason.
 //
-//	lab codex models [--json]              list the models the subscription can pick
-//	lab codex analyze [rollout] [--json]   summarize a rollout (latest if omitted)
+//	lab codex models [--json]                      list the models the subscription can pick
+//	lab codex analyze [rollout] [--patch] [--json] summarize a rollout (latest if omitted)
 func cmdCodex(args []string) error {
 	sub := ""
 	if len(args) > 0 {
@@ -26,9 +26,9 @@ func cmdCodex(args []string) error {
 	case "models":
 		return codexModels(hasFlag(args, "--json"))
 	case "analyze", "":
-		return codexAnalyze(arg(args, 1), hasFlag(args, "--json"))
+		return codexAnalyze(arg(args, 1), hasFlag(args, "--json"), hasFlag(args, "--patch"))
 	default:
-		return fmt.Errorf("usage: lab codex {models|analyze [rollout]} [--json]")
+		return fmt.Errorf("usage: lab codex {models|analyze [rollout] [--patch]} [--json]")
 	}
 }
 
@@ -67,7 +67,7 @@ func codexModels(asJSON bool) error {
 // point: Codex counts cached input and reasoning output apart from plain input
 // and output, so a cache-heavy or a reasoning-heavy run reads differently from a
 // lean one, and that is exactly what a fair cost comparison against tomo needs.
-func codexAnalyze(path string, asJSON bool) error {
+func codexAnalyze(path string, asJSON, showPatch bool) error {
 	if path == "" {
 		p, ok, err := codex.LatestRollout(codex.Home())
 		if err != nil {
@@ -98,16 +98,55 @@ func codexAnalyze(path string, asJSON bool) error {
 	fmt.Printf("outcome: %s wall=%dms\n", outcome(s), s.WallMs)
 
 	t := s.Tokens
+	// The cost that matters is not the raw total: cached input is served cheap, so
+	// the billable prompt work is the uncached input, and the output plus reasoning
+	// is the generated side. Break it out so a cache-heavy run reads as cheap even
+	// when its total is huge, which is the whole point of comparing fairly.
+	uncached := t.InputTokens - t.CachedInputTokens
+	if uncached < 0 {
+		uncached = 0
+	}
 	fmt.Println("tokens:")
-	fmt.Printf("  input      %8d\n", t.InputTokens)
-	fmt.Printf("  cached     %8d\n", t.CachedInputTokens)
-	fmt.Printf("  output     %8d\n", t.OutputTokens)
-	fmt.Printf("  reasoning  %8d\n", t.ReasoningOutputTokens)
-	fmt.Printf("  total      %8d\n", t.TotalTokens)
+	fmt.Printf("  input       %9d  (uncached %d + cached %d, %s cache hit)\n",
+		t.InputTokens, uncached, t.CachedInputTokens, hitRate(t.CachedInputTokens, t.InputTokens))
+	fmt.Printf("  output      %9d  (reasoning %d of it)\n", t.OutputTokens, t.ReasoningOutputTokens)
+	fmt.Printf("  total       %9d\n", t.TotalTokens)
+	fmt.Printf("  billable    %9d  (uncached input + output, the full-rate work)\n", uncached+t.OutputTokens)
 	if s.Prompt != "" {
 		fmt.Printf("prompt:  %s\n", firstLine(s.Prompt, 100))
 	}
+
+	// The patches are the part worth learning from: the exact source change the
+	// run made, which read next to what tomo did on the same task is how a real
+	// fix teaches a better one. Off by default so the summary stays short.
+	if showPatch {
+		patches := r.Patches()
+		if len(patches) == 0 {
+			fmt.Println("patches: (none)")
+		}
+		for i, p := range patches {
+			fmt.Printf("--- patch %d: %s ---\n", i+1, patchFileList(p))
+			fmt.Println(strings.TrimRight(p.Body, "\n"))
+		}
+	}
 	return nil
+}
+
+// patchFileList renders a patch's files with their op, e.g. "update xferfcn.py",
+// so the header says what changed before the diff prints.
+func patchFileList(p codex.Patch) string {
+	if len(p.Files) == 0 {
+		return "(no file markers)"
+	}
+	parts := make([]string, len(p.Files))
+	for i, f := range p.Files {
+		op := "edit"
+		if i < len(p.Ops) {
+			op = p.Ops[i]
+		}
+		parts[i] = op + " " + f
+	}
+	return strings.Join(parts, ", ")
 }
 
 func modelList(ms []codex.ModelUse) string {
@@ -171,6 +210,15 @@ func firstLine(s string, max int) string {
 		return s[:max] + "..."
 	}
 	return s
+}
+
+// hitRate renders the share of prompt tokens served from cache as a percent, the
+// lever that decides how much of a large input a run actually paid full rate for.
+func hitRate(cached, input int) string {
+	if input <= 0 {
+		return "0%"
+	}
+	return fmt.Sprintf("%.0f%%", 100*float64(cached)/float64(input))
 }
 
 func writeJSON(v any) error {
