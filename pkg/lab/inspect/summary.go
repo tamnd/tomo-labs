@@ -11,8 +11,15 @@ func Analyze(tool string, prof ToolProfile, steps []Step) *RunSummary {
 	s := &RunSummary{}
 	seen := map[string]bool{}
 	edited := false
+	noEdit := 0 // consecutive calls that changed no file, tracked for the longest streak
+	calls := 0
 	for i := range steps {
 		st := &steps[i]
+		// The convergence-guard nudges can ride on any kind of step, so read them
+		// before the kind switch sends the non-calls away.
+		if lbl := guardNudge(st.Text); lbl != "" {
+			s.GuardNudges = appendUnique(s.GuardNudges, lbl)
+		}
 		switch st.Kind {
 		case "assistant":
 			s.Thoughts++
@@ -27,6 +34,7 @@ func Analyze(tool string, prof ToolProfile, steps []Step) *RunSummary {
 		default:
 			continue
 		}
+		calls++
 		st.Act = prof.Classify(st.Name)
 		switch st.Act {
 		case "read":
@@ -54,17 +62,37 @@ func Analyze(tool string, prof ToolProfile, steps []Step) *RunSummary {
 			// shell; count those as the searches they are, and keep only the real
 			// commands as shell, so a bash-only agent's summary is not one big
 			// undifferentiated pile of shell calls.
-			if cmd := argField(st.Text, "command", "cmd", "script"); isSearchCmd(cmd) {
+			cmd := argField(st.Text, "command", "cmd", "script")
+			switch {
+			case isSearchCmd(cmd):
 				st.Act = "search"
 				s.Searches++
-				break
+			case isShellEdit(cmd):
+				// An edit made through the shell (apply_patch, sed -i, a heredoc into a
+				// source file) is a real edit, invisible to a write-tool count. Bucket it
+				// as an edit so the phase view and the streak see the fix, and keep the
+				// tally of how many edits came this way.
+				st.Act = "edit"
+				s.Edits++
+				s.ShellEdits++
+				edited = true
+			default:
+				s.Shells++
+				if isInstall(st.Text) {
+					s.Installs++
+				}
+				if edited && isVerify(st.Text) {
+					s.Verified = true
+				}
 			}
-			s.Shells++
-			if isInstall(st.Text) {
-				s.Installs++
-			}
-			if edited && isVerify(st.Text) {
-				s.Verified = true
+			// Reading git history is orthogonal to how the command bucketed: a `git log`
+			// is a shell command that also digs in the past, and a run that keeps
+			// digging is the archaeology runaway. Count it wherever it landed.
+			if isHistoryCmd(cmd) {
+				s.HistoryReads++
+				if isHistoryProbe(cmd) {
+					s.HistoryProbes++
+				}
 			}
 		case "plan":
 			s.Plans++
@@ -86,7 +114,21 @@ func Analyze(tool string, prof ToolProfile, steps []Step) *RunSummary {
 			s.Repeated++
 		}
 		seen[st.Name+st.Text] = true
+		// The longest run of calls that changed nothing is the size of an
+		// investigation runaway: an edit resets it, anything else extends it.
+		if st.Act == "edit" {
+			noEdit = 0
+		} else {
+			noEdit++
+			if noEdit > s.NoEditStreak {
+				s.NoEditStreak = noEdit
+			}
+		}
 	}
+	// A run that made calls but never changed a file is pure investigation, the
+	// runaway shape; flag it plainly rather than leaving a reader to infer it from
+	// a zero in the edit column.
+	s.ZeroEdits = calls > 0 && s.Edits == 0
 	// A tool that ships a deeper read of its own behavior gets the last word.
 	if notes := notesFor(tool); notes != nil {
 		s.Notes = notes(prof, steps)

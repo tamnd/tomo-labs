@@ -67,6 +67,18 @@ type RunSummary struct {
 	Errors     int      `json:"error_results"`        // tool results that carried an error
 	Verified   bool     `json:"verified"`             // ran a test or a syntax check after editing
 	Notes      []string `json:"notes,omitempty"`      // tool-specific observations about how the run went
+
+	// The forensic marks that separate a clean solve from the two failure shapes
+	// these runs keep landing in: a wrong fix that never touches the code the bug
+	// lives in, and a pure-investigation runaway that never edits at all. These are
+	// counted here so the reading of a run is automatic, not hand-derived from the
+	// raw trace.
+	ShellEdits    int      `json:"shell_edits,omitempty"`    // edits an agent made through the shell (apply_patch, sed -i, a redirect into a source file) rather than a write tool, which a write-only count misses
+	HistoryReads  int      `json:"history_reads,omitempty"`  // git commands that read past history (log, show, blame, a diff of a commit): archaeology, fine once and a runaway when repeated
+	HistoryProbes int      `json:"history_probes,omitempty"` // history reads that grep every ref for the issue or PR (--grep, --all): the answer-shortcut instinct the pruned door denies
+	NoEditStreak  int      `json:"no_edit_streak,omitempty"` // the longest run of consecutive calls that changed no file, i.e. the size of an investigation runaway
+	ZeroEdits     bool     `json:"zero_edits,omitempty"`     // the run changed no file at all, by a write tool or the shell
+	GuardNudges   []string `json:"guard_nudges,omitempty"`   // convergence-guard nudges that fired in the transcript (stall, no-edit, churn, sprawl)
 }
 
 // ToolProfile is how a tool tells the inspector to read its transcript. The

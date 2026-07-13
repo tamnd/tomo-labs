@@ -68,6 +68,41 @@ func Narrative(t *Transcript) []string {
 		lines = append(lines, line+".")
 	}
 
+	// Edits made through the shell are real fixes a write-tool count would miss, so
+	// name how the agent edited when it went that way.
+	if s.ShellEdits > 0 {
+		lines = append(lines, fmt.Sprintf("%s of its edits went through the shell (a patch or a redirect) rather than a write tool.", countNoun(s.ShellEdits, "edit", "edits")))
+	}
+	// The two failure shapes worth calling out at a glance: a run that changed
+	// nothing, and a long stretch of digging without touching the code.
+	if s.ZeroEdits {
+		line := "It changed no file at all; the run was pure investigation and can only fail."
+		if s.NoEditStreak > 0 {
+			line = fmt.Sprintf("It changed no file at all across %s; the run was pure investigation and can only fail.", countNoun(s.NoEditStreak, "call", "calls"))
+		}
+		lines = append(lines, line)
+	} else if s.NoEditStreak >= 12 {
+		lines = append(lines, fmt.Sprintf("Its longest stretch without changing a file was %s, a sign it dug well past the point of deciding.", countNoun(s.NoEditStreak, "call", "calls")))
+	}
+	// Reading git history is fine once and a runaway when repeated, and grepping
+	// every ref for the issue is the answer-shortcut the pruned door denies.
+	if s.HistoryReads > 0 {
+		line := fmt.Sprintf("It read git history %s", countNoun(s.HistoryReads, "time", "times"))
+		if s.HistoryProbes > 0 {
+			line += fmt.Sprintf(" (%s grepping every ref for the issue)", countNoun(s.HistoryProbes, "of them", "of them"))
+		}
+		if s.HistoryReads >= 6 {
+			line += ", the archaeology runaway"
+		} else {
+			line += ", the reflexive first look"
+		}
+		lines = append(lines, line+".")
+	}
+	// The convergence guard stepping in is tomo's own signal that the run was going
+	// wrong; report which of its four nudges fired.
+	if len(s.GuardNudges) > 0 {
+		lines = append(lines, fmt.Sprintf("The convergence guard fired: %s.", joinList(s.GuardNudges)))
+	}
 	// Signs, good and bad, that a plain reader would want flagged.
 	if len(s.TestEdits) > 0 {
 		lines = append(lines, fmt.Sprintf("It edited %s (%s), which the grader resets before grading, so that change does not count.",
@@ -171,8 +206,21 @@ func writeWalkthrough(w io.Writer, steps []Step, full bool) {
 	fmt.Fprintln(w, "\nWalkthrough")
 	step := 0
 	cur := ""
+	seen := map[string]bool{}
 	for i, s := range steps {
+		// A harness event is something the tool did to the model, not the model to
+		// the repo: the convergence guard injecting a nudge is the one that matters,
+		// and it rides on a user or system step the walkthrough used to drop. Surface
+		// it inline so the step-by-step shows the harness stepping in, right where it
+		// happened, rather than only in the summary.
 		if s.Kind == "system" || s.Kind == "user" {
+			if lbl := guardNudge(s.Text); lbl != "" {
+				if ph := phaseAt(i); ph != cur {
+					cur = ph
+					fmt.Fprintf(w, "  %s\n", ph)
+				}
+				fmt.Fprintf(w, "    ⚑ harness: %s guard nudged the model\n", lbl)
+			}
 			continue
 		}
 		if s.Kind == "result" {
@@ -186,11 +234,25 @@ func writeWalkthrough(w io.Writer, steps []Step, full bool) {
 			fmt.Fprintf(w, "    %s\n", clipLine("· "+s.Text, full, 200))
 			continue
 		}
-		// A call: summarize the move, then the outcome from the next result step.
+		// A call: summarize the move, tag what kind of move it really was, then the
+		// outcome from the next result step. The tags are what a reader would
+		// otherwise have to squint at the command to see: an edit smuggled through
+		// the shell, a dig in git history, a reach for the network, a verbatim repeat.
 		step++
-		fmt.Fprintf(w, "    %2d. %s\n", step, clipLine(moveLine(s), full, 200))
+		key := s.Name + s.Text
+		line := moveLine(s)
+		if tags := moveTags(s, seen[key]); tags != "" {
+			line += "  " + tags
+		}
+		seen[key] = true
+		fmt.Fprintf(w, "    %2d. %s\n", step, clipLine(line, full, 200))
 		if i+1 < len(steps) && steps[i+1].Kind == "result" {
-			fmt.Fprintf(w, "        → %s\n", clipLine(resultLine(steps[i+1].Text), full, 160))
+			out := steps[i+1].Text
+			mark := ""
+			if resultIsError(out) {
+				mark = " [error]"
+			}
+			fmt.Fprintf(w, "        → %s%s\n", clipLine(resultLine(out), full, 160), mark)
 		}
 	}
 }
@@ -251,6 +313,37 @@ func moveLine(s Step) string {
 		}
 		return strings.TrimSpace(s.Text)
 	}
+}
+
+// moveTags names, in a bracketed shorthand, what a call really was beyond its
+// action bucket: the marks that separate a productive move from a runaway one.
+// repeated is whether this exact call was seen earlier, which the walkthrough
+// tracks as it goes. An empty string means the move needs no flag.
+func moveTags(s Step, repeated bool) string {
+	var tags []string
+	cmd := argField(s.Text, "command", "cmd", "script")
+	switch {
+	case isHistoryProbe(cmd):
+		tags = append(tags, "history-probe") // grepping every ref for the pruned fix
+	case isHistoryCmd(cmd):
+		tags = append(tags, "git-history") // reading the past, fine once
+	}
+	if s.Act == "edit" && isShellEdit(cmd) {
+		tags = append(tags, "shell-edit") // a fix made through the shell, not a write tool
+	}
+	if isNetworkTool(s.Name) || (s.Act == "shell" && isNetworkCmd(cmd)) {
+		tags = append(tags, "network") // left the repo, denied on a closed-door task
+	}
+	if isInstall(s.Text) {
+		tags = append(tags, "setup") // bootstrapping the env the prepared image should cover
+	}
+	if repeated {
+		tags = append(tags, "repeat") // a verbatim rerun, a sign of spinning
+	}
+	if len(tags) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(tags, ", ") + "]"
 }
 
 // resultLine reduces a tool result to its first meaningful line, since the point
