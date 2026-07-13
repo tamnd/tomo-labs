@@ -13,6 +13,9 @@ Each item below is one experiment: one tool, one task, one verdict.
 - **08:44 (GMT+7)** - [python-control: tomo debugs itself in circles writing scratch scripts](/experiments/2026/07/13-python-control-tomo-scratch-file-runaway/).
   tomo makes 34 edits and still fails, because 33 of them are throwaway debug scripts it wrote to watch the bug rather than fix it.
   One edit to real source, never tested, then the wall: a second runaway with a different face and the same missing convergence discipline.
+- **08:19 (GMT+7)** - [fonttools: tomo writes more than the fix and fails on one normalization](/experiments/2026/07/13-fonttools-tomo-overnormalized-cff/).
+  The one failure where tomo did everything right: it found the exact file, wrote a fuller CFF fix than the maintainers, and verified it.
+  It failed a single hidden test because it reused a variable that forces `.notdef` to the front, breaking the exact-order contract the test pins down: a correctness gap, not a discipline one.
 - **08:04 (GMT+7)** - [dynaconf: tomo runs away digging through git history](/experiments/2026/07/13-dynaconf-tomo-git-archaeology-runaway/).
   tomo spends 132 requests and four million tokens running `git log`, `git diff`, and `git show` to mine a fix out of history, hits the fifteen-minute wall, and never edits a file.
   The fix was local and readable; the run is a git-archaeology trap and a missing stop-and-commit discipline, both levers in tomo.
