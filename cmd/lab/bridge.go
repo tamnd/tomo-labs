@@ -90,7 +90,7 @@ func cmdBridge(ctx context.Context, args []string) error {
 	mux.HandleFunc("/v1/chat/completions", br.serve)
 	mux.HandleFunc("/chat/completions", br.serve)
 	mux.HandleFunc("/v1/models", br.models)
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok\n") })
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "ok\n") })
 
 	srv := &http.Server{Addr: ":" + o.port, Handler: mux}
 	go func() {
@@ -174,7 +174,7 @@ func (b *bridge) models(w http.ResponseWriter, r *http.Request) {
 		m = "gpt-5.6-sol"
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"object": "list",
 		"data":   []any{map[string]any{"id": m, "object": "model", "owned_by": "openai"}},
 	})
