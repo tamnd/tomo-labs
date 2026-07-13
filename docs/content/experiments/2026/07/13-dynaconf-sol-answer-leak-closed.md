@@ -104,11 +104,34 @@ The exact `git diff 39acdee..da0054e` the model ran now returns nothing, because
 
 Two tests hold the line: one builds a repo with a base and a later fix commit, runs the strip, and asserts the fix is pruned while the base and its tag survive; the other pins every committed task `setup.sh` to the template so a future edit cannot leave stale, leaky copies on disk.
 
+## We reran sol on the closed checkout
+
+Closing a leak is worth nothing if it quietly breaks the task, so we ran the same model again, `gpt-5.6-sol` at high effort, against a work tree built by the fixed `setup.sh`, and graded it.
+
+It passed, and this time the pass is real.
+The transcript has no `git diff 39acdee..da0054e`, no `git log --all`, no reference to `da0054e` at all, because none of that is reachable anymore.
+Instead the model wrote a genuine `@insert` handler into `dynaconf/utils/parse_conf.py`, the real fix site, parsing an index like `-1 foo` or `0 foo` out of the value with its own logic rather than copying anyone's commit.
+`FAIL_TO_PASS` turned green and `PASS_TO_PASS` stayed green.
+
+Reasoning the bug out costs more than looking it up, which is the honest price of the task:
+
+| | leaked run (cherry-pick) | leak-free run (reasoned) |
+|---|---|---|
+| Verdict | PASS, by copying `da0054e` | PASS, by editing `parse_conf.py` |
+| Tool calls | 24 | 34 |
+| Output tokens | 6,269 | 9,238 |
+| Total tokens | 827,769 | 1,399,161 |
+| List price | $0.9790 | $1.2951 |
+
+The shortcut was cheaper, as shortcuts are.
+Denied it, the flagship still solved the task, for about thirty percent more tokens and dollars, by doing the work.
+So the fix removed the cheat without removing the task, which is exactly the outcome we wanted to confirm before trusting the sweep again.
+
 ## What this changes
 
-The gpt-5.6-sol dynaconf pass is retired.
-On a leak-free checkout the `git diff` path does not exist, so this cell is not a real solve and the sweep should not read it as one.
-The bug still has to be reasoned out of `parse_conf.py`, which is the task we meant to set.
+The leaked gpt-5.6-sol dynaconf pass is retired and replaced by the reasoned one.
+On a leak-free checkout the `git diff` path does not exist, so the old cell was not a real solve; the rerun is, and it is the number the sweep should carry.
+The bug now has to be reasoned out of `parse_conf.py`, which is the task we meant to set, and a capable model still clears it.
 
 For tomo, there is nothing to imitate here and something to keep: tomo, even in its runaway on this task, never applied a foreign commit as its fix, and we are not going to teach it to.
 The lesson is about the benchmark, not the agent.
