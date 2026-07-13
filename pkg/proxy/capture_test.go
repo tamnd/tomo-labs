@@ -140,7 +140,7 @@ func freeAddr(t *testing.T) string {
 		t.Fatal(err)
 	}
 	addr := l.Addr().String()
-	l.Close()
+	_ = l.Close()
 	return addr
 }
 
