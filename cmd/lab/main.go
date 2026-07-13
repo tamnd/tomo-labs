@@ -67,6 +67,17 @@ func main() {
 		return
 	}
 
+	// claude reads the local Claude Code install: the session transcripts it wrote
+	// under ~/.claude. Like codex it taps a tool on the user's own real subscription,
+	// not a benchmark run on the shared model, so it dispatches here before lab.New
+	// and works without a container runtime. Its analyze flags any command that
+	// fetched an answer from the network, so a claimed pass on a SWE-bench-style task
+	// can be told from a copied one.
+	if args[0] == "claude" {
+		die(cmdClaude(args[1:]))
+		return
+	}
+
 	cfg := lab.DefaultConfig()
 	cfg.Suite = suite
 
@@ -313,7 +324,7 @@ func takeFlagValue(args []string, flag string) (string, []string) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|prompts|inspect|meta|gen|report|reparse|clean|codex} [--suite <name>] [args]")
+	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|prompts|inspect|meta|gen|report|reparse|clean|codex|claude} [--suite <name>] [args]")
 }
 
 func die(err error) {

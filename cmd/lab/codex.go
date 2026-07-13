@@ -151,8 +151,14 @@ func printCost(s codex.Summary, t codex.TokenUsage) {
 		fmt.Printf("  cost      (no published rate for %q, tokens only)\n", model)
 		return
 	}
+	// Codex reports input as a total with cached input a subset of it, so pass the
+	// fresh remainder as the full-rate input: pricing.Usage kinds are disjoint.
+	uncached := t.InputTokens - t.CachedInputTokens
+	if uncached < 0 {
+		uncached = 0
+	}
 	c := rate.Cost(pricing.Usage{
-		InputTokens:       t.InputTokens,
+		InputTokens:       uncached,
 		CachedInputTokens: t.CachedInputTokens,
 		OutputTokens:      t.OutputTokens,
 	})
