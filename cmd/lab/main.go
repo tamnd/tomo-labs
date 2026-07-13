@@ -123,6 +123,8 @@ func main() {
 		die(err)
 	case "clean":
 		l.Clean(ctx)
+	case "bridge":
+		die(cmdBridge(ctx, args[1:]))
 	default:
 		usage()
 		os.Exit(2)
