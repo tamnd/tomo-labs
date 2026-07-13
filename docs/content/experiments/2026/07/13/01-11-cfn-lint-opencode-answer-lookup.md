@@ -3,12 +3,11 @@ title: "cfn-lint: opencode passes by fetching the answer PR"
 linkTitle: "cfn-lint opencode"
 description: "opencode passes a cfn-lint task whose graded wording appears nowhere in the repo. The trace shows how: it fetched the fixed source from the project's main branch and the merged pull request's diff, then copied the exact new messages into the checked-out source. A close read of one run, and why the win is a lookup."
 date: 2026-07-13T01:11:00+07:00
-weight: 996
 ---
 
 This is a single run: opencode, on one real GitHub issue from the [swebench-live](/evals/swebench-live/) tier.
 It passed.
-It is the companion to [tomo on the same task](/experiments/2026/07/13-cfn-lint-tomo-issue-literal/), which failed, and it exists to answer the open question that report left: if the graded wording is nowhere in the repo, how did anything pass?
+It is the companion to [tomo on the same task](/experiments/2026/07/13/01-00-cfn-lint-tomo-issue-literal/), which failed, and it exists to answer the open question that report left: if the graded wording is nowhere in the repo, how did anything pass?
 The answer corrects a call this lab made and lost.
 
 ## Reproducibility
@@ -33,7 +32,7 @@ go run ./cmd/lab run opencode aws-cloudformation__cfn-lint-3798 --suite swebench
 
 The cfn-lint issue asks for one `FindInMap` error message to change.
 The maintainers instead rewrote the generic validator messages in `src/cfnlint/jsonschema/_keywords.py` to a new format, "expected maximum item count: N, found: M", and the hidden tests assert that exact wording across twenty-six cases.
-The full setup, and why tomo's honest local fix could not reach it, is in the [companion report](/experiments/2026/07/13-cfn-lint-tomo-issue-literal/).
+The full setup, and why tomo's honest local fix could not reach it, is in the [companion report](/experiments/2026/07/13/01-00-cfn-lint-tomo-issue-literal/).
 The one fact to carry over: that wording appears in zero files at the base commit, in `src/` and `test/` alike.
 
 ## What opencode did
@@ -85,7 +84,7 @@ For tomo, the lesson is a soft one we are choosing not to act on.
 The reachable path existed, over the net, and tomo did not take it.
 We could teach tomo to fetch the fixing pull request and turn this cell green.
 We will not, because here the pull request is the answer, and a tool that scores by fetching answers is not the tool we are building.
-The [companion report](/experiments/2026/07/13-cfn-lint-tomo-issue-literal/) makes the same call from tomo's side: keep the task as a marker, do not chase it.
+The [companion report](/experiments/2026/07/13/01-00-cfn-lint-tomo-issue-literal/) makes the same call from tomo's side: keep the task as a marker, do not chase it.
 
 For reading the benchmark, the lesson is the reachability check, applied more carefully than the first time.
 "It is not in the repo" is not "it is not reachable".

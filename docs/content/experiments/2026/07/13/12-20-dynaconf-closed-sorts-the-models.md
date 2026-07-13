@@ -1,6 +1,5 @@
 ---
 title: "With the leak closed, dynaconf sorts the models"
-weight: 986
 date: 2026-07-13T12:20:00+07:00
 description: "The same leak-free dynaconf task passes on gpt-5.6-sol and gpt-5.5 and fails on gpt-5.4, so the fix that removed the git shortcut left a task that actually measures the model."
 ---

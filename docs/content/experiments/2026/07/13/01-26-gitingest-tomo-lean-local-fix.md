@@ -3,12 +3,11 @@ title: "gitingest: tomo fixes it the honest local way"
 linkTitle: "gitingest tomo"
 description: "tomo solves a real gitingest issue the way the benchmark intends: it reads the source, finds the one branch that only handles https, adds the http case, and verifies with the project's own tests. One source edit, no network, 242k tokens. A clean local pass, with the small waste the analyzer still catches."
 date: 2026-07-13T01:26:00+07:00
-weight: 994
 ---
 
 This is a single run: tomo, on `cyclotruc__gitingest-94`, a real GitHub issue from the [swebench-live](/evals/swebench-live/) tier.
 It passed.
-It is the run to read next to the [cfn-lint pair](/experiments/2026/07/13-cfn-lint-opencode-answer-lookup/), because it is the opposite kind of pass: where opencode passed cfn-lint by fetching the answer online, tomo passes this one by reading the code in front of it and reasoning to the fix.
+It is the run to read next to the [cfn-lint pair](/experiments/2026/07/13/01-11-cfn-lint-opencode-answer-lookup/), because it is the opposite kind of pass: where opencode passed cfn-lint by fetching the answer online, tomo passes this one by reading the code in front of it and reasoning to the fix.
 When the answer is derivable from the source, tomo's honest-local habit is the whole job, and here it is.
 
 ## Reproducibility
@@ -78,7 +77,7 @@ The fix lived in the code, tomo read the code, and tomo found the fix, then prov
 No network, 35.8 MB of memory, one edit.
 That is the shape of pass this lab is trying to make ordinary: the honest local one.
 
-Set beside the [opencode cfn-lint run](/experiments/2026/07/13-cfn-lint-opencode-answer-lookup/), the contrast is the whole point.
+Set beside the [opencode cfn-lint run](/experiments/2026/07/13/01-11-cfn-lint-opencode-answer-lookup/), the contrast is the whole point.
 That task's answer was not in the repo, so passing it meant leaving the repo to fetch the merged fix.
 This task's answer was in the repo, so passing it meant reading carefully and reasoning, which is the skill worth growing.
 tomo's job is to be excellent at the second kind, and the tightening left to do is the loop friction above, not the fix itself.

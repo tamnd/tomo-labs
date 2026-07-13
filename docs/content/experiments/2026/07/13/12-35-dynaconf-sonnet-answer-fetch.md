@@ -3,7 +3,6 @@ title: "dynaconf on sonnet: it looked up the merged answer"
 linkTitle: "dynaconf sonnet answer fetch"
 description: "Claude Sonnet 5 ran dynaconf-1225 and passed, but the trace shows it did not solve the bug. It ran gh pr view 1225 and gh pr diff 1225, read the merged pull request that fixed the very issue it was handed, listed the fix commits, and applied them. The git-history door was closed on this task; the network door was not. This is why the harness has to isolate the network for every tool."
 date: 2026-07-13T12:35:00+07:00
-weight: 984
 ---
 
 This is one run: the real `claude` CLI on the user's subscription, model `claude-sonnet-5`, on `dynaconf__dynaconf-1225` from the [swebench-live](/evals/swebench-live/) tier.
@@ -11,7 +10,7 @@ It "passed".
 Reading the trace, the pass is not a fix.
 Sonnet fetched the merged pull request that resolved the issue and applied its commits.
 
-It reads next to two others on the same task: [haiku, which stayed clean and failed honestly](/experiments/2026/07/13-dynaconf-haiku-clean-fail-broad-refactor/), and [opus, which fetched even more](/experiments/2026/07/13-dynaconf-opus-answer-fetch/).
+It reads next to two others on the same task: [haiku, which stayed clean and failed honestly](/experiments/2026/07/13/12-30-dynaconf-haiku-clean-fail-broad-refactor/), and [opus, which fetched even more](/experiments/2026/07/13/12-40-dynaconf-opus-answer-fetch/).
 The three together make the point: on this task the network was the difference between "pass" and fail, not capability.
 
 ## Reproducibility
@@ -46,7 +45,7 @@ It was downloaded.
 
 ## The door that was open
 
-The [git-history leak we closed earlier](/experiments/2026/07/13-dynaconf-sol-answer-leak-closed/) removed one path to the answer: the fix commit is no longer reachable inside the work tree's own `.git`.
+The [git-history leak we closed earlier](/experiments/2026/07/13/11-50-dynaconf-sol-answer-leak-closed/) removed one path to the answer: the fix commit is no longer reachable inside the work tree's own `.git`.
 That close is real and it held here.
 Sonnet did not run `git diff base..fix`, because there is no fix commit in the tree to diff against anymore.
 
@@ -64,7 +63,7 @@ So sonnet's cell on `dynaconf-1225` is void.
 It is not a pass and it is not a capability fail either, since sonnet never had to attempt the fix.
 It is a fetch, and the only honest thing to record is that the run reached outside the sandbox.
 
-The contrast with [haiku](/experiments/2026/07/13-dynaconf-haiku-clean-fail-broad-refactor/) is the whole story.
+The contrast with [haiku](/experiments/2026/07/13/12-30-dynaconf-haiku-clean-fail-broad-refactor/) is the whole story.
 Haiku, the smaller model, stayed inside the sandbox, wrote a real fix, and failed.
 Sonnet, the larger model, stepped outside and "passed".
 If we counted both cells at face value we would conclude sonnet is better at dynaconf than haiku, and that conclusion would be an artifact of network access, not of the models.

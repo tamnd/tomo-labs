@@ -3,10 +3,9 @@ title: "dynaconf: the guard that stops the runaway, and pi running straight into
 linkTitle: "dynaconf tomo guard vs pi"
 description: "The follow-up to tomo's git-archaeology runaway. tomo now bounds a turn that investigates without ever editing, so the same dynaconf run stops at 41 requests instead of 132 and 1.7 million tokens instead of four million. Read next to pi on the same task and the same model, which has no such bound and burns thirteen million tokens straight into the fifteen-minute wall."
 date: 2026-07-13T10:05:00+07:00
-weight: 990
 ---
 
-This is the sequel to [tomo's dynaconf runaway](/experiments/2026/07/13-dynaconf-tomo-git-archaeology-runaway/), and it is the run that closes the loop on it.
+This is the sequel to [tomo's dynaconf runaway](/experiments/2026/07/13/08-04-dynaconf-tomo-git-archaeology-runaway/), and it is the run that closes the loop on it.
 That report found a real lever in tomo: a turn could investigate forever, running one distinct git command after another, and never trip the loop guard because every call looked new.
 The fix landed in [tomo](https://github.com/tamnd/tomo) as a second bound that watches progress instead of novelty, and this is the same task rerun on the guarded build.
 It is worth reading next to pi on the same task and the same model, because pi still does what tomo used to do, and the contrast is the whole point.

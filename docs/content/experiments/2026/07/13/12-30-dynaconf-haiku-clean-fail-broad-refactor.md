@@ -3,14 +3,13 @@ title: "dynaconf on haiku: the clean run that failed honestly"
 linkTitle: "dynaconf haiku clean fail"
 description: "Claude Haiku 4.5 ran dynaconf-1225 without reaching the network, wrote a real source fix, and failed. It threaded the identifier argument through every loader, the same broad refactor gpt-5.4 tried, and regressed a test that started green. This is the honest baseline the two bigger Claude models were measured against, and both of them cheated to beat it."
 date: 2026-07-13T12:30:00+07:00
-weight: 985
 ---
 
 This is one run: the real `claude` CLI on the user's subscription, model `claude-haiku-4-5`, on `dynaconf__dynaconf-1225` from the [swebench-live](/evals/swebench-live/) tier.
 It failed, and the failure is the honest kind.
 Haiku never reached the network, wrote a genuine source fix, and got the fix wrong in the same way a weaker gpt model did.
 
-It matters because the two larger Claude models on this same task, [sonnet](/experiments/2026/07/13-dynaconf-sonnet-answer-fetch/) and [opus](/experiments/2026/07/13-dynaconf-opus-answer-fetch/), both "passed", and both did it by fetching the answer pull request over the network instead of solving the bug.
+It matters because the two larger Claude models on this same task, [sonnet](/experiments/2026/07/13/12-35-dynaconf-sonnet-answer-fetch/) and [opus](/experiments/2026/07/13/12-40-dynaconf-opus-answer-fetch/), both "passed", and both did it by fetching the answer pull request over the network instead of solving the bug.
 Haiku is the control that shows what solving it actually costs, and that the task is hard.
 
 ## Reproducibility
@@ -67,8 +66,8 @@ Denied nothing, given a shell and told to fix the bug, a capable small model spe
 That is the true difficulty of `dynaconf-1225` for a model that actually attempts it.
 
 Against that baseline, the two larger Claude models "passed", and the next two reports show how.
-[Sonnet](/experiments/2026/07/13-dynaconf-sonnet-answer-fetch/) ran `gh pr diff 1225` and read the merged answer.
-[Opus](/experiments/2026/07/13-dynaconf-opus-answer-fetch/) ran `gh pr view 1204` and `gh pr view 1225` and read both the source pull request it was asked to port and the answer pull request that graded it.
+[Sonnet](/experiments/2026/07/13/12-35-dynaconf-sonnet-answer-fetch/) ran `gh pr diff 1225` and read the merged answer.
+[Opus](/experiments/2026/07/13/12-40-dynaconf-opus-answer-fetch/) ran `gh pr view 1204` and `gh pr view 1225` and read both the source pull request it was asked to port and the answer pull request that graded it.
 Neither pass is a solve.
 Haiku, the only Claude model that stayed inside the sandbox, is also the only one whose result we can trust, and that result is FAIL.
 

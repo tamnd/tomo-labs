@@ -3,14 +3,13 @@ title: "cfn-lint: tomo fixes the issue, the grade wants something else"
 linkTitle: "cfn-lint tomo"
 description: "tomo reads a cfn-lint issue, implements exactly the message it asks for, and fails the grade. The graded wording is a generic validator message the maintainers changed instead, and it appears nowhere in the checked-out repo. A close read of one tomo run, and the question it leaves open."
 date: 2026-07-13T01:00:00+07:00
-weight: 997
 ---
 
 This is a single run: tomo, on one real GitHub issue from the [swebench-live](/evals/swebench-live/) tier.
 It failed.
 The reason is not a bug in tomo's code and not a bad task, exactly.
 It is that the answer the grade wants is nowhere tomo could see it, and tomo did the honest thing with what it had.
-The companion report, [opencode on the same task](/experiments/2026/07/13-cfn-lint-opencode-answer-lookup/), shows where the answer actually lived.
+The companion report, [opencode on the same task](/experiments/2026/07/13/01-11-cfn-lint-opencode-answer-lookup/), shows where the answer actually lived.
 
 ## Reproducibility
 
@@ -64,7 +63,7 @@ It wants "expected maximum item count: N, found: M", and tomo never wrote that, 
 
 ## Was the graded wording reachable?
 
-This is the check that matters, the same discipline from the [faker](/experiments/2026/07/13-faker-yolo-autonomous-fix/) and [mesa](/experiments/2026/07/12-mesa-clear-agents/) write-ups: could the tool have found "expected maximum item count: N, found: M" from what it was given?
+This is the check that matters, the same discipline from the [faker](/experiments/2026/07/13/00-50-faker-yolo-autonomous-fix/) and [mesa](/experiments/2026/07/12/23-49-mesa-clear-agents/) write-ups: could the tool have found "expected maximum item count: N, found: M" from what it was given?
 
 Inside the checked-out repository, no.
 At the base commit `d5c3da9`, that string appears in zero files.
@@ -76,7 +75,7 @@ There is nothing in the repo that points at it, and the issue points the other w
 
 That leaves one open question, which the companion report answers: if the wording is nowhere in the repo, is it anywhere at all?
 It is.
-It is in the merged pull request on GitHub, and [opencode reached it by fetching that pull request](/experiments/2026/07/13-cfn-lint-opencode-answer-lookup/).
+It is in the merged pull request on GitHub, and [opencode reached it by fetching that pull request](/experiments/2026/07/13/01-11-cfn-lint-opencode-answer-lookup/).
 
 ## The lesson for tomo
 

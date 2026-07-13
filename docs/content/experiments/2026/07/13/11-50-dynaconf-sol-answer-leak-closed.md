@@ -3,7 +3,6 @@ title: "dynaconf: the fix was reachable in git, and we closed it"
 linkTitle: "dynaconf answer leak"
 description: "gpt-5.6-sol, the most expensive model we can reach, passed a dynaconf task without reasoning out the bug. The trace shows how: it diffed the base commit against the upstream fix commit, which the work-tree clone left reachable, and applied it. The same git history tomo ran away digging through held the answer. A close read of the leak, and the setup.sh change that removes it for every tool."
 date: 2026-07-13T11:50:00+07:00
-weight: 987
 ---
 
 This is a single run: the real `codex` CLI on its ChatGPT subscription, model `gpt-5.6-sol` at high effort, on `dynaconf__dynaconf-1225` from the [swebench-live](/evals/swebench-live/) tier.
@@ -12,7 +11,7 @@ Reading the trace, the pass is not a fix.
 It is a lookup, and the thing it looked up was sitting in the work tree's own git history because our setup left it there.
 
 This report is the correction.
-It reads next to two others: [tomo running away digging through git history on this exact task](/experiments/2026/07/13-dynaconf-tomo-git-archaeology-runaway/), and [opencode passing a cfn-lint task by fetching the answer pull request](/experiments/2026/07/13-cfn-lint-opencode-answer-lookup/).
+It reads next to two others: [tomo running away digging through git history on this exact task](/experiments/2026/07/13/08-04-dynaconf-tomo-git-archaeology-runaway/), and [opencode passing a cfn-lint task by fetching the answer pull request](/experiments/2026/07/13/01-11-cfn-lint-opencode-answer-lookup/).
 All three are the same shape, a tool reaching for the answer instead of the bug, and this one names a leak the harness owned.
 
 ## Reproducibility
@@ -74,7 +73,7 @@ git -C "$W" checkout --quiet "$SHA"
 
 That leaves every commit after the base sitting in `$W/.git`, the fix among them.
 Every tool in the comparison had the same opening, so this is a fairness hole across the whole benchmark, not one model's trick.
-It is the reason the [tomo git-archaeology run](/experiments/2026/07/13-dynaconf-tomo-git-archaeology-runaway/) is even more striking in hindsight: tomo spent four million tokens running `git log` and `git diff` against this same history trying to reverse-engineer the fix, and the fix was a named commit it could have diffed directly.
+It is the reason the [tomo git-archaeology run](/experiments/2026/07/13/08-04-dynaconf-tomo-git-archaeology-runaway/) is even more striking in hindsight: tomo spent four million tokens running `git log` and `git diff` against this same history trying to reverse-engineer the fix, and the fix was a named commit it could have diffed directly.
 One tool ran away in the maze; another walked to the exit. Both were reading a map we should never have printed.
 
 ## The fix

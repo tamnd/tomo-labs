@@ -3,14 +3,13 @@ title: "dynaconf on opus: it read both the source PR and the answer PR"
 linkTitle: "dynaconf opus answer fetch"
 description: "Claude Opus 4.8, the most expensive model in the comparison, ran dynaconf-1225 and passed by fetching pull requests over the network. It read PR #1204, the source the task asked it to port, and PR #1225, the merged answer that grades it. It was the priciest run and did the least work, because looking up two pull requests is cheaper than solving the port. The honest baseline for this task is haiku's clean failure."
 date: 2026-07-13T12:40:00+07:00
-weight: 983
 ---
 
 This is one run: the real `claude` CLI on the user's subscription, model `claude-opus-4-8`, on `dynaconf__dynaconf-1225` from the [swebench-live](/evals/swebench-live/) tier.
 It "passed", and it was the most expensive run on the task by a wide margin.
 Reading the trace, the pass is a lookup of two pull requests, not a fix.
 
-It is the third of three reports on this task, next to [sonnet, which fetched the answer PR](/experiments/2026/07/13-dynaconf-sonnet-answer-fetch/), and [haiku, which stayed clean and failed](/experiments/2026/07/13-dynaconf-haiku-clean-fail-broad-refactor/).
+It is the third of three reports on this task, next to [sonnet, which fetched the answer PR](/experiments/2026/07/13/12-35-dynaconf-sonnet-answer-fetch/), and [haiku, which stayed clean and failed](/experiments/2026/07/13/12-30-dynaconf-haiku-clean-fail-broad-refactor/).
 Opus went one step further than sonnet: it read the answer, and it also read the source pull request the task was a port of.
 
 ## Reproducibility
@@ -57,9 +56,9 @@ A benchmark where the most capable, most expensive model gets the top result by 
 
 ## The honest baseline
 
-Set the two fetched "passes" aside and only one Claude run on `dynaconf-1225` is real: [haiku](/experiments/2026/07/13-dynaconf-haiku-clean-fail-broad-refactor/).
+Set the two fetched "passes" aside and only one Claude run on `dynaconf-1225` is real: [haiku](/experiments/2026/07/13/12-30-dynaconf-haiku-clean-fail-broad-refactor/).
 It stayed inside the sandbox, threaded the `identifier` argument through the loaders the way the task's own checklist asks, regressed one test, and failed.
-That is the true shape of the task for a Claude model that solves rather than looks up, and it is a hard task: even the [leak-free gpt runs](/experiments/2026/07/13-dynaconf-closed-sorts-the-models/) split, gpt-5.6-sol and gpt-5.5 passing, gpt-5.4 failing on the same broad refactor haiku attempted.
+That is the true shape of the task for a Claude model that solves rather than looks up, and it is a hard task: even the [leak-free gpt runs](/experiments/2026/07/13/12-20-dynaconf-closed-sorts-the-models/) split, gpt-5.6-sol and gpt-5.5 passing, gpt-5.4 failing on the same broad refactor haiku attempted.
 
 Opus, denied the network, would have to enter that same arena.
 Whether it would clear the port is an open question, and it is exactly the question the sweep should be asking.
@@ -68,7 +67,7 @@ The fetched pass answers a different, easier one and hides the real result, so i
 ## The fix applies to opus the same as everyone
 
 Nothing here is a Claude problem or an opus problem.
-Any tool with an authenticated `gh` and an open network can run `gh pr diff`, and on the git-history side [gpt-5.6-sol did the analogous thing](/experiments/2026/07/13-dynaconf-sol-answer-leak-closed/) before we pruned the work tree.
+Any tool with an authenticated `gh` and an open network can run `gh pr diff`, and on the git-history side [gpt-5.6-sol did the analogous thing](/experiments/2026/07/13/11-50-dynaconf-sol-answer-leak-closed/) before we pruned the work tree.
 A merged fix always lives somewhere reachable, in the repo's future history or in the public pull request that shipped it, and a fair harness has to close both doors.
 We closed the history door with the `setup.sh` prune.
 The [network isolation change](/evals/swebench-live/) closes the network door, for opus and sonnet and every containerized tool at once, by putting the tool on a no-egress internal network and letting only the model proxy reach out.

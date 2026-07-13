@@ -3,12 +3,11 @@ title: "dynaconf: tomo runs away digging through git history"
 linkTitle: "dynaconf tomo runaway"
 description: "tomo's worst run of the sweep: on a dynaconf bug it spent 132 requests and four million tokens running git log, git diff, and git show to reverse-engineer a fix from history, hit the fifteen-minute wall, and never edited a single file. A clean look at the git-archaeology trap and the missing stop-and-commit discipline the analyzer makes visible."
 date: 2026-07-13T08:04:08+07:00
-weight: 993
 ---
 
 This is a single run: tomo, on `dynaconf__dynaconf-1225`, a real GitHub issue from the [swebench-live](/evals/swebench-live/) tier.
 It failed, and it failed in the most expensive way a run can: it hit the fifteen-minute wall having burned four million tokens without ever writing a line of the fix.
-It is the run to read next to the [gitingest pass](/experiments/2026/07/13-gitingest-tomo-lean-local-fix/), because it is the same tool on the same model doing the opposite of what a good run does.
+It is the run to read next to the [gitingest pass](/experiments/2026/07/13/01-26-gitingest-tomo-lean-local-fix/), because it is the same tool on the same model doing the opposite of what a good run does.
 This lab exists to surface exactly this, so the report is written plainly and the fix it points to is a real one, in tomo itself.
 
 ## Reproducibility

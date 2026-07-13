@@ -3,7 +3,6 @@ title: "Paying five times more buys the same wrong fix"
 linkTitle: "mini vs sol on python-control"
 description: "Four real codex subscription runs, gpt-5.4-mini and gpt-5.6-sol on two tasks, priced through our new single source of truth. On python-control both models, cheap and flagship, converge on the identical edit and fail the identical three tests. The lever over tomo is not correctness. No model here solves the task. It is convergence and cost, and that is a lesson tomo can act on."
 date: 2026-07-13T12:05:00+07:00
-weight: 988
 ---
 
 Four runs of the real `codex` CLI on its ChatGPT subscription, two models across two tasks, all priced through the [pricing table](/guides/) we now keep as a single source of truth.
@@ -21,7 +20,7 @@ The point is what the money buys on a task nobody solves.
 
 All four are subscription runs, so no dollar changed hands.
 The list price is what the same tokens would have cost on the metered API at each model's published rate, computed from the [pricing package](/guides/) so a subscription run lines up against tomo on its metered proxy.
-Run D's pass is the one retired in the [dynaconf answer-leak report](/experiments/2026/07/13-dynaconf-sol-answer-leak-closed/): it read the fix out of git rather than reasoning it, and the harness that let it is now fixed.
+Run D's pass is the one retired in the [dynaconf answer-leak report](/experiments/2026/07/13/11-50-dynaconf-sol-answer-leak-closed/): it read the fix out of git rather than reasoning it, and the harness that let it is now fixed.
 That leaves the honest comparison on python-control, runs A and B.
 
 ## The task, in one line
@@ -58,7 +57,7 @@ When we say "if tomo failed but other tools succeeded, that is a lesson," the ho
 The lesson that is real is about cost.
 Both codex models spent about a million tokens and stopped.
 tomo, on tasks in this neighborhood, does not stop.
-On the neighboring dynaconf task tomo ran [four million tokens of git archaeology](/experiments/2026/07/13-dynaconf-tomo-git-archaeology-runaway/) and never edited a file, where mini reached a genuine multi-file edit (run C) in 2.8M and sol read the answer in under a million.
+On the neighboring dynaconf task tomo ran [four million tokens of git archaeology](/experiments/2026/07/13/08-04-dynaconf-tomo-git-archaeology-runaway/) and never edited a file, where mini reached a genuine multi-file edit (run C) in 2.8M and sol read the answer in under a million.
 The frontier models converge, right or wrong, and then they halt.
 tomo, when it is wrong, keeps paying.
 

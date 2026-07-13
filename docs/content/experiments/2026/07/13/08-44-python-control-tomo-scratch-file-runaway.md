@@ -3,11 +3,10 @@ title: "python-control: tomo debugs itself in circles writing scratch scripts"
 linkTitle: "python-control tomo scratch runaway"
 description: "A second runaway with a different shape. On a python-control conversion bug, tomo made 34 edits and still failed, because 33 of them were throwaway debug scripts it wrote to instrument the problem rather than fix it. It made exactly one edit to real source, never ran the project's tests on it, and hit the wall. The analyzer separates the one real edit from the 33 dead ends and names the habit."
 date: 2026-07-13T08:44:00+07:00
-weight: 991
 ---
 
 This is a single run: tomo, on `python-control__python-control-1064`, a real GitHub issue from the [swebench-live](/evals/swebench-live/) tier.
-It failed at the fifteen-minute wall, and it failed the same expensive way the [dynaconf runaway](/experiments/2026/07/13-dynaconf-tomo-git-archaeology-runaway/) did, but the surface behaviour is different enough to be worth its own report.
+It failed at the fifteen-minute wall, and it failed the same expensive way the [dynaconf runaway](/experiments/2026/07/13/08-04-dynaconf-tomo-git-archaeology-runaway/) did, but the surface behaviour is different enough to be worth its own report.
 dynaconf burned its budget mining git history and never wrote anything.
 This run wrote a great deal, thirty-four edits in all, and still never wrote the fix.
 The difference is where the writing went, and that is the whole lesson.
