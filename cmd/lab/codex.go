@@ -84,9 +84,19 @@ func codexAnalyze(path string, asJSON, showPatch bool) error {
 		return err
 	}
 	s := r.Summarize()
+	leaks := r.LeakScan()
 	if asJSON {
-		return writeJSON(s)
+		return writeJSON(struct {
+			codex.Summary
+			Leaks []codex.LeakHit `json:"leaks"`
+		}{s, leaks})
 	}
+
+	// The fairness verdict prints first and loud, because it decides whether the
+	// rest of the numbers mean anything: a run that reached the answer through the
+	// network or through post-base git history did not solve the task, whatever it
+	// claimed. A clean run gets a one-line all-clear.
+	printLeakVerdict(leaks)
 
 	fmt.Printf("rollout: %s\n", path)
 	fmt.Printf("session: %s  cli %s\n", s.SessionID, s.CLIVersion)
@@ -133,6 +143,35 @@ func codexAnalyze(path string, asJSON, showPatch bool) error {
 		}
 	}
 	return nil
+}
+
+// printLeakVerdict prints the fairness verdict for a run: whether it reached the
+// answer through the network or through post-base git history, and if so the
+// exact commands, so the finding is auditable rather than a label. A clean run
+// prints a single confirming line.
+func printLeakVerdict(leaks []codex.LeakHit) {
+	if len(leaks) == 0 {
+		fmt.Println("fairness: CLEAN, no answer fetch over network or git history")
+		return
+	}
+	net, hist := 0, 0
+	for _, h := range leaks {
+		switch h.Door {
+		case codex.DoorNetwork:
+			net++
+		case codex.DoorHistory:
+			hist++
+		}
+	}
+	fmt.Printf("fairness: LEAK, reached the answer (%d network, %d git-history) -- this run is NOT a solve:\n", net, hist)
+	for _, h := range leaks {
+		pr := ""
+		if h.PR != "" {
+			pr = " [PR " + h.PR + "]"
+		}
+		fmt.Printf("  %-7s%s  %s\n", h.Door, pr, firstLine(h.Command, 120))
+	}
+	fmt.Println()
 }
 
 // printCost prices a run at its model's published rate and prints the dollar
