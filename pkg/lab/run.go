@@ -62,8 +62,35 @@ func (s slot) baseURL() string { return "http://" + s.proxy + ":8080/v1" }
 // per-scenario patch. Each attempt keeps its own trace under attempt-N/; the
 // returned Result and the canonical result.json reflect the winning attempt, or
 // the last one if none passed, and record how many tries it took.
-func (l *Lab) RunOne(ctx context.Context, tool, scenarioName string) (*Result, error) {
+// ensureNetworks creates the container networks a run needs: the egress network
+// the proxy and prep step use, and, when isolation is on, the internal no-egress
+// network the tool runs on. Both setup paths, RunOne and RunAll, call it so a run
+// never races on network creation.
+func (l *Lab) ensureNetworks(ctx context.Context) error {
 	if err := l.rt.EnsureNetwork(ctx, l.cfg.Network); err != nil {
+		return err
+	}
+	if l.cfg.Isolate {
+		if err := l.rt.EnsureInternalNetwork(ctx, l.cfg.internalNetwork()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// toolNetwork is the network the tool container attaches to: the isolated
+// internal one when isolation is on, so the tool cannot reach the internet, else
+// the shared egress network. The web sidecar shares it so the tool can still reach
+// the fixture server.
+func (l *Lab) toolNetwork() string {
+	if l.cfg.Isolate {
+		return l.cfg.internalNetwork()
+	}
+	return l.cfg.Network
+}
+
+func (l *Lab) RunOne(ctx context.Context, tool, scenarioName string) (*Result, error) {
+	if err := l.ensureNetworks(ctx); err != nil {
 		return nil, err
 	}
 	if l.needWeb([]string{scenarioName}) {
@@ -272,7 +299,7 @@ func (l *Lab) runAttempt(ctx context.Context, tool string, sc Scenario, work, tr
 		mounts = append(mounts, l.envMounts(env)...)
 	}
 	err = l.rt.Run(runCtx, container.RunSpec{
-		Name: sl.run, Image: toolPrefix + tool, Network: l.cfg.Network, Remove: true,
+		Name: sl.run, Image: toolPrefix + tool, Network: l.toolNetwork(), Remove: true,
 		Mounts: mounts,
 		Env: []string{
 			"LAB_BASE_URL=" + sl.baseURL(),
@@ -379,8 +406,17 @@ func (l *Lab) logProgress(tool, scenario, trace string, start time.Time) (stop f
 }
 
 func (l *Lab) startProxy(ctx context.Context, trace string, sl slot) error {
+	// The proxy sits on the tool's network so the tool resolves it by DNS name. When
+	// isolation is on, that network is internal (no egress), so the proxy also joins
+	// the egress network as an extra: it is the one peer that can still reach the
+	// upstream model, while the tool it serves cannot reach anything else. Without
+	// isolation both are the same network and there is no extra to add.
+	var extra []string
+	if l.cfg.Isolate {
+		extra = []string{l.cfg.Network}
+	}
 	return l.rt.Run(ctx, container.RunSpec{
-		Name: sl.proxy, Image: proxyImage, Network: l.cfg.Network, Detach: true,
+		Name: sl.proxy, Image: proxyImage, Network: l.toolNetwork(), ExtraNetworks: extra, Detach: true,
 		Mounts: []container.Mount{{Host: trace, Container: "/trace"}},
 		Env: []string{
 			"UPSTREAM=" + l.cfg.Upstream,
@@ -397,7 +433,7 @@ func (l *Lab) startProxy(ctx context.Context, trace string, sl slot) error {
 func (l *Lab) startWeb(ctx context.Context) error {
 	l.rt.Remove(ctx, l.cfg.webName())
 	return l.rt.Run(ctx, container.RunSpec{
-		Name: l.cfg.webName(), Image: baseImage, Network: l.cfg.Network, Detach: true,
+		Name: l.cfg.webName(), Image: baseImage, Network: l.toolNetwork(), Detach: true,
 		Mounts:  []container.Mount{{Host: filepath.Join(l.cfg.Root, "webroot"), Container: "/srv", ReadOnly: true}},
 		Workdir: "/srv",
 		Cmd:     []string{"python3", "-m", "http.server", "80"},

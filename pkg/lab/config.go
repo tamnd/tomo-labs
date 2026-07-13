@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // Config is everything a Lab needs to build images and run scenarios. Every
@@ -26,6 +27,7 @@ type Config struct {
 
 	Network    string // container network name
 	NamePrefix string // prefix for the proxy, web, and run container names
+	Isolate    bool   // run the tool on a no-egress internal network so it cannot fetch an answer; the proxy bridges to the model
 }
 
 const (
@@ -61,8 +63,14 @@ func DefaultConfig() Config {
 		Concurrency: envInt("LAB_CONCURRENCY", 3),
 		Network:     env("LAB_NETWORK", "tomolab"),
 		NamePrefix:  env("LAB_NAME_PREFIX", "tomolab"),
+		Isolate:     envBool("LAB_ISOLATE", true),
 	}
 }
+
+// internalNetwork is the no-egress network the tool container runs on when
+// isolation is enabled, derived from the egress network's name so a custom
+// LAB_NETWORK carries its internal sibling along. The proxy bridges the two.
+func (c Config) internalNetwork() string { return c.Network + "-internal" }
 
 // findRoot locates the repo root by walking up from the working directory until
 // it finds a scenarios/ dir, falling back to the working directory. LAB_ROOT
@@ -114,6 +122,23 @@ func envInt(k string, def int) int {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
 		}
+	}
+	return def
+}
+
+// envBool reads a boolean knob. An unset variable keeps the default, so isolation
+// stays on unless a run explicitly sets LAB_ISOLATE=0 to debug a tool that needs
+// the open network.
+func envBool(k string, def bool) bool {
+	v := os.Getenv(k)
+	if v == "" {
+		return def
+	}
+	switch strings.ToLower(v) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
 	}
 	return def
 }

@@ -60,7 +60,14 @@ type RunSpec struct {
 	Name    string
 	Image   string
 	Network string
-	Mounts  []Mount
+	// ExtraNetworks are additional networks the container is connected to after it
+	// starts, on top of Network. Only a detached container can take them, since a
+	// foreground container runs to completion inside Run before a connect could
+	// land. The proxy uses this to sit on both the tool's isolated internal network
+	// and an egress network, so it alone can forward to the upstream model while the
+	// tool it serves cannot reach the internet.
+	ExtraNetworks []string
+	Mounts        []Mount
 	Env     []string // "KEY=VALUE", order preserved
 	Publish string   // host:container, e.g. "127.0.0.1:8899:8080"
 	Workdir string
@@ -111,6 +118,14 @@ func (c *CLI) Run(ctx context.Context, s RunSpec) error {
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("%s run %s: %w: %s", c.Bin, s.Name, err, out.String())
 		}
+		// A detached container can join more networks after it is up. Docker's run
+		// takes only one --network, so the extras are connected here; the container
+		// is idle until something calls it, so a live connect always lands first.
+		for _, net := range s.ExtraNetworks {
+			if err := c.ConnectNetwork(ctx, net, s.Name); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	cmd.Stdout, cmd.Stderr = s.Stdout, s.Stderr
@@ -154,12 +169,43 @@ func (c *CLI) Containers(ctx context.Context) []string {
 
 // EnsureNetwork creates the lab network if it does not already exist.
 func (c *CLI) EnsureNetwork(ctx context.Context, name string) error {
+	return c.ensureNetwork(ctx, name, false)
+}
+
+// EnsureInternalNetwork creates an internal network: one with no gateway to the
+// host or the internet, so a container attached only to it can reach its network
+// peers by name but has no route out. The tool runs on such a network so it cannot
+// fetch an answer from the forge, while the proxy, which also sits on an egress
+// network, is the one peer that can still reach the upstream model.
+func (c *CLI) EnsureInternalNetwork(ctx context.Context, name string) error {
+	return c.ensureNetwork(ctx, name, true)
+}
+
+func (c *CLI) ensureNetwork(ctx context.Context, name string, internal bool) error {
 	if exec.CommandContext(ctx, c.Bin, "network", "inspect", name).Run() == nil {
 		return nil
 	}
-	out, err := exec.CommandContext(ctx, c.Bin, "network", "create", name).CombinedOutput()
+	args := []string{"network", "create"}
+	if internal {
+		args = append(args, "--internal")
+	}
+	args = append(args, name)
+	out, err := exec.CommandContext(ctx, c.Bin, args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("network create %s: %w: %s", name, err, out)
+	}
+	return nil
+}
+
+// ConnectNetwork attaches an existing container to another network, ignoring the
+// case where it is already attached, so a re-run that reuses a name is idempotent.
+func (c *CLI) ConnectNetwork(ctx context.Context, network, container string) error {
+	out, err := exec.CommandContext(ctx, c.Bin, "network", "connect", network, container).CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(out), "already exists") || strings.Contains(string(out), "already connected") {
+			return nil
+		}
+		return fmt.Errorf("network connect %s %s: %w: %s", network, container, err, out)
 	}
 	return nil
 }

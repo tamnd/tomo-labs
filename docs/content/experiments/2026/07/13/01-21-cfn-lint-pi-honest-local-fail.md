@@ -3,7 +3,6 @@ title: "cfn-lint: pi fails it the honest way too"
 linkTitle: "cfn-lint pi"
 description: "A second rival on the cfn-lint task. pi never leaves the repo, never fetches the pull request, and fails exactly where tomo failed: its source change does not produce the arbitrary graded wording. A short confirm, with the caveat that the free-tier rate limit cut the run short."
 date: 2026-07-13T01:21:00+07:00
-weight: 995
 ---
 
 This is a single run: pi, on `aws-cloudformation__cfn-lint-3798`, the same task tomo failed and opencode passed.
@@ -11,7 +10,7 @@ It is a confirm, not a headline, and it is short on purpose.
 It exists to answer one question left by the pair before it: when a tool does honest local work on this task, without fetching the answer, does it fail the way tomo did?
 pi says yes.
 
-The two reports it follows are worth reading first: [tomo, which fixed the issue as written and failed](/experiments/2026/07/13-cfn-lint-tomo-issue-literal/), and [opencode, which passed by fetching the merged pull request](/experiments/2026/07/13-cfn-lint-opencode-answer-lookup/).
+The two reports it follows are worth reading first: [tomo, which fixed the issue as written and failed](/experiments/2026/07/13/01-00-cfn-lint-tomo-issue-literal/), and [opencode, which passed by fetching the merged pull request](/experiments/2026/07/13/01-11-cfn-lint-opencode-answer-lookup/).
 
 ## Reproducibility
 
@@ -38,7 +37,7 @@ At the end of the run that file still emits the old wording: a grep for the grad
 
 So pi failed for the same structural reason tomo did.
 The grade demands an arbitrary maintainer wording that appears nowhere in the checked-out repo, and pi, working only from the repo, never produced it.
-It is the [tomo failure](/experiments/2026/07/13-cfn-lint-tomo-issue-literal/) again, from a different tool: honest local work against a target that only lives in the answer pull request.
+It is the [tomo failure](/experiments/2026/07/13/01-00-cfn-lint-tomo-issue-literal/) again, from a different tool: honest local work against a target that only lives in the answer pull request.
 
 ## The caveat
 

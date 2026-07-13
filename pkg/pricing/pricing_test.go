@@ -44,13 +44,13 @@ func TestLookupStripsProviderPrefix(t *testing.T) {
 	}
 }
 
-// Cost splits cached input out of the input total and bills it at the read rate,
-// so the full-rate input is only the uncached remainder and output stays its own
-// line.
+// Cost bills each disjoint input kind at its own rate and keeps output its own
+// line. The caller passes fresh input already split from cached, so there is no
+// subtraction inside.
 func TestCost(t *testing.T) {
 	m := Model{InputCost: 5e-06, CacheReadCost: 5e-07, OutputCost: 3e-05}
-	c := m.Cost(Usage{InputTokens: 1000, CachedInputTokens: 900, OutputTokens: 100})
-	// 100 uncached * 5e-6 = 5e-4, 900 cached * 5e-7 = 4.5e-4, 100 out * 3e-5 = 3e-3.
+	c := m.Cost(Usage{InputTokens: 100, CachedInputTokens: 900, OutputTokens: 100})
+	// 100 fresh * 5e-6 = 5e-4, 900 cached * 5e-7 = 4.5e-4, 100 out * 3e-5 = 3e-3.
 	wantIn, wantCache, wantOut := 5e-04, 4.5e-04, 3e-03
 	if !close(c.InputUSD, wantIn) || !close(c.CachedUSD, wantCache) || !close(c.OutputUSD, wantOut) {
 		t.Errorf("cost = %+v, want in %v cache %v out %v", c, wantIn, wantCache, wantOut)
@@ -60,12 +60,28 @@ func TestCost(t *testing.T) {
 	}
 }
 
-// A usage whose cached count somehow exceeds input never bills negative input.
-func TestCostClampsUncached(t *testing.T) {
-	m := Model{InputCost: 1e-06, CacheReadCost: 1e-07, OutputCost: 1e-05}
-	c := m.Cost(Usage{InputTokens: 10, CachedInputTokens: 25, OutputTokens: 0})
-	if c.InputUSD != 0 {
-		t.Errorf("uncached input should clamp to 0, got %v", c.InputUSD)
+// A model with a distinct cache-write tier (Anthropic) bills written tokens at
+// that rate; a model without one (the gpt-5 family) falls back to the plain input
+// rate, so a written token is never billed as free.
+func TestCostCacheWrite(t *testing.T) {
+	// Anthropic-shaped: write tier is a quarter more than fresh input.
+	claude := Model{InputCost: 1.5e-05, CacheReadCost: 1.5e-06, CacheWriteCost: 1.875e-05, OutputCost: 7.5e-05}
+	c := claude.Cost(Usage{InputTokens: 100, CachedInputTokens: 1000, CacheWriteTokens: 200, OutputTokens: 50})
+	wantIn := 100 * 1.5e-05
+	wantCache := 1000 * 1.5e-06
+	wantWrite := 200 * 1.875e-05
+	wantOut := 50 * 7.5e-05
+	if !close(c.InputUSD, wantIn) || !close(c.CachedUSD, wantCache) || !close(c.CacheWriteUSD, wantWrite) || !close(c.OutputUSD, wantOut) {
+		t.Errorf("claude cost = %+v", c)
+	}
+	if !close(c.TotalUSD, wantIn+wantCache+wantWrite+wantOut) {
+		t.Errorf("total %v != sum of parts", c.TotalUSD)
+	}
+	// No write tier: a written token bills at the input rate, not zero.
+	gpt := Model{InputCost: 5e-06, CacheReadCost: 5e-07, OutputCost: 3e-05}
+	g := gpt.Cost(Usage{CacheWriteTokens: 100})
+	if !close(g.CacheWriteUSD, 100*5e-06) {
+		t.Errorf("fallback write cost = %v, want input rate", g.CacheWriteUSD)
 	}
 }
 

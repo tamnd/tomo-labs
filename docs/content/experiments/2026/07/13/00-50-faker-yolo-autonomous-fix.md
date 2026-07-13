@@ -3,11 +3,10 @@ title: "faker: the fix that let tomo apply its own answer"
 linkTitle: "faker --yolo fix"
 description: "The follow-up to the faker lockout. tomo gains a --yolo mode that runs it fully autonomous, the same way every rival already runs. The exact task tomo had solved but could not write now passes, and passes leaner: 40 percent fewer tokens and half the model calls."
 date: 2026-07-13T00:50:00+07:00
-weight: 998
 ---
 
 This is the second half of a story.
-In the [first report](/experiments/2026/07/13-faker-iban-untrusted-lock/), tomo worked out the exactly correct fix for a Belgian IBAN bug and then could not write a single character of it, because a web page it fetched flipped a safety switch that, running headless, nothing could flip back.
+In the [first report](/experiments/2026/07/13/00-14-faker-iban-untrusted-lock/), tomo worked out the exactly correct fix for a Belgian IBAN bug and then could not write a single character of it, because a web page it fetched flipped a safety switch that, running headless, nothing could flip back.
 This report is the fix, and the rerun that confirms it.
 The same task, the same model, a newer tomo: it now passes.
 
@@ -109,5 +108,5 @@ go run ./cmd/lab inspect tomo joke2k__faker-2142 --suite swebench-live
 ```
 
 This report captures the run after the fix.
-It does not overwrite the [first report](/experiments/2026/07/13-faker-iban-untrusted-lock/), which stays as the dated record of the build that failed.
+It does not overwrite the [first report](/experiments/2026/07/13/00-14-faker-iban-untrusted-lock/), which stays as the dated record of the build that failed.
 Read the two together and you have the whole arc: a tool that solved a task, could not apply its answer, and then was given the one thing it needed to finish the job it had already done.

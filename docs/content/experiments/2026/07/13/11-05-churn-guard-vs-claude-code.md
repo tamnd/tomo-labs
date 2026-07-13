@@ -3,11 +3,10 @@ title: "The write-churn runaway, bounded, and tomo failing cheaper than claude-c
 linkTitle: "churn guard vs claude-code"
 description: "The third and last of tomo's runaway shapes. A turn that keeps editing but never converges, writing scratch scripts or the same file over and over, now stops instead of burning a hundred rounds. The two tasks that showed it are read next to claude-code on the same model, where both fail and tomo fails on fewer tokens."
 date: 2026-07-13T11:05:00+07:00
-weight: 989
 ---
 
 This closes the set.
-tomo had three runaway shapes in the swebench-live sweep, and the first two are already fixed: a turn that [repeats calls](https://github.com/tamnd/tomo/pull/55) and a turn that [investigates without ever editing](/experiments/2026/07/13-dynaconf-tomo-guard-vs-pi-runaway/).
+tomo had three runaway shapes in the swebench-live sweep, and the first two are already fixed: a turn that [repeats calls](https://github.com/tamnd/tomo/pull/55) and a turn that [investigates without ever editing](/experiments/2026/07/13/10-05-dynaconf-tomo-guard-vs-pi-runaway/).
 The third is the mirror image of the second: a turn that keeps editing but never converges, so the fix never lands.
 Two runs showed its two faces, and this is the bound that stops both, read next to claude-code failing the same two tasks the same expensive way.
 

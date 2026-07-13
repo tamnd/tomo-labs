@@ -123,7 +123,7 @@ func (l *Lab) dispatch(ctx context.Context, jobs []job) ([]*Result, error) {
 	if len(jobs) == 0 {
 		return nil, nil
 	}
-	if err := l.rt.EnsureNetwork(ctx, l.cfg.Network); err != nil {
+	if err := l.ensureNetworks(ctx); err != nil {
 		return nil, err
 	}
 	// The web sidecar is shared across workers, so stand it up once here rather

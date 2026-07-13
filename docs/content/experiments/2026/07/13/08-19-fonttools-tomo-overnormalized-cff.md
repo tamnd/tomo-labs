@@ -3,12 +3,11 @@ title: "fonttools: tomo writes more than the fix and fails on one normalization"
 linkTitle: "fonttools tomo over-normalized"
 description: "The one swebench-live failure where tomo did everything right and still lost. On a fonttools glyph-reordering bug it found the exact file, wrote a fuller fix than the maintainers, and verified its work, then failed a single hidden test because it reused a variable that forces .notdef to the front. A close read of a correctness gap that is not a discipline problem."
 date: 2026-07-13T08:19:00+07:00
-weight: 992
 ---
 
 This is a single run: tomo, on `fonttools__fonttools-3682`, a real GitHub issue from the [swebench-live](/evals/swebench-live/) tier.
 It is the failure to read after the two runaways, because it is their opposite.
-The [dynaconf](/experiments/2026/07/13-dynaconf-tomo-git-archaeology-runaway/) and [python-control](/experiments/2026/07/13-python-control-tomo-scratch-file-runaway/) runs failed on discipline, burning millions of tokens with no fix landing.
+The [dynaconf](/experiments/2026/07/13/08-04-dynaconf-tomo-git-archaeology-runaway/) and [python-control](/experiments/2026/07/13/08-44-python-control-tomo-scratch-file-runaway/) runs failed on discipline, burning millions of tokens with no fix landing.
 This run has no discipline problem at all.
 tomo went straight to the right file, wrote a fix that is fuller than the one the maintainers shipped, checked its own work, and still failed, on a single subtle choice.
 That makes it the cleanest correctness gap in the sweep, and the most useful kind of failure to read.
