@@ -130,9 +130,18 @@ func TestCommittedSetupMatchesTemplate(t *testing.T) {
 			continue
 		}
 		checked++
-		if string(b) != sweSetup {
-			t.Errorf("%s has drifted from sweSetup; regenerate the suite", path)
+		if string(b) == sweSetup {
+			continue
 		}
+		// REGEN=1 rewrites the committed copies from the template, the golden-file
+		// refresh path for when sweSetup itself changes.
+		if os.Getenv("REGEN") != "" {
+			if err := os.WriteFile(path, []byte(sweSetup), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		t.Errorf("%s has drifted from sweSetup; rerun with REGEN=1 to refresh", path)
 	}
 	if checked == 0 {
 		t.Skip("no committed swebench task setup.sh found")

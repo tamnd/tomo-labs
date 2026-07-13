@@ -1,17 +1,16 @@
-# Run artifacts live under $HOME/data, outside the repo, so nothing to ignore
-# there. These are just the stray local build and editor droppings.
+# Run artifacts, bare git mirrors, and grader venvs all live under the data root
+# ($LAB_DATA, default $HOME/data/tomo-labs), outside the repo, so nothing heavy
+# belongs in the checkout. These are just the stray local build and editor droppings.
 proxy/proxy
 *.log
 .DS_Store
 bin/
-
-# The evalplus grader builds a numpy venv beside the tasks the first time it runs.
-# It is a local cache, rebuilt on demand, so it never belongs in the repo.
-evals/*/.venv/
 __pycache__/
 
-# The swebench suite keeps bare git mirrors of each repo under .cache so setup.sh
-# clones from local disk. Big and rebuilt on demand, so it stays out of the repo.
+# Legacy in-repo locations: older runs put the grader venv and the bare git
+# mirrors beside the tasks. They live under the data root now, but keep ignoring
+# these so an old working copy never stages a multi-gigabyte cache.
+evals/*/.venv/
 evals/*/.cache/
 
 # The cmd/lab binary, built for local runs.

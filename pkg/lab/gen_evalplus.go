@@ -259,8 +259,9 @@ func (l *Lab) evalMaterialize(prob evalProblem) (task, oracle string, err error)
 		"SUITE=\"$(cd \"$D/../..\" && pwd)\"\n" +
 		"NAME=\"$(basename \"$D\")\"\n" +
 		"ORACLE=\"$SUITE/oracle/$NAME/test.py\"\n" +
-		"VENV=\"$SUITE/.venv\"\n" +
+		"VENV=\"${LAB_DATA:-$HOME/data/tomo-labs}/venv/$(basename \"$SUITE\")\"\n" +
 		"if [ ! -x \"$VENV/bin/python3\" ]; then\n" +
+		"  mkdir -p \"$(dirname \"$VENV\")\"\n" +
 		"  python3 -m venv \"$VENV\" >/dev/null 2>&1 && \"$VENV/bin/pip\" install -q numpy >/dev/null 2>&1\n" +
 		"fi\n" +
 		"runner=\"$(mktemp)\"\n" +

@@ -49,7 +49,7 @@ func (c Config) runName() string   { return c.NamePrefix + "-run" }
 func DefaultConfig() Config {
 	return Config{
 		Root:        findRoot(),
-		Data:        env("LAB_DATA", filepath.Join(home(), "data")),
+		Data:        env("LAB_DATA", filepath.Join(home(), "data", "tomo-labs")),
 		Model:       env("LAB_MODEL", "deepseek-v4-flash-free"),
 		Upstream:    env("LAB_UPSTREAM", "https://opencode.ai/zen"),
 		APIKey:      os.Getenv("OPENCODE_API_KEY"),
