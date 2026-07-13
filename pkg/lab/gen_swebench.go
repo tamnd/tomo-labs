@@ -391,7 +391,10 @@ func swePrompt(row sweRow) string {
 // the objects into the work tree so its git is self-contained and works in the
 // container, at the cost of a little disk the benchmark can spare.
 const sweSetup = `#!/usr/bin/env bash
-# Check out the repository at the instance's base commit into the work tree.
+# Check out the repository at the instance's base commit into the work tree, then
+# strip every commit, branch, and tag that came after it, so the instance's own
+# gold fix is not sitting in the work tree's git history for a tool to find and
+# cherry-pick instead of solving the bug.
 set -e
 W="$1"
 D="$(cd "$(dirname "$0")" && pwd)"
@@ -405,7 +408,32 @@ if [ ! -d "$CACHE" ]; then
   git clone --bare --quiet "https://github.com/$REPO.git" "$CACHE"
 fi
 git clone --quiet --no-hardlinks "$CACHE" "$W"
-git -C "$W" checkout --quiet "$SHA"
+` + sweStripFuture
+
+// sweStripFuture removes every commit, branch, and tag not reachable at or before
+// the base commit from the checked-out work tree, so the instance's gold fix is
+// not in the work tree's git history. Without it a clever tool can skip the bug
+// and just git-log the answer: a real run had gpt-5.6-sol pass a task by diffing
+// the base against the upstream fix commit and applying it, which the full clone
+// left reachable.
+//
+// It pins the base under one branch, drops the remote and every other branch,
+// deletes any tag that is not an ancestor of the base (a later release could
+// otherwise carry the fix), then expires the reflog and prunes so the future
+// objects are actually gone rather than merely unreferenced. Ancestor tags stay,
+// so a project that reads its version from git (setuptools_scm and the like)
+// still installs. It expects $W (the work tree) and $SHA (the base commit) set,
+// and is shared with its test so both prune exactly the same way.
+const sweStripFuture = `git -C "$W" checkout --quiet -B __base "$SHA"
+git -C "$W" remote remove origin 2>/dev/null || true
+for ref in $(git -C "$W" for-each-ref --format='%(refname)' refs/heads); do
+  [ "$ref" = "refs/heads/__base" ] || git -C "$W" update-ref -d "$ref"
+done
+for tag in $(git -C "$W" tag); do
+  git -C "$W" merge-base --is-ancestor "refs/tags/$tag" __base 2>/dev/null || git -C "$W" tag -d "$tag" >/dev/null
+done
+git -C "$W" reflog expire --expire=now --all >/dev/null 2>&1 || true
+git -C "$W" gc --prune=now --quiet 2>/dev/null || true
 `
 
 // sweCheck grades the work tree: it builds a throwaway virtualenv on the instance's
