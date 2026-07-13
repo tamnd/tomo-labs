@@ -38,6 +38,18 @@ type Options struct {
 	Upstream string // default $UPSTREAM or https://opencode.ai/zen
 	Addr     string // default $ADDR or :8080
 	TraceDir string // default $TRACE_DIR or /trace
+
+	// Passthrough turns the proxy into a raw tap that never rewrites a request.
+	// The default mode translates foreign wire calls (OpenAI Responses, Anthropic
+	// Messages, Google Gemini) to chat completions so every tool runs on the one
+	// shared free model. That translation is wrong for a tool running on its own
+	// real subscription: codex talks the Responses wire to its own gpt-5.x backend,
+	// and we want the exact bytes it sent and got back, not a rewrite. With
+	// Passthrough set the wire switch is skipped, so every request forwards to the
+	// upstream verbatim, and the tap also records request and response headers (the
+	// model, org, and request id live there) with the credential headers redacted.
+	// Set by Options or $PASSTHROUGH.
+	Passthrough bool
 }
 
 // Run starts the proxy and blocks until the context is cancelled or the server
@@ -52,6 +64,9 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	if opts.TraceDir == "" {
 		opts.TraceDir = env("TRACE_DIR", "/trace")
+	}
+	if !opts.Passthrough && envBool("PASSTHROUGH") {
+		opts.Passthrough = true
 	}
 	if err := os.MkdirAll(opts.TraceDir, 0o755); err != nil {
 		return err
@@ -70,6 +85,13 @@ func Run(ctx context.Context, opts Options) error {
 		// No overall timeout: an agent turn can stream for minutes, so lean on the
 		// request context (cancelled when the tool gives up) instead.
 		client: &http.Client{},
+		// In passthrough mode record headers too, so a real-subscription run keeps
+		// the model, org, and request id that only ride in the headers. The
+		// benchmark mode leaves them off to keep its traces to just the bodies.
+		captureHeaders: opts.Passthrough,
+	}
+	if t.captureHeaders {
+		t.resp = mustAppend(filepath.Join(opts.TraceDir, "responses.jsonl"))
 	}
 
 	rp := &httputil.ReverseProxy{
@@ -98,7 +120,10 @@ func Run(ctx context.Context, opts Options) error {
 	// The translation itself lives in tomo's pkg/wire; here we only orchestrate the
 	// forward and the trace capture.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
+		// Passthrough skips the wire switch entirely: a real-subscription run keeps
+		// talking its own wire to its own backend, so the tap forwards it verbatim
+		// and only watches. The default benchmark mode still translates.
+		if !opts.Passthrough && r.Method == http.MethodPost {
 			switch {
 			case wire.IsResponsesPath(r.URL.Path):
 				t.serveResponses(w, r, target)
@@ -115,7 +140,11 @@ func Run(ctx context.Context, opts Options) error {
 		rp.ServeHTTP(w, r)
 	})
 
-	log.Printf("trace proxy: %s -> %s, writing %s", opts.Addr, opts.Upstream, opts.TraceDir)
+	mode := "translate"
+	if opts.Passthrough {
+		mode = "passthrough"
+	}
+	log.Printf("trace proxy (%s): %s -> %s, writing %s", mode, opts.Addr, opts.Upstream, opts.TraceDir)
 	srv := &http.Server{Addr: opts.Addr, Handler: handler, ReadHeaderTimeout: 15 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -136,8 +165,14 @@ type tap struct {
 	reqs   *os.File
 	usage  *os.File
 	lat    *os.File
+	resp   *os.File // response header log, only opened in passthrough capture mode
 	starts map[int]time.Time
 	client *http.Client // used by the wire translators, which forward on their own
+
+	// captureHeaders records request and response headers alongside the bodies, so
+	// a real-subscription run keeps the model and request id that ride only in the
+	// headers. Off by default to keep benchmark traces to the bodies alone.
+	captureHeaders bool
 }
 
 func (t *tap) next() int {
@@ -162,11 +197,12 @@ func (t *tap) takeStart(seq int) (time.Time, bool) {
 }
 
 type reqRecord struct {
-	Seq    int             `json:"seq"`
-	TS     string          `json:"ts"`
-	Method string          `json:"method"`
-	Path   string          `json:"path"`
-	Body   json.RawMessage `json:"body,omitempty"`
+	Seq     int                 `json:"seq"`
+	TS      string              `json:"ts"`
+	Method  string              `json:"method"`
+	Path    string              `json:"path"`
+	Headers map[string][]string `json:"headers,omitempty"`
+	Body    json.RawMessage     `json:"body,omitempty"`
 }
 
 func (t *tap) onRequest(r *http.Request) {
@@ -191,6 +227,9 @@ func (t *tap) onRequest(r *http.Request) {
 		Path:   r.URL.Path,
 		Body:   sanitize(body),
 	}
+	if t.captureHeaders {
+		rec.Headers = redactHeaders(r.Header)
+	}
 	t.writeJSON(t.reqs, rec)
 }
 
@@ -202,6 +241,13 @@ func (t *tap) onResponse(resp *http.Response) error {
 	// A 429 from the free tier carries how long to back off; capture it while the
 	// header is still in scope, since the body tee below only sees the body.
 	retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+	// In passthrough capture mode record the response headers too, correlated by
+	// seq, so a real run keeps the model, request id, and rate-limit headers the
+	// body never carries. The body itself is teed raw below as before.
+	if t.captureHeaders {
+		t.writeJSON(t.resp, respRecord{Seq: seq, TS: nowStamp(), Status: status,
+			Headers: redactHeaders(resp.Header)})
+	}
 	// Tee the response body into a per-response file as the proxy copies it to
 	// the tool. This does not buffer the whole reply, so streaming still works.
 	respPath := filepath.Join(t.dir, "resp-"+strconv.Itoa(seq)+".txt")
@@ -491,6 +537,49 @@ func streamFailed(body []byte, hasUsage bool) (bool, string) {
 	return false, ""
 }
 
+// respRecord is one response's headers, correlated to its request by seq. Only
+// written in passthrough capture mode; the body is teed to resp-<seq>.txt as
+// usual, so this carries just the status and the redacted headers.
+type respRecord struct {
+	Seq     int                 `json:"seq"`
+	TS      string              `json:"ts"`
+	Status  int                 `json:"status"`
+	Headers map[string][]string `json:"headers,omitempty"`
+}
+
+// sensitiveHeaders are the header names whose values are credentials or session
+// state, redacted before any header is written so a real subscription's token
+// never lands in a trace. Keys are the canonical form http.Header uses.
+var sensitiveHeaders = map[string]bool{
+	"Authorization":       true,
+	"Proxy-Authorization": true,
+	"Api-Key":             true,
+	"X-Api-Key":           true,
+	"Openai-Api-Key":      true,
+	"Cookie":              true,
+	"Set-Cookie":          true,
+}
+
+// redactHeaders copies a header map with the credential-bearing values replaced
+// by REDACTED, so the trace keeps the useful routing headers (model, org,
+// request id, rate limits) without ever recording a key or a session cookie.
+func redactHeaders(h http.Header) map[string][]string {
+	if len(h) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(h))
+	for k, v := range h {
+		if sensitiveHeaders[k] {
+			out[k] = []string{"REDACTED"}
+			continue
+		}
+		vv := make([]string, len(v))
+		copy(vv, v)
+		out[k] = vv
+	}
+	return out
+}
+
 // sanitize redacts the Authorization value if the request body happened to echo
 // it, and leaves the rest of the JSON intact. Bodies that are not JSON pass
 // through as an opaque string so the trace still shows something.
@@ -531,4 +620,14 @@ func env(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// envBool reads a boolean-ish environment flag: 1, true, yes, or on (any case)
+// count as set, everything else as unset.
+func envBool(k string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(k))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
