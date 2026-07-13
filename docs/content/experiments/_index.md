@@ -28,6 +28,8 @@ Each item below is one experiment, linked straight to its report, newest first.
 
 ### 2026
 
+- **2026-07-13 11:05 (GMT+7)** - [the write-churn runaway, bounded, and tomo failing cheaper than claude-code](/experiments/2026/07/13-churn-guard-vs-claude-code/).
+  The third and last runaway shape is bounded: a turn that keeps editing without converging, on scratch scripts or the same file over and over, now stops instead of burning a hundred rounds. On the two tasks that showed it, read next to claude-code on the same model, both fail and tomo fails on 27 to 57 percent fewer tokens.
 - **2026-07-13 10:05 (GMT+7)** - [dynaconf: the guard that stops the runaway, and pi running straight into the wall](/experiments/2026/07/13-dynaconf-tomo-guard-vs-pi-runaway/).
   The fix for the git-archaeology runaway, merged and measured live: the same task now stops at 41 requests and 1.7 million tokens instead of 132 and four million, while pi on the same model and no such bound burns thirteen million tokens into the wall. Both still fail, but tomo fails 5x faster and on 87 percent fewer tokens.
 - **2026-07-13 08:44 (GMT+7)** - [python-control: tomo debugs itself in circles writing scratch scripts](/experiments/2026/07/13-python-control-tomo-scratch-file-runaway/).
