@@ -38,6 +38,7 @@ import (
 	"syscall"
 
 	"github.com/tamnd/tomo-labs/pkg/lab"
+	"github.com/tamnd/tomo-labs/pkg/lab/inspect"
 )
 
 func main() {
@@ -219,7 +220,7 @@ func cmdInspect(l *lab.Lab, tool, scenario string, full, asJSON bool) error {
 		fmt.Println(string(b))
 		return nil
 	}
-	lab.WriteTranscript(os.Stdout, t, full)
+	inspect.WriteTranscript(os.Stdout, t, full)
 	return nil
 }
 
