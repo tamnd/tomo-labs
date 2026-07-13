@@ -349,13 +349,24 @@ func (l *Lab) sweLiveMaterialize(row sweLiveRow) (task, oracle string, err error
 }
 
 // sweLivePrompt renders the issue for the agent with the same ground rules the Lite
-// tier uses: edit the source in place, do not touch the tests.
+// tier uses: edit the source in place, do not touch the tests. It also states the
+// two closed doors this harness holds shut, because a tool that is not told them
+// spends its opening rounds discovering them: the network is blackholed and the git
+// history is truncated to the base commit (see sweStripFuture), so a run that reaches
+// for the referenced PR online or mines the log for the fix only learns, a round
+// later, that both are gone. Every real subscription harness announces its sandbox
+// this way; stating the same truth here levels the presentation across tools and
+// keeps a run reading the code the bug points at instead of the doors. It is not a
+// hint at the fix: it names what is absent, never what to change.
 func sweLivePrompt(row sweLiveRow) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are working in the %s repository, already checked out at the commit where a bug was reported.\n", row.Repo)
 	b.WriteString("Resolve the issue below by editing the project's source code in place. ")
 	b.WriteString("Do not edit or add tests: a hidden test suite grades your change. ")
 	b.WriteString("Make the smallest change that fixes the issue without breaking existing behavior.\n\n")
+	b.WriteString("Environment notes:\n")
+	b.WriteString("- You have no network access. Fetching a URL, installing a package, or reaching a git remote will fail, so do not spend a step on it.\n")
+	b.WriteString("- The repository history is truncated to this commit. The fix is not in the git log, reflog, branches, or tags, so do not mine history for it: read the code the issue points at and write the fix yourself.\n\n")
 	b.WriteString("Issue:\n\n")
 	b.WriteString(strings.TrimSpace(row.ProblemStatement))
 	b.WriteString("\n")
