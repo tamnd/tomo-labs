@@ -11,6 +11,8 @@ Each item below is one experiment, linked straight to its report.
 
 ## July
 
+- **2026-07-13 08:04 (GMT+7)** - [dynaconf: tomo runs away digging through git history](/experiments/2026/07/13-dynaconf-tomo-git-archaeology-runaway/).
+  tomo burns 132 requests and four million tokens mining `git log`, `git diff`, and `git show` for a fix that history does not hold, hits the wall, and never edits a file: a git-archaeology trap and a missing stop-and-commit discipline.
 - **2026-07-13 01:26 (GMT+7)** - [gitingest: tomo fixes it the honest local way](/experiments/2026/07/13-gitingest-tomo-lean-local-fix/).
   tomo reads the source, finds the URL branch that only handles https, adds the http case, and verifies with the project's own tests: one source edit, no network, the opposite of an answer lookup.
 - **2026-07-13 01:21 (GMT+7)** - [cfn-lint: pi fails it the honest way too](/experiments/2026/07/13-cfn-lint-pi-honest-local-fail/).

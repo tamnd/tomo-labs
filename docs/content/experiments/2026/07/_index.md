@@ -10,6 +10,9 @@ Each item below is one experiment: one tool, one task, one verdict.
 
 ### 2026-07-13
 
+- **08:04 (GMT+7)** - [dynaconf: tomo runs away digging through git history](/experiments/2026/07/13-dynaconf-tomo-git-archaeology-runaway/).
+  tomo spends 132 requests and four million tokens running `git log`, `git diff`, and `git show` to mine a fix out of history, hits the fifteen-minute wall, and never edits a file.
+  The fix was local and readable; the run is a git-archaeology trap and a missing stop-and-commit discipline, both levers in tomo.
 - **01:26 (GMT+7)** - [gitingest: tomo fixes it the honest local way](/experiments/2026/07/13-gitingest-tomo-lean-local-fix/).
   tomo reads the source, finds the URL branch that only handles https, adds the http case, and verifies with the project's own tests.
   One source edit, no network, 242k tokens: the honest-local pass, the opposite of an answer lookup.
