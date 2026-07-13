@@ -1,0 +1,18 @@
+{
+  "lexicon": {
+    "read": "read",
+    "read_file": "read",
+    "grep": "search",
+    "glob": "search",
+    "ls": "search",
+    "edit": "edit",
+    "edit_file": "edit",
+    "write": "edit",
+    "write_file": "edit",
+    "bash": "shell",
+    "shell": "shell",
+    "plan": "plan",
+    "fetch": "other",
+    "time": "other"
+  }
+}
