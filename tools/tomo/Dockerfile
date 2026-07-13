@@ -17,8 +17,11 @@ FROM golang:1.26-bookworm AS build
 # unattended like every rival instead of stalling on approval prompts. 8a7383a
 # bounds a turn that investigates without ever editing, so a run that mines git
 # history or searches without committing to a change is nudged, then stopped,
-# instead of burning millions of tokens to the wall.
-ARG TOMO_VERSION=8a7383af9d1c20411ae2cb91e2fcfcd8939a123f
+# instead of burning millions of tokens to the wall. 77fe8ad adds the mirror
+# bound, a turn that keeps editing without converging (scratch scripts or the
+# same file over and over), and lifts the no-edit bound clear of a deep but
+# productive read-before-edit investigation.
+ARG TOMO_VERSION=77fe8ad97be7b08117f7fc6f96101d25cdcce85a
 RUN CGO_ENABLED=0 go install github.com/tamnd/tomo/cmd/tomo@${TOMO_VERSION}
 
 FROM tomolab-base
