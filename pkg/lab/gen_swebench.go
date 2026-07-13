@@ -379,10 +379,12 @@ func swePrompt(row sweRow) string {
 }
 
 // sweSetup clones the instance's repository at its base commit into the work tree
-// so the agent edits the real project. It keeps a bare mirror under the suite's
-// .cache/ so a second task on the same repo, or a rerun, clones from local disk
-// instead of the network. The work tree is the harness's, created empty just
-// before this runs, so the clone lands at its root and the agent's cwd is the repo.
+// so the agent edits the real project. It keeps a bare mirror under the data root
+// ($LAB_DATA, default $HOME/data/tomo-labs) rather than in the repo, so a second
+// task on the same repo, or a rerun, clones from local disk instead of the
+// network, and the multi-gigabyte mirrors never sit inside the checkout. The work
+// tree is the harness's, created empty just before this runs, so the clone lands
+// at its root and the agent's cwd is the repo.
 //
 // The clone is --no-hardlinks, not --shared. A --shared clone writes a
 // .git/objects/info/alternates that points back at the host cache dir; once the
@@ -403,8 +405,10 @@ NAME="$(basename "$D")"
 ORACLE="$SUITE/oracle/$NAME"
 REPO="$(cat "$ORACLE/repo")"
 SHA="$(cat "$ORACLE/base_commit")"
-CACHE="$SUITE/.cache/$(echo "$REPO" | tr '/' '_').git"
+DATA="${LAB_DATA:-$HOME/data/tomo-labs}"
+CACHE="$DATA/cache/$(basename "$SUITE")/$(echo "$REPO" | tr '/' '_').git"
 if [ ! -d "$CACHE" ]; then
+  mkdir -p "$(dirname "$CACHE")"
   git clone --bare --quiet "https://github.com/$REPO.git" "$CACHE"
 fi
 git clone --quiet --no-hardlinks "$CACHE" "$W"

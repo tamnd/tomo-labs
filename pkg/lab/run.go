@@ -461,6 +461,9 @@ func (l *Lab) runSetup(ctx context.Context, sc Scenario, work string) error {
 	}
 	cmd := exec.CommandContext(ctx, "bash", setup, work)
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+	// Hand setup.sh the same data root the Go side resolved, so its bare-mirror
+	// cache lands under LAB_DATA and never diverges from the harness default.
+	cmd.Env = append(os.Environ(), "LAB_DATA="+l.cfg.Data)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("setup %s: %w", sc.Name, err)
 	}
@@ -477,7 +480,9 @@ func (l *Lab) grade(ctx context.Context, sc Scenario, work string) (bool, string
 	if !exists(check) {
 		return false, "no check.sh", nil
 	}
-	out, err := exec.CommandContext(ctx, "bash", check, work).CombinedOutput()
+	cmd := exec.CommandContext(ctx, "bash", check, work)
+	cmd.Env = append(os.Environ(), "LAB_DATA="+l.cfg.Data)
+	out, err := cmd.CombinedOutput()
 	reason, edited := splitEditedTests(string(out))
 	return err == nil, strings.TrimSpace(reason), edited
 }

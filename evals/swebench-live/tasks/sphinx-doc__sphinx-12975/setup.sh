@@ -11,8 +11,10 @@ NAME="$(basename "$D")"
 ORACLE="$SUITE/oracle/$NAME"
 REPO="$(cat "$ORACLE/repo")"
 SHA="$(cat "$ORACLE/base_commit")"
-CACHE="$SUITE/.cache/$(echo "$REPO" | tr '/' '_').git"
+DATA="${LAB_DATA:-$HOME/data/tomo-labs}"
+CACHE="$DATA/cache/$(basename "$SUITE")/$(echo "$REPO" | tr '/' '_').git"
 if [ ! -d "$CACHE" ]; then
+  mkdir -p "$(dirname "$CACHE")"
   git clone --bare --quiet "https://github.com/$REPO.git" "$CACHE"
 fi
 git clone --quiet --no-hardlinks "$CACHE" "$W"
