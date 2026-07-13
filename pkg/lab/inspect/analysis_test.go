@@ -138,6 +138,91 @@ func TestAnalyzeSplitsTestEdits(t *testing.T) {
 	}
 }
 
+// A run that only reads and digs git history without ever editing is the
+// investigation-runaway shape: zero edits, a long no-edit streak, history reads
+// counted, the answer-shortcut probe flagged, and the guard nudge that fired read
+// off the injected message. These are the marks that used to need a hand read of
+// the raw trace.
+func TestAnalyzeFlagsInvestigationRunaway(t *testing.T) {
+	steps := []Step{
+		{Kind: "call", Name: "bash", Text: `{"command":"git status --short && git log --oneline -8"}`},
+		{Kind: "result", Text: "39acdee fix"},
+		{Kind: "call", Name: "read", Text: `{"path":"loaders/__init__.py"}`},
+		{Kind: "result", Text: "def settings_loader(): ..."},
+		{Kind: "call", Name: "bash", Text: `{"command":"git fsck --unreachable | head; git log --all --grep=1204"}`},
+		{Kind: "result", Text: "no such commit"},
+		// The convergence guard steps in on a user-role message.
+		{Kind: "user", Text: "You have taken many steps without editing any file. If you have found the cause, make your edit now."},
+		{Kind: "call", Name: "read", Text: `{"path":"base.py"}`},
+		{Kind: "result", Text: "class Settings: ..."},
+	}
+	s := Analyze("tomo", tomoProf, steps)
+	if !s.ZeroEdits {
+		t.Errorf("a run that never edits should be flagged ZeroEdits")
+	}
+	if s.HistoryReads != 2 {
+		t.Errorf("two git-history commands should be counted, got %d", s.HistoryReads)
+	}
+	if s.HistoryProbes != 1 {
+		t.Errorf("the --all --grep dig should be flagged a history probe, got %d", s.HistoryProbes)
+	}
+	if s.NoEditStreak != 4 {
+		t.Errorf("the longest no-edit streak should be all four calls, got %d", s.NoEditStreak)
+	}
+	if len(s.GuardNudges) != 1 || s.GuardNudges[0] != "no-edit" {
+		t.Errorf("the no-edit guard nudge should be read off the transcript, got %v", s.GuardNudges)
+	}
+}
+
+// An edit made through the shell (a patch, a sed -i, a heredoc into a source file)
+// is a real edit a write-tool count misses, so Analyze should bucket it as an edit,
+// tally it under ShellEdits, and reset the no-edit streak.
+func TestAnalyzeCountsShellEdits(t *testing.T) {
+	steps := []Step{
+		{Kind: "call", Name: "read", Text: `{"path":"loaders/__init__.py"}`},
+		{Kind: "result", Text: "def settings_loader(): ..."},
+		{Kind: "call", Name: "bash", Text: `{"command":"apply_patch <<'EOF'\n*** Update File: loaders/__init__.py\nEOF"}`},
+		{Kind: "result", Text: "patched"},
+		{Kind: "call", Name: "bash", Text: `{"command":"sed -i 's/foo/bar/' base.py"}`},
+		{Kind: "result", Text: ""},
+	}
+	s := Analyze("tomo", tomoProf, steps)
+	if s.Edits != 2 || s.ShellEdits != 2 {
+		t.Errorf("two shell edits should count as edits and shell edits, got Edits=%d ShellEdits=%d", s.Edits, s.ShellEdits)
+	}
+	if s.ZeroEdits {
+		t.Errorf("a run that edits through the shell is not a zero-edit run")
+	}
+	if steps[2].Act != "edit" {
+		t.Errorf("an apply_patch should be bucketed as an edit, got %q", steps[2].Act)
+	}
+}
+
+// The walkthrough is the per-step deep dive: it should tag a move for what it
+// really was (git-history, network, shell-edit) and surface a harness event, the
+// convergence-guard nudge, inline where it fired rather than dropping the message.
+func TestWalkthroughTagsAndHarnessEvents(t *testing.T) {
+	steps := []Step{
+		{Kind: "call", Name: "bash", Act: "shell", Text: `{"command":"git log --all --grep=1204"}`},
+		{Kind: "result", Text: "no hits"},
+		{Kind: "user", Text: "You have taken many steps without editing any file."},
+		{Kind: "call", Name: "bash", Act: "edit", Text: `{"command":"apply_patch <<'EOF'\n*** Update File: x.py\nEOF"}`},
+		{Kind: "result", Text: "patched"},
+	}
+	var b strings.Builder
+	writeWalkthrough(&b, steps, true)
+	out := b.String()
+	if !strings.Contains(out, "[history-probe]") {
+		t.Errorf("the --all --grep dig should be tagged a history probe:\n%s", out)
+	}
+	if !strings.Contains(out, "⚑ harness: no-edit guard nudged the model") {
+		t.Errorf("the guard nudge should surface as a harness event:\n%s", out)
+	}
+	if !strings.Contains(out, "[shell-edit]") {
+		t.Errorf("the apply_patch should be tagged a shell edit:\n%s", out)
+	}
+}
+
 // A run the upstream throttled should read as a floor, not the tool's best, so the
 // narrative carries the rate-limit as its last word.
 func TestNarrativeSurfacesThrottle(t *testing.T) {
