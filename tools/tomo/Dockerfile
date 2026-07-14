@@ -21,7 +21,7 @@ FROM golang:1.26-bookworm AS build
 # bound, a turn that keeps editing without converging (scratch scripts or the
 # same file over and over), and lifts the no-edit bound clear of a deep but
 # productive read-before-edit investigation.
-ARG TOMO_VERSION=77fe8ad97be7b08117f7fc6f96101d25cdcce85a
+ARG TOMO_VERSION=v0.2.5-0.20260713054051-ec5fcba1b346
 RUN CGO_ENABLED=0 go install github.com/tamnd/tomo/cmd/tomo@${TOMO_VERSION}
 
 FROM tomolab-base
