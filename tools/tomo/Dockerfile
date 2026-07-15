@@ -20,8 +20,11 @@ FROM golang:1.26-bookworm AS build
 # instead of burning millions of tokens to the wall. 77fe8ad adds the mirror
 # bound, a turn that keeps editing without converging (scratch scripts or the
 # same file over and over), and lifts the no-edit bound clear of a deep but
-# productive read-before-edit investigation.
-ARG TOMO_VERSION=77fe8ad97be7b08117f7fc6f96101d25cdcce85a
+# productive read-before-edit investigation. 92b5e82 slims the live-loop toolset
+# to the coding core (drops the empty-index readers, time, and the memory writer,
+# and gates the network tool on the sandbox), cutting the per-request tool schema
+# from 6,229 to 4,805 bytes on every turn.
+ARG TOMO_VERSION=92b5e82e7199c778bb959e67c55e423121120cbe
 RUN CGO_ENABLED=0 go install github.com/tamnd/tomo/cmd/tomo@${TOMO_VERSION}
 
 FROM tomolab-base
