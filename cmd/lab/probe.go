@@ -35,6 +35,7 @@ import (
 //	  --out <dir>                     write trace.jsonl, events.jsonl, transcript.md, summary.json
 //	  --timeout <dur>                 inner deadline, default 4m
 //	  --max-rounds <n>                hard cap on model calls, to bound an A/B probe (0 = governor decides)
+//	  --prep-env                      build the task's venv first so the agent starts with working python and pytest, as the container does
 //	  --grade                         run check.sh for the real hidden-test verdict
 //	  --keep                          keep the work tree instead of removing it
 func cmdProbe(ctx context.Context, cfg lab.Config, suite string, rest []string) error {
@@ -76,6 +77,7 @@ func cmdProbe(ctx context.Context, cfg lab.Config, suite string, rest []string) 
 	}
 	o.Grade = hasFlag(rest, "--grade")
 	o.Keep = hasFlag(rest, "--keep")
+	o.PrepEnv = hasFlag(rest, "--prep-env")
 	o.Task = arg(rest, 0)
 
 	res, err := probe.Run(ctx, o)

@@ -63,6 +63,7 @@ type Options struct {
 	Keep        bool          // keep the work tree instead of removing it
 	Grade       bool          // after the turn, run the task's check.sh for the real hidden-test verdict
 	MaxRounds   int           // hard cap on model calls in the turn; 0 leaves the governor in charge
+	PrepEnv     bool          // build the task's venv before the turn so the agent starts with a working python and pytest, as the container does
 }
 
 // Result is what the simulated turn did.
@@ -127,6 +128,27 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	}
 	if err := materialize(ctx, taskDir, work, o.DataDir); err != nil {
 		return Result{}, fmt.Errorf("materialize tree: %w", err)
+	}
+
+	// Prep the runtime environment before the turn when asked, the way the container
+	// image does, so the agent starts with a working python and pytest and spends its
+	// budget on the fix rather than on installing the project. Without this the probe
+	// measures dependency-install noise, not the engine's fix behaviour: a bare tree
+	// has no venv, so the model burns round after round on pip before it can run a
+	// test. The venv lives outside the work tree so its build artifacts never look
+	// like an edit, and PATH is restored after the turn.
+	if o.PrepEnv {
+		binDir, cleanup, err := prepEnv(ctx, work, oracleDir)
+		if err != nil {
+			return Result{}, fmt.Errorf("prep env: %w", err)
+		}
+		if !o.Keep {
+			defer cleanup()
+		}
+		oldPath := os.Getenv("PATH")
+		os.Setenv("PATH", binDir+string(os.PathListSeparator)+oldPath)
+		os.Setenv("VIRTUAL_ENV", filepath.Dir(binDir))
+		defer func() { os.Setenv("PATH", oldPath); os.Unsetenv("VIRTUAL_ENV") }()
 	}
 
 	user := o.Message
@@ -388,6 +410,57 @@ func lastNonEmptyLine(s string) string {
 	return ""
 }
 
+// prepEnv builds the task's runtime environment before the turn, the way the
+// container image does, so the agent starts with a working python and pytest
+// instead of burning its budget installing the project. It mirrors check.sh's
+// install: a uv venv at the task's Python version, the project installed editable,
+// and pytest ensured. It returns the venv's bin dir to prepend to PATH and a
+// cleanup that removes the venv, which lives outside the work tree so its build
+// artifacts never look like an edit.
+func prepEnv(ctx context.Context, work, oracleDir string) (binDir string, cleanup func(), err error) {
+	pyver := "3.12"
+	if b, rerr := os.ReadFile(filepath.Join(oracleDir, "python")); rerr == nil {
+		if v := strings.TrimSpace(string(b)); v != "" {
+			pyver = v
+		}
+	}
+	venv, err := os.MkdirTemp("", "probe-venv-")
+	if err != nil {
+		return "", func() {}, err
+	}
+	cleanup = func() { os.RemoveAll(venv) }
+	mk := func(name string, args ...string) ([]byte, error) {
+		cmd := exec.CommandContext(ctx, name, args...)
+		cmd.Dir = work
+		return cmd.CombinedOutput()
+	}
+	if out, verr := mk("uv", "venv", "--python", pyver, venv); verr != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("uv venv %s: %v\n%s", pyver, verr, out)
+	}
+	py := filepath.Join(venv, "bin", "python")
+	// Install the project. The specs mirror check.sh: try the test extras first so a
+	// project with a test extra pulls its test deps, then fall back to a plain
+	// install. The first recipe that succeeds wins.
+	installed := false
+	for _, spec := range [][]string{{"-e", ".[test]"}, {"-e", ".[tests]"}, {"-e", ".[dev]"}, {"-e", "."}, {"."}} {
+		args := append([]string{"pip", "install", "--python", py, "-q"}, spec...)
+		if _, ierr := mk("uv", args...); ierr == nil {
+			installed = true
+			break
+		}
+	}
+	if !installed {
+		cleanup()
+		return "", func() {}, fmt.Errorf("could not install project into venv")
+	}
+	// Ensure a runner is present without clobbering a self-provided one.
+	if err := exec.CommandContext(ctx, py, "-c", "import pytest").Run(); err != nil {
+		_, _ = mk("uv", "pip", "install", "--python", py, "-q", "pytest")
+	}
+	return filepath.Join(venv, "bin"), cleanup, nil
+}
+
 // materialize runs the task's setup.sh to check out the offline tree into work.
 func materialize(ctx context.Context, taskDir, work, dataDir string) error {
 	setup := filepath.Join(taskDir, "setup.sh")
@@ -446,6 +519,9 @@ func editedFiles(ctx context.Context, work string) []string {
 		if i := strings.Index(path, " -> "); i >= 0 {
 			path = path[i+4:]
 		}
+		if isBuildArtifact(path) {
+			continue
+		}
 		files = append(files, path)
 	}
 	sort.Strings(files)
@@ -476,6 +552,21 @@ func goldSourceFiles(oracleDir string) []string {
 	}
 	sort.Strings(files)
 	return files
+}
+
+// isBuildArtifact reports whether a changed path is a build or install byproduct
+// rather than a real source edit. An editable install of the project (prepEnv, or
+// the model's own pip run) drops egg-info, pyc, and cache files into the tree; they
+// are never the fix and would otherwise inflate the edited-file list and its sprawl
+// signal, so they are dropped before an edit is counted.
+func isBuildArtifact(p string) bool {
+	return strings.Contains(p, ".egg-info") ||
+		strings.Contains(p, "__pycache__") ||
+		strings.HasSuffix(p, ".pyc") ||
+		strings.HasPrefix(p, ".venv") ||
+		strings.HasPrefix(p, ".eggs") ||
+		strings.HasPrefix(p, "build/") ||
+		strings.HasPrefix(p, ".pytest_cache")
 }
 
 func isTestPath(p string) bool {
