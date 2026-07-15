@@ -18,13 +18,14 @@ import (
 // everything the call saw and returned, so a trace replays the whole turn and can
 // be reloaded as history to resume or fork.
 type countingProvider struct {
-	inner     provider.Provider
-	trace     *os.File
-	rounds    int
-	inTokens  int
-	outTokens int
-	lastStop  string
-	latencies []int64 // per-round wall-clock, ms
+	inner        provider.Provider
+	trace        *os.File
+	rounds       int
+	inTokens     int
+	cachedTokens int // subset of inTokens the provider served from its prefix cache
+	outTokens    int
+	lastStop     string
+	latencies    []int64 // per-round wall-clock, ms
 }
 
 func (c *countingProvider) Stream(ctx context.Context, req provider.Request, emit func(provider.Event)) (*provider.Response, error) {
@@ -36,6 +37,7 @@ func (c *countingProvider) Stream(ctx context.Context, req provider.Request, emi
 	c.latencies = append(c.latencies, elapsed)
 	if resp != nil {
 		c.inTokens += resp.Usage.InputTokens
+		c.cachedTokens += resp.Usage.CachedInputTokens
 		c.outTokens += resp.Usage.OutputTokens
 		c.lastStop = resp.StopReason
 	}

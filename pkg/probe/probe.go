@@ -28,6 +28,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/tamnd/tomo-labs/pkg/pricing"
 	"github.com/tamnd/tomo/pkg/agent"
 	"github.com/tamnd/tomo/pkg/builtin"
 	"github.com/tamnd/tomo/pkg/config"
@@ -61,32 +62,39 @@ type Options struct {
 	OutDir      string        // where the trace and summary are written; empty writes none
 	Keep        bool          // keep the work tree instead of removing it
 	Grade       bool          // after the turn, run the task's check.sh for the real hidden-test verdict
+	MaxRounds   int           // hard cap on model calls in the turn; 0 leaves the governor in charge
 }
 
 // Result is what the simulated turn did.
 type Result struct {
-	Task         string         `json:"task"`
-	Model        string         `json:"model"`
-	Engine       string         `json:"engine"`
-	SystemFile   string         `json:"system_file,omitempty"`
-	WorkDir      string         `json:"work_dir,omitempty"`
-	Rounds       int            `json:"rounds"`                 // model calls the loop made
-	ToolCallsN   int            `json:"tool_calls"`             // total tool calls issued
-	InputTokens  int            `json:"input_tokens"`           // summed prompt tokens across rounds
-	OutputTokens int            `json:"output_tokens"`          // summed completion tokens across rounds
-	ToolCalls    map[string]int `json:"tool_calls_by"`          // count per tool name
-	Trajectory   []string       `json:"trajectory"`             // tool names in call order (capped)
-	EditedFiles  []string       `json:"edited_files"`           // files the run changed in the tree
-	EditedTests  []string       `json:"edited_tests"`           // test files it touched (a smell: the grader owns tests)
-	GoldFiles    []string       `json:"gold_files"`             // non-test files the oracle's fix touches
-	HitGold      []string       `json:"hit_gold"`               // EditedFiles that are in GoldFiles
-	StopReason   string         `json:"stop_reason"`            // last model stop reason
-	TimedOut     bool           `json:"timed_out"`              // the inner deadline cut the turn off
-	ElapsedSecs  float64        `json:"elapsed_secs"`           //
-	Graded       bool           `json:"graded"`                 // check.sh was run for the real verdict
-	Passed       bool           `json:"passed"`                 // graded and the hidden tests are green
-	CheckReason  string         `json:"check_reason,omitempty"` // the check.sh verdict line
-	Err          string         `json:"error,omitempty"`
+	Task              string         `json:"task"`
+	Model             string         `json:"model"`
+	Engine            string         `json:"engine"`
+	SystemFile        string         `json:"system_file,omitempty"`
+	WorkDir           string         `json:"work_dir,omitempty"`
+	Rounds            int            `json:"rounds"`                 // model calls the loop made
+	ToolCallsN        int            `json:"tool_calls"`             // total tool calls issued
+	InputTokens       int            `json:"input_tokens"`           // summed prompt tokens across rounds, cached included
+	CachedInputTokens int            `json:"cached_input_tokens"`    // subset of InputTokens the provider served from cache
+	OutputTokens      int            `json:"output_tokens"`          // summed completion tokens across rounds
+	ToolCalls         map[string]int `json:"tool_calls_by"`          // count per tool name
+	Trajectory        []string       `json:"trajectory"`             // tool names in call order (capped)
+	EditedFiles       []string       `json:"edited_files"`           // files the run changed in the tree
+	EditedTests       []string       `json:"edited_tests"`           // test files it touched (a smell: the grader owns tests)
+	GoldFiles         []string       `json:"gold_files"`             // non-test files the oracle's fix touches
+	HitGold           []string       `json:"hit_gold"`               // EditedFiles that are in GoldFiles
+	StopReason        string         `json:"stop_reason"`            // last model stop reason
+	TimedOut          bool           `json:"timed_out"`              // the inner deadline cut the turn off
+	ElapsedSecs       float64        `json:"elapsed_secs"`           //
+	Graded            bool           `json:"graded"`                 // check.sh was run for the real verdict
+	Passed            bool           `json:"passed"`                 // graded and the hidden tests are green
+	CheckReason       string         `json:"check_reason,omitempty"` // the check.sh verdict line
+	Priced            bool           `json:"priced"`                 // the model was found in the pricing table
+	InputUSD          float64        `json:"input_usd"`              // fresh input tokens at list price
+	CachedUSD         float64        `json:"cached_usd"`             // cached input reads at the discounted list price
+	OutputUSD         float64        `json:"output_usd"`             // output tokens (reasoning included) at list price
+	CostUSD           float64        `json:"cost_usd"`               // total list-price cost of the run
+	Err               string         `json:"error,omitempty"`
 }
 
 // Converged reports the cheap directional verdict: the run changed at least one
@@ -177,7 +185,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 
 	sink := newMetricsSink(events)
 
-	e := buildEngine(o.Engine, cp, modelID, system, reg, work)
+	e := buildEngine(o.Engine, cp, modelID, system, reg, work, o.MaxRounds)
 
 	runCtx := ctx
 	if o.Timeout > 0 {
@@ -191,18 +199,37 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	elapsed := time.Since(start)
 
 	res := Result{
-		Task:         o.Task,
-		Model:        o.Model,
-		Engine:       o.Engine,
-		SystemFile:   o.SystemFile,
-		Rounds:       cp.rounds,
-		ToolCallsN:   len(sink.trajectory),
-		InputTokens:  cp.inTokens,
-		OutputTokens: cp.outTokens,
-		ToolCalls:    sink.calls,
-		Trajectory:   capStrings(sink.trajectory, 200),
-		StopReason:   cp.lastStop,
-		ElapsedSecs:  elapsed.Seconds(),
+		Task:              o.Task,
+		Model:             o.Model,
+		Engine:            o.Engine,
+		SystemFile:        o.SystemFile,
+		Rounds:            cp.rounds,
+		ToolCallsN:        len(sink.trajectory),
+		InputTokens:       cp.inTokens,
+		CachedInputTokens: cp.cachedTokens,
+		OutputTokens:      cp.outTokens,
+		ToolCalls:         sink.calls,
+		Trajectory:        capStrings(sink.trajectory, 200),
+		StopReason:        cp.lastStop,
+		ElapsedSecs:       elapsed.Seconds(),
+	}
+	// List-price cost, the number the user reads to compare a cheap run against an
+	// expensive one. Every model the lab runs is priced at its published rate, the
+	// free deepseek proxy included, so a free run still shows what it would cost. The
+	// prompt splits into a fresh part billed at the input rate and a cached part
+	// billed at the cache-read rate, so a long turn that re-sends a mostly-cached
+	// history reads as cheap without reading as free.
+	if m, ok := pricing.Default().Lookup(o.Model); ok {
+		fresh := cp.inTokens - cp.cachedTokens
+		if fresh < 0 {
+			fresh = 0
+		}
+		c := m.Cost(pricing.Usage{InputTokens: fresh, CachedInputTokens: cp.cachedTokens, OutputTokens: cp.outTokens})
+		res.Priced = true
+		res.InputUSD = c.InputUSD
+		res.CachedUSD = c.CachedUSD
+		res.OutputUSD = c.OutputUSD
+		res.CostUSD = c.TotalUSD
 	}
 	if turnErr != nil {
 		res.Err = turnErr.Error()
@@ -326,11 +353,11 @@ func engineTools(engine string, base []tool.Tool) []tool.Tool {
 // cx engine expose the same Turn method, so the sim keeps either behind turnEngine
 // and the rest of the run is identical. The gate is nil, which allows every tool:
 // the sim is the yolo equivalent, run against a throwaway tree.
-func buildEngine(engine string, prov provider.Provider, model, system string, reg *tool.Registry, work string) turnEngine {
+func buildEngine(engine string, prov provider.Provider, model, system string, reg *tool.Registry, work string, maxRounds int) turnEngine {
 	if engine == "agent" {
-		return &agent.Agent{Provider: prov, Model: model, System: system, Tools: reg, Workspace: work}
+		return &agent.Agent{Provider: prov, Model: model, System: system, Tools: reg, Workspace: work, MaxRounds: maxRounds}
 	}
-	return &cx.Engine{Provider: prov, Model: model, System: system, Tools: reg, Workspace: work}
+	return &cx.Engine{Provider: prov, Model: model, System: system, Tools: reg, Workspace: work, MaxRounds: maxRounds}
 }
 
 // gradeTree runs the task's check.sh over the work tree and reports the real

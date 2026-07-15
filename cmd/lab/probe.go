@@ -34,6 +34,7 @@ import (
 //	  --base-url <url>                point the openai client at a local bridge
 //	  --out <dir>                     write trace.jsonl, events.jsonl, transcript.md, summary.json
 //	  --timeout <dur>                 inner deadline, default 4m
+//	  --max-rounds <n>                hard cap on model calls, to bound an A/B probe (0 = governor decides)
 //	  --grade                         run check.sh for the real hidden-test verdict
 //	  --keep                          keep the work tree instead of removing it
 func cmdProbe(ctx context.Context, cfg lab.Config, suite string, rest []string) error {
@@ -65,6 +66,13 @@ func cmdProbe(ctx context.Context, cfg lab.Config, suite string, rest []string) 
 			return fmt.Errorf("--timeout: %w", err)
 		}
 		o.Timeout, rest = d, r
+	}
+	if v, r := takeFlagValue(rest, "--max-rounds"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("--max-rounds: %w", err)
+		}
+		o.MaxRounds, rest = n, r
 	}
 	o.Grade = hasFlag(rest, "--grade")
 	o.Keep = hasFlag(rest, "--keep")
@@ -102,8 +110,8 @@ func writeProbeSummary(w *os.File, r probe.Result) {
 	if r.TimedOut {
 		timeout = " (timed out)"
 	}
-	fmt.Fprintf(w, "%-9s %s | %s --engine %s | rounds %d calls %d tokens in %d out %d | %.1fs%s\n",
-		verdict, r.Task, r.Model, r.Engine, r.Rounds, r.ToolCallsN, r.InputTokens, r.OutputTokens, r.ElapsedSecs, timeout)
+	fmt.Fprintf(w, "%-9s %s | %s --engine %s | rounds %d calls %d tokens in %d out %d | %s | %.1fs%s\n",
+		verdict, r.Task, r.Model, r.Engine, r.Rounds, r.ToolCallsN, r.InputTokens, r.OutputTokens, costLabel(r), r.ElapsedSecs, timeout)
 	if len(r.HitGold) > 0 {
 		fmt.Fprintf(w, "  hit gold: %v\n", r.HitGold)
 	}
@@ -116,6 +124,23 @@ func writeProbeSummary(w *os.File, r probe.Result) {
 	if r.Err != "" {
 		fmt.Fprintf(w, "  error: %s\n", r.Err)
 	}
+}
+
+// costLabel renders the run's list-price cost for the one-line summary. Every model
+// the lab runs is priced at its published rate, the free deepseek proxy included, so
+// a free run still shows what it would cost and stays comparable to a paid one. The
+// cached share is broken out when the provider reported a prefix-cache read, so a
+// long turn's cheap re-sent history is visible next to its fresh cost. A model the
+// table does not know reports "unpriced", not a misleading $0.00.
+func costLabel(r probe.Result) string {
+	if !r.Priced {
+		return "unpriced"
+	}
+	s := fmt.Sprintf("$%.4f (in $%.4f out $%.4f)", r.CostUSD, r.InputUSD, r.OutputUSD)
+	if r.CachedInputTokens > 0 {
+		s += fmt.Sprintf(" cached %d tok $%.4f", r.CachedInputTokens, r.CachedUSD)
+	}
+	return s
 }
 
 // cmdProbeAnalyze reads a run's trace.jsonl and prints the concrete token report:

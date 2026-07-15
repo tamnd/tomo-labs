@@ -28,11 +28,11 @@ func TestBuildEngineSelectsConcreteType(t *testing.T) {
 	reg := tool.NewRegistry()
 	var prov provider.Provider
 
-	if e := buildEngine("agent", prov, "m", "sys", reg, "/w"); func() bool { _, ok := e.(*agent.Agent); return !ok }() {
+	if e := buildEngine("agent", prov, "m", "sys", reg, "/w", 0); func() bool { _, ok := e.(*agent.Agent); return !ok }() {
 		t.Errorf("buildEngine(agent) = %T, want *agent.Agent", e)
 	}
 	for _, name := range []string{"cx", "cx-offline"} {
-		if e := buildEngine(name, prov, "m", "sys", reg, "/w"); func() bool { _, ok := e.(*cx.Engine); return !ok }() {
+		if e := buildEngine(name, prov, "m", "sys", reg, "/w", 0); func() bool { _, ok := e.(*cx.Engine); return !ok }() {
 			t.Errorf("buildEngine(%q) = %T, want *cx.Engine", name, e)
 		}
 	}
