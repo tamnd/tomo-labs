@@ -21,3 +21,7 @@ docs/public/
 docs/public-pages/
 docs/public-cf/
 docs/content-lastmods.json
+
+# Local-only Go workspace pointing at a sibling ../tomo checkout for engine iteration.
+go.work
+go.work.sum

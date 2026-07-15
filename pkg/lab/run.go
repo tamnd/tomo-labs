@@ -192,6 +192,11 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 		}
 		stripCaches(work)
 		diskAfter = dirSizeKB(work)
+		// The per-attempt venv has done its job once the agent has run and the grade,
+		// which builds its own independent venv, is in. It is a few hundred megabytes
+		// of regenerable wheels that would otherwise sit under every kept run and fill
+		// the disk, so drop it now rather than waiting for the run to age past KeepRuns.
+		os.RemoveAll(env)
 		if passed {
 			graded++
 			break
