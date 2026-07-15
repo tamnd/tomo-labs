@@ -93,7 +93,12 @@ func TestSwePrompt(t *testing.T) {
 	if !strings.Contains(p, "psf/requests") || !strings.Contains(p, "the bug is X") {
 		t.Fatalf("prompt missing repo or statement:\n%s", p)
 	}
-	if !strings.Contains(p, "Do not edit or add tests") {
-		t.Error("prompt should forbid editing tests")
+	// The benchmark's own prompt says nothing about tests, so neither does ours:
+	// the grader resets touched test files, and a test instruction only risks
+	// chilling the model.
+	for _, banned := range []string{"hidden test suite", "Do not edit or add tests", "test files"} {
+		if strings.Contains(p, banned) {
+			t.Errorf("prompt should carry no test instruction, found %q:\n%s", banned, p)
+		}
 	}
 }
