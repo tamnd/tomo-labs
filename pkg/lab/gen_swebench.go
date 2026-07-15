@@ -363,19 +363,11 @@ func (l *Lab) sweMaterialize(row sweRow) (task, oracle string, err error) {
 	return task, oracle, nil
 }
 
-// swePrompt renders the task for the agent: the issue text, plus the ground rules
-// that keep the run gradable (edit the source, not the tests, in the checkout it
-// already sits in).
+// swePrompt renders the task for the agent from the embedded prompts/swebench.md
+// template: the issue text framed the way the benchmark's own prompt frames it,
+// with no instruction about tests (see prompts.go).
 func swePrompt(row sweRow) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "You are working in the %s repository, already checked out at the commit where a bug was reported.\n", row.Repo)
-	b.WriteString("Resolve the issue below by editing the project's source code in place. ")
-	b.WriteString("Do not edit or add tests: a hidden test suite grades your change. ")
-	b.WriteString("Make the smallest change that fixes the issue without breaking existing behavior.\n\n")
-	b.WriteString("Issue:\n\n")
-	b.WriteString(strings.TrimSpace(row.ProblemStatement))
-	b.WriteString("\n")
-	return b.String()
+	return renderPrompt("swebench.md", row.Repo, row.ProblemStatement)
 }
 
 // sweSetup clones the instance's repository at its base commit into the work tree

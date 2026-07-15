@@ -98,8 +98,11 @@ func TestSweLivePrompt(t *testing.T) {
 	if !strings.Contains(p, "acme/widget") || !strings.Contains(p, "the widget breaks") {
 		t.Fatalf("prompt missing repo or statement:\n%s", p)
 	}
-	if !strings.Contains(p, "Do not edit or add tests") {
-		t.Error("prompt should forbid editing tests")
+	// The benchmark's own prompt carries no test instruction, so neither does ours.
+	for _, banned := range []string{"hidden test suite", "Do not edit or add tests", "test files"} {
+		if strings.Contains(p, banned) {
+			t.Errorf("prompt should carry no test instruction, found %q:\n%s", banned, p)
+		}
 	}
 	// The two closed doors this harness holds shut are stated up front, so a tool
 	// does not spend its opening rounds discovering them.
