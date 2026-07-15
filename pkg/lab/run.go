@@ -306,12 +306,12 @@ func (l *Lab) runAttempt(ctx context.Context, tool string, sc Scenario, work, tr
 	err = l.rt.Run(runCtx, container.RunSpec{
 		Name: sl.run, Image: toolPrefix + tool, Network: l.toolNetwork(), Remove: true,
 		Mounts: mounts,
-		Env: []string{
+		Env: append([]string{
 			"LAB_BASE_URL=" + sl.baseURL(),
 			"LAB_MODEL=" + l.cfg.Model,
 			"OPENCODE_API_KEY=" + l.cfg.APIKey,
 			"LAB_MAX_TURNS=" + strconv.Itoa(l.cfg.MaxTurns),
-		},
+		}, passthroughEnv()...),
 		Stdout: os.Stdout, Stderr: os.Stderr,
 	})
 	stopProgress()
@@ -603,4 +603,24 @@ func readAnswer(trace string) string {
 func firstLineOf(s string) string {
 	first, _, _ := strings.Cut(s, "\n")
 	return first
+}
+
+// compactEnvPrefix marks the tool-side settings the harness forwards from its
+// own environment into the agent container. tomo reads TOMO_COMPACT_TAIL to turn
+// send-time history compaction on for an A/B arm; naming the whole prefix lets a
+// run flip that knob (and any later TOMO_COMPACT_* setting) without a rebuild,
+// while a run that sets nothing carries nothing and behaves exactly as before.
+const compactEnvPrefix = "TOMO_COMPACT_"
+
+// passthroughEnv collects the host settings the harness forwards verbatim into
+// the agent container, so an A/B arm can be selected from the environment rather
+// than baked into the image.
+func passthroughEnv() []string {
+	var out []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, compactEnvPrefix) {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
