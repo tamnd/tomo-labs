@@ -95,13 +95,37 @@ func TestLeakScanHistoryDoor(t *testing.T) {
 	}
 }
 
+func TestLeakScanPackageDoor(t *testing.T) {
+	// The exact shapes the winning gpt-5.6-terra offline run used to lift the fix
+	// from the cached fixed release: find the archive, then diff the checkout
+	// against it.
+	r := rolloutWithCmds(t,
+		`find /Users/apple/.cache/uv -type f -iname '*dynaconf*' | head`,
+		`diff -u dynaconf/base.py /Users/apple/.cache/uv/archive-v0/KU9IGQ03/dynaconf/base.py`,
+		`rg -n 'rsplit' /root/.cache/uv/archive-v0/x/dynaconf/loaders/__init__.py`,
+	)
+	hits := r.LeakScan()
+	if len(hits) != 3 {
+		t.Fatalf("package hits = %d, want 3: %+v", len(hits), hits)
+	}
+	for _, h := range hits {
+		if h.Door != DoorPackage {
+			t.Errorf("door = %q, want package for %q", h.Door, h.Command)
+		}
+	}
+	if r.Clean() {
+		t.Error("Clean() = true on a run that diffed against the cached release")
+	}
+}
+
 func TestLeakScanCleanRun(t *testing.T) {
 	r := rolloutWithCmds(t,
 		`pytest -q tests/`,
 		`git status --short`,
 		`git diff --stat`,
-		`grep -rn 'pull/1225' .`, // local grep, not a fetch
-		`git log --oneline -5`,   // local history, no remote ref, no grep-all
+		`grep -rn 'pull/1225' .`,                     // local grep, not a fetch
+		`git log --oneline -5`,                       // local history, no remote ref, no grep-all
+		`.venv/bin/python -m pytest tests/test_x.py`, // imports from site-packages but does not read it as a source
 	)
 	if hits := r.LeakScan(); len(hits) != 0 {
 		t.Errorf("hits = %+v, want none on a clean run", hits)
