@@ -146,9 +146,13 @@ func Run(ctx context.Context, o Options) (Result, error) {
 			defer cleanup()
 		}
 		oldPath := os.Getenv("PATH")
-		os.Setenv("PATH", binDir+string(os.PathListSeparator)+oldPath)
-		os.Setenv("VIRTUAL_ENV", filepath.Dir(binDir))
-		defer func() { os.Setenv("PATH", oldPath); os.Unsetenv("VIRTUAL_ENV") }()
+		if err := os.Setenv("PATH", binDir+string(os.PathListSeparator)+oldPath); err != nil {
+			return Result{}, fmt.Errorf("prep env: set PATH: %w", err)
+		}
+		if err := os.Setenv("VIRTUAL_ENV", filepath.Dir(binDir)); err != nil {
+			return Result{}, fmt.Errorf("prep env: set VIRTUAL_ENV: %w", err)
+		}
+		defer func() { _ = os.Setenv("PATH", oldPath); _ = os.Unsetenv("VIRTUAL_ENV") }()
 	}
 
 	user := o.Message
