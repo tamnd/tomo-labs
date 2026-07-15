@@ -81,6 +81,18 @@ func main() {
 	cfg := lab.DefaultConfig()
 	cfg.Suite = suite
 
+	// sim drives an engine turn in-process against an offline task: no container, no
+	// proxy, no key beyond the model call. Dispatch it before lab.New so it runs
+	// without a container runtime, the same as codex and claude.
+	if args[0] == "sim" {
+		simSuite := cfg.Suite
+		if simSuite == "" {
+			simSuite = "swebench-live"
+		}
+		die(cmdSim(ctx, cfg, simSuite, args[1:]))
+		return
+	}
+
 	l, err := lab.New(ctx, cfg)
 	if err != nil {
 		die(err)
@@ -326,7 +338,7 @@ func takeFlagValue(args []string, flag string) (string, []string) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: lab {build|run|-p|tools|scenarios|prompts|inspect|meta|gen|report|reparse|clean|codex|claude} [--suite <name>] [args]")
+	fmt.Fprintln(os.Stderr, "usage: lab {build|run|sim|-p|tools|scenarios|prompts|inspect|meta|gen|report|reparse|clean|codex|claude} [--suite <name>] [args]")
 }
 
 func die(err error) {
