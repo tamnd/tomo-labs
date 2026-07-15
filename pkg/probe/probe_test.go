@@ -22,6 +22,27 @@ func TestValidEngine(t *testing.T) {
 	}
 }
 
+// withDefaults must confine the agent's shell by default: a probe with no sandbox
+// named runs under hako, so the network is off and the cheapest path to a green
+// grade cannot be fetching the upstream fix. An explicit choice is left alone.
+func TestWithDefaultsConfinesByDefault(t *testing.T) {
+	if got := withDefaults(Options{}).Sandbox; got != "hako" {
+		t.Errorf("default sandbox = %q, want hako", got)
+	}
+	if got := withDefaults(Options{Sandbox: "none"}).Sandbox; got != "none" {
+		t.Errorf("explicit sandbox overridden to %q, want none", got)
+	}
+}
+
+// Prep is on by default so a probe never silently verifies against the host's
+// python; the zero-value Options must leave NoPrepEnv false, and withDefaults must
+// not flip it.
+func TestPrepEnvIsDefaultOn(t *testing.T) {
+	if withDefaults(Options{}).NoPrepEnv {
+		t.Error("NoPrepEnv defaulted to true, want prep on by default")
+	}
+}
+
 // buildEngine must hand back the concrete engine the name asks for, so a run on
 // --engine agent drives the default loop and --engine cx drives the codex loop.
 func TestBuildEngineSelectsConcreteType(t *testing.T) {

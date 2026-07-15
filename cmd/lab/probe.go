@@ -35,7 +35,8 @@ import (
 //	  --out <dir>                     write trace.jsonl, events.jsonl, transcript.md, summary.json
 //	  --timeout <dur>                 inner deadline, default 4m
 //	  --max-rounds <n>                hard cap on model calls, to bound an A/B probe (0 = governor decides)
-//	  --prep-env                      build the task's venv first so the agent starts with working python and pytest, as the container does
+//	  --sandbox <mode>                agent shell confinement, default hako (network off, file tree scoped)
+//	  --no-prep-env                   skip building the task venv (the default builds it so the agent has working python and pytest)
 //	  --grade                         run check.sh for the real hidden-test verdict
 //	  --keep                          keep the work tree instead of removing it
 func cmdProbe(ctx context.Context, cfg lab.Config, suite string, rest []string) error {
@@ -61,6 +62,7 @@ func cmdProbe(ctx context.Context, cfg lab.Config, suite string, rest []string) 
 	o.HistoryFile, rest = takeFlagValue(rest, "--history-file")
 	o.BaseURL, rest = takeFlagValue(rest, "--base-url")
 	o.OutDir, rest = takeFlagValue(rest, "--out")
+	o.Sandbox, rest = takeFlagValue(rest, "--sandbox")
 	if to, r := takeFlagValue(rest, "--timeout"); to != "" {
 		d, err := time.ParseDuration(to)
 		if err != nil {
@@ -77,7 +79,7 @@ func cmdProbe(ctx context.Context, cfg lab.Config, suite string, rest []string) 
 	}
 	o.Grade = hasFlag(rest, "--grade")
 	o.Keep = hasFlag(rest, "--keep")
-	o.PrepEnv = hasFlag(rest, "--prep-env")
+	o.NoPrepEnv = hasFlag(rest, "--no-prep-env")
 	o.Task = arg(rest, 0)
 
 	res, err := probe.Run(ctx, o)

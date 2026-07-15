@@ -63,7 +63,8 @@ type Options struct {
 	Keep        bool          // keep the work tree instead of removing it
 	Grade       bool          // after the turn, run the task's check.sh for the real hidden-test verdict
 	MaxRounds   int           // hard cap on model calls in the turn; 0 leaves the governor in charge
-	PrepEnv     bool          // build the task's venv before the turn so the agent starts with a working python and pytest, as the container does
+	Sandbox     string        // agent shell confinement, default "hako": network off and the file tree scoped, so the cheapest green grade cannot be fetching the upstream fix
+	NoPrepEnv   bool          // skip building the task's venv; the default builds it so the agent starts with a working python and pytest, as the container does
 }
 
 // Result is what the simulated turn did.
@@ -136,8 +137,11 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	// measures dependency-install noise, not the engine's fix behaviour: a bare tree
 	// has no venv, so the model burns round after round on pip before it can run a
 	// test. The venv lives outside the work tree so its build artifacts never look
-	// like an edit, and PATH is restored after the turn.
-	if o.PrepEnv {
+	// like an edit, and PATH is restored after the turn. This is on by default: a
+	// blind run on the host's python was the original probe bug, so opting out is
+	// explicit (--no-prep-env), and a prep that cannot build the env fails loudly
+	// rather than letting the agent verify against the wrong interpreter.
+	if !o.NoPrepEnv {
 		binDir, cleanup, err := prepEnv(ctx, work, oracleDir)
 		if err != nil {
 			return Result{}, fmt.Errorf("prep env: %w", err)
@@ -203,7 +207,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	}
 	cp := &countingProvider{inner: prov, trace: trace}
 
-	box, err := sandbox.New("none", work)
+	box, err := sandbox.New(o.Sandbox, work)
 	if err != nil {
 		return Result{}, fmt.Errorf("sandbox: %w", err)
 	}
@@ -311,6 +315,11 @@ func withDefaults(o Options) Options {
 	}
 	if o.Engine == "" {
 		o.Engine = "cx-offline"
+	}
+	if o.Sandbox == "" {
+		// Confine by default so the network is off and the cheapest path to a green
+		// grade cannot be fetching the upstream fix; pass --sandbox none to opt out.
+		o.Sandbox = "hako"
 	}
 	if o.Timeout == 0 {
 		o.Timeout = 4 * time.Minute
