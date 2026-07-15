@@ -123,7 +123,7 @@ func TestLeakScanCleanRun(t *testing.T) {
 		`pytest -q tests/`,
 		`git status --short`,
 		`git diff --stat`,
-		`grep -rn 'pull/1225' .`,                    // local grep, not a fetch
+		`grep -rn 'pull/1225' .`,                     // local grep, not a fetch
 		`git log --oneline -5`,                       // local history, no remote ref, no grep-all
 		`.venv/bin/python -m pytest tests/test_x.py`, // imports from site-packages but does not read it as a source
 	)
