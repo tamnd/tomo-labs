@@ -28,6 +28,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/tamnd/tomo-labs/pkg/pricing"
 	"github.com/tamnd/tomo/pkg/agent"
 	"github.com/tamnd/tomo/pkg/builtin"
 	"github.com/tamnd/tomo/pkg/config"
@@ -61,32 +62,40 @@ type Options struct {
 	OutDir      string        // where the trace and summary are written; empty writes none
 	Keep        bool          // keep the work tree instead of removing it
 	Grade       bool          // after the turn, run the task's check.sh for the real hidden-test verdict
+	MaxRounds   int           // hard cap on model calls in the turn; 0 leaves the governor in charge
+	PrepEnv     bool          // build the task's venv before the turn so the agent starts with a working python and pytest, as the container does
 }
 
 // Result is what the simulated turn did.
 type Result struct {
-	Task         string         `json:"task"`
-	Model        string         `json:"model"`
-	Engine       string         `json:"engine"`
-	SystemFile   string         `json:"system_file,omitempty"`
-	WorkDir      string         `json:"work_dir,omitempty"`
-	Rounds       int            `json:"rounds"`                 // model calls the loop made
-	ToolCallsN   int            `json:"tool_calls"`             // total tool calls issued
-	InputTokens  int            `json:"input_tokens"`           // summed prompt tokens across rounds
-	OutputTokens int            `json:"output_tokens"`          // summed completion tokens across rounds
-	ToolCalls    map[string]int `json:"tool_calls_by"`          // count per tool name
-	Trajectory   []string       `json:"trajectory"`             // tool names in call order (capped)
-	EditedFiles  []string       `json:"edited_files"`           // files the run changed in the tree
-	EditedTests  []string       `json:"edited_tests"`           // test files it touched (a smell: the grader owns tests)
-	GoldFiles    []string       `json:"gold_files"`             // non-test files the oracle's fix touches
-	HitGold      []string       `json:"hit_gold"`               // EditedFiles that are in GoldFiles
-	StopReason   string         `json:"stop_reason"`            // last model stop reason
-	TimedOut     bool           `json:"timed_out"`              // the inner deadline cut the turn off
-	ElapsedSecs  float64        `json:"elapsed_secs"`           //
-	Graded       bool           `json:"graded"`                 // check.sh was run for the real verdict
-	Passed       bool           `json:"passed"`                 // graded and the hidden tests are green
-	CheckReason  string         `json:"check_reason,omitempty"` // the check.sh verdict line
-	Err          string         `json:"error,omitempty"`
+	Task              string         `json:"task"`
+	Model             string         `json:"model"`
+	Engine            string         `json:"engine"`
+	SystemFile        string         `json:"system_file,omitempty"`
+	WorkDir           string         `json:"work_dir,omitempty"`
+	Rounds            int            `json:"rounds"`                 // model calls the loop made
+	ToolCallsN        int            `json:"tool_calls"`             // total tool calls issued
+	InputTokens       int            `json:"input_tokens"`           // summed prompt tokens across rounds, cached included
+	CachedInputTokens int            `json:"cached_input_tokens"`    // subset of InputTokens the provider served from cache
+	OutputTokens      int            `json:"output_tokens"`          // summed completion tokens across rounds
+	ToolCalls         map[string]int `json:"tool_calls_by"`          // count per tool name
+	Trajectory        []string       `json:"trajectory"`             // tool names in call order (capped)
+	EditedFiles       []string       `json:"edited_files"`           // files the run changed in the tree
+	EditedTests       []string       `json:"edited_tests"`           // test files it touched (a smell: the grader owns tests)
+	GoldFiles         []string       `json:"gold_files"`             // non-test files the oracle's fix touches
+	HitGold           []string       `json:"hit_gold"`               // EditedFiles that are in GoldFiles
+	StopReason        string         `json:"stop_reason"`            // last model stop reason
+	TimedOut          bool           `json:"timed_out"`              // the inner deadline cut the turn off
+	ElapsedSecs       float64        `json:"elapsed_secs"`           //
+	Graded            bool           `json:"graded"`                 // check.sh was run for the real verdict
+	Passed            bool           `json:"passed"`                 // graded and the hidden tests are green
+	CheckReason       string         `json:"check_reason,omitempty"` // the check.sh verdict line
+	Priced            bool           `json:"priced"`                 // the model was found in the pricing table
+	InputUSD          float64        `json:"input_usd"`              // fresh input tokens at list price
+	CachedUSD         float64        `json:"cached_usd"`             // cached input reads at the discounted list price
+	OutputUSD         float64        `json:"output_usd"`             // output tokens (reasoning included) at list price
+	CostUSD           float64        `json:"cost_usd"`               // total list-price cost of the run
+	Err               string         `json:"error,omitempty"`
 }
 
 // Converged reports the cheap directional verdict: the run changed at least one
@@ -119,6 +128,31 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	}
 	if err := materialize(ctx, taskDir, work, o.DataDir); err != nil {
 		return Result{}, fmt.Errorf("materialize tree: %w", err)
+	}
+
+	// Prep the runtime environment before the turn when asked, the way the container
+	// image does, so the agent starts with a working python and pytest and spends its
+	// budget on the fix rather than on installing the project. Without this the probe
+	// measures dependency-install noise, not the engine's fix behaviour: a bare tree
+	// has no venv, so the model burns round after round on pip before it can run a
+	// test. The venv lives outside the work tree so its build artifacts never look
+	// like an edit, and PATH is restored after the turn.
+	if o.PrepEnv {
+		binDir, cleanup, err := prepEnv(ctx, work, oracleDir)
+		if err != nil {
+			return Result{}, fmt.Errorf("prep env: %w", err)
+		}
+		if !o.Keep {
+			defer cleanup()
+		}
+		oldPath := os.Getenv("PATH")
+		if err := os.Setenv("PATH", binDir+string(os.PathListSeparator)+oldPath); err != nil {
+			return Result{}, fmt.Errorf("prep env: set PATH: %w", err)
+		}
+		if err := os.Setenv("VIRTUAL_ENV", filepath.Dir(binDir)); err != nil {
+			return Result{}, fmt.Errorf("prep env: set VIRTUAL_ENV: %w", err)
+		}
+		defer func() { _ = os.Setenv("PATH", oldPath); _ = os.Unsetenv("VIRTUAL_ENV") }()
 	}
 
 	user := o.Message
@@ -177,7 +211,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 
 	sink := newMetricsSink(events)
 
-	e := buildEngine(o.Engine, cp, modelID, system, reg, work)
+	e := buildEngine(o.Engine, cp, modelID, system, reg, work, o.MaxRounds)
 
 	runCtx := ctx
 	if o.Timeout > 0 {
@@ -191,18 +225,37 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	elapsed := time.Since(start)
 
 	res := Result{
-		Task:         o.Task,
-		Model:        o.Model,
-		Engine:       o.Engine,
-		SystemFile:   o.SystemFile,
-		Rounds:       cp.rounds,
-		ToolCallsN:   len(sink.trajectory),
-		InputTokens:  cp.inTokens,
-		OutputTokens: cp.outTokens,
-		ToolCalls:    sink.calls,
-		Trajectory:   capStrings(sink.trajectory, 200),
-		StopReason:   cp.lastStop,
-		ElapsedSecs:  elapsed.Seconds(),
+		Task:              o.Task,
+		Model:             o.Model,
+		Engine:            o.Engine,
+		SystemFile:        o.SystemFile,
+		Rounds:            cp.rounds,
+		ToolCallsN:        len(sink.trajectory),
+		InputTokens:       cp.inTokens,
+		CachedInputTokens: cp.cachedTokens,
+		OutputTokens:      cp.outTokens,
+		ToolCalls:         sink.calls,
+		Trajectory:        capStrings(sink.trajectory, 200),
+		StopReason:        cp.lastStop,
+		ElapsedSecs:       elapsed.Seconds(),
+	}
+	// List-price cost, the number the user reads to compare a cheap run against an
+	// expensive one. Every model the lab runs is priced at its published rate, the
+	// free deepseek proxy included, so a free run still shows what it would cost. The
+	// prompt splits into a fresh part billed at the input rate and a cached part
+	// billed at the cache-read rate, so a long turn that re-sends a mostly-cached
+	// history reads as cheap without reading as free.
+	if m, ok := pricing.Default().Lookup(o.Model); ok {
+		fresh := cp.inTokens - cp.cachedTokens
+		if fresh < 0 {
+			fresh = 0
+		}
+		c := m.Cost(pricing.Usage{InputTokens: fresh, CachedInputTokens: cp.cachedTokens, OutputTokens: cp.outTokens})
+		res.Priced = true
+		res.InputUSD = c.InputUSD
+		res.CachedUSD = c.CachedUSD
+		res.OutputUSD = c.OutputUSD
+		res.CostUSD = c.TotalUSD
 	}
 	if turnErr != nil {
 		res.Err = turnErr.Error()
@@ -326,11 +379,11 @@ func engineTools(engine string, base []tool.Tool) []tool.Tool {
 // cx engine expose the same Turn method, so the sim keeps either behind turnEngine
 // and the rest of the run is identical. The gate is nil, which allows every tool:
 // the sim is the yolo equivalent, run against a throwaway tree.
-func buildEngine(engine string, prov provider.Provider, model, system string, reg *tool.Registry, work string) turnEngine {
+func buildEngine(engine string, prov provider.Provider, model, system string, reg *tool.Registry, work string, maxRounds int) turnEngine {
 	if engine == "agent" {
-		return &agent.Agent{Provider: prov, Model: model, System: system, Tools: reg, Workspace: work}
+		return &agent.Agent{Provider: prov, Model: model, System: system, Tools: reg, Workspace: work, MaxRounds: maxRounds}
 	}
-	return &cx.Engine{Provider: prov, Model: model, System: system, Tools: reg, Workspace: work}
+	return &cx.Engine{Provider: prov, Model: model, System: system, Tools: reg, Workspace: work, MaxRounds: maxRounds}
 }
 
 // gradeTree runs the task's check.sh over the work tree and reports the real
@@ -359,6 +412,57 @@ func lastNonEmptyLine(s string) string {
 		}
 	}
 	return ""
+}
+
+// prepEnv builds the task's runtime environment before the turn, the way the
+// container image does, so the agent starts with a working python and pytest
+// instead of burning its budget installing the project. It mirrors check.sh's
+// install: a uv venv at the task's Python version, the project installed editable,
+// and pytest ensured. It returns the venv's bin dir to prepend to PATH and a
+// cleanup that removes the venv, which lives outside the work tree so its build
+// artifacts never look like an edit.
+func prepEnv(ctx context.Context, work, oracleDir string) (binDir string, cleanup func(), err error) {
+	pyver := "3.12"
+	if b, rerr := os.ReadFile(filepath.Join(oracleDir, "python")); rerr == nil {
+		if v := strings.TrimSpace(string(b)); v != "" {
+			pyver = v
+		}
+	}
+	venv, err := os.MkdirTemp("", "probe-venv-")
+	if err != nil {
+		return "", func() {}, err
+	}
+	cleanup = func() { os.RemoveAll(venv) }
+	mk := func(name string, args ...string) ([]byte, error) {
+		cmd := exec.CommandContext(ctx, name, args...)
+		cmd.Dir = work
+		return cmd.CombinedOutput()
+	}
+	if out, verr := mk("uv", "venv", "--python", pyver, venv); verr != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("uv venv %s: %v\n%s", pyver, verr, out)
+	}
+	py := filepath.Join(venv, "bin", "python")
+	// Install the project. The specs mirror check.sh: try the test extras first so a
+	// project with a test extra pulls its test deps, then fall back to a plain
+	// install. The first recipe that succeeds wins.
+	installed := false
+	for _, spec := range [][]string{{"-e", ".[test]"}, {"-e", ".[tests]"}, {"-e", ".[dev]"}, {"-e", "."}, {"."}} {
+		args := append([]string{"pip", "install", "--python", py, "-q"}, spec...)
+		if _, ierr := mk("uv", args...); ierr == nil {
+			installed = true
+			break
+		}
+	}
+	if !installed {
+		cleanup()
+		return "", func() {}, fmt.Errorf("could not install project into venv")
+	}
+	// Ensure a runner is present without clobbering a self-provided one.
+	if err := exec.CommandContext(ctx, py, "-c", "import pytest").Run(); err != nil {
+		_, _ = mk("uv", "pip", "install", "--python", py, "-q", "pytest")
+	}
+	return filepath.Join(venv, "bin"), cleanup, nil
 }
 
 // materialize runs the task's setup.sh to check out the offline tree into work.
@@ -419,6 +523,9 @@ func editedFiles(ctx context.Context, work string) []string {
 		if i := strings.Index(path, " -> "); i >= 0 {
 			path = path[i+4:]
 		}
+		if isBuildArtifact(path) {
+			continue
+		}
 		files = append(files, path)
 	}
 	sort.Strings(files)
@@ -449,6 +556,21 @@ func goldSourceFiles(oracleDir string) []string {
 	}
 	sort.Strings(files)
 	return files
+}
+
+// isBuildArtifact reports whether a changed path is a build or install byproduct
+// rather than a real source edit. An editable install of the project (prepEnv, or
+// the model's own pip run) drops egg-info, pyc, and cache files into the tree; they
+// are never the fix and would otherwise inflate the edited-file list and its sprawl
+// signal, so they are dropped before an edit is counted.
+func isBuildArtifact(p string) bool {
+	return strings.Contains(p, ".egg-info") ||
+		strings.Contains(p, "__pycache__") ||
+		strings.HasSuffix(p, ".pyc") ||
+		strings.HasPrefix(p, ".venv") ||
+		strings.HasPrefix(p, ".eggs") ||
+		strings.HasPrefix(p, "build/") ||
+		strings.HasPrefix(p, ".pytest_cache")
 }
 
 func isTestPath(p string) bool {
