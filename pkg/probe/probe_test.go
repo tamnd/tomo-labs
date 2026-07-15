@@ -1,4 +1,4 @@
-package simturn
+package probe
 
 import (
 	"testing"

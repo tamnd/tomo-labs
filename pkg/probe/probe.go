@@ -1,19 +1,20 @@
-// Package simturn is a cheap, fast, containerless turn simulator for tomo's cx
-// engine. It drives the real cx.Engine.Turn loop in-process against a swebench-
-// live task's offline tree, on a free or cheap model, so tuning the engine or
-// its prompt is a seconds-long inner loop instead of the minutes-and-dollars of
-// a full container run on the paid bridge. It reuses tomo's own provider, tools,
-// and cx engine, so what it measures is exactly what a real run would do, only
-// without the container, the proxy, or the answer-leak surface (setup.sh strips
-// the future git history, and no network fetch is wired).
+// Package probe is a cheap, fast, containerless turn driver for tomo's engines.
+// It drives the real cx.Engine.Turn or agent.Agent.Turn loop in-process against a
+// swebench-live task's offline tree, on a free or cheap model, so A/B testing the
+// engine, its harness, or its prompt is a seconds-long inner loop instead of the
+// minutes-and-dollars of a full container run on the paid bridge. It reuses tomo's
+// own provider, tools, and engines, so what it observes is exactly what a real run
+// would do, only without the container, the proxy, or the answer-leak surface
+// (setup.sh strips the future git history, and no network fetch is wired).
 //
-// It is built for iteration without a rebuild: point --system-file at a prompt
-// file and edit it between runs, and every run drops a full trace (every request
-// and response, every tool call and result, tokens and timing) plus a one-line
-// summary, so a runaway or a wrong-neighbourhood edit is visible at a glance and
-// every metric is on disk to compare across runs. The authoritative pass/fail
-// stays with the full harness and its hidden pytest run.
-package simturn
+// It makes real model calls: the point is to see how the model actually behaves
+// under a change, not to project it. Point --system-file at a prompt file and edit
+// it between runs, or rebuild with a harness variant, and every run drops a full
+// trace (every request and response, every tool call and result, tokens and
+// timing) plus a one-line summary, so a runaway or a wrong-neighbourhood edit is
+// visible at a glance and every metric is on disk to compare across runs. The
+// authoritative pass/fail stays with the full harness and its hidden pytest run.
+package probe
 
 import (
 	"context"
@@ -109,7 +110,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		return Result{}, fmt.Errorf("task %q not found under %s: %w", o.Task, filepath.Join(o.Root, "evals", o.Suite), err)
 	}
 
-	work, err := os.MkdirTemp("", "simturn-")
+	work, err := os.MkdirTemp("", "probe-")
 	if err != nil {
 		return Result{}, err
 	}
