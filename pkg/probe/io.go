@@ -1,4 +1,4 @@
-package simturn
+package probe
 
 import (
 	"context"
@@ -126,7 +126,7 @@ func (m *metricsSink) ToolEnd(name, result string, isErr bool) {
 // events.jsonl and trace.jsonl.
 func writeTranscript(path string, r Result, events []event) error {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# simturn transcript: %s | %s | --engine %s\n\n", r.Task, r.Model, r.Engine)
+	fmt.Fprintf(&b, "# probe transcript: %s | %s | --engine %s\n\n", r.Task, r.Model, r.Engine)
 	fmt.Fprintf(&b, "rounds %d, tool calls %d, tokens in %d out %d, %.1fs%s\n\n",
 		r.Rounds, r.ToolCallsN, r.InputTokens, r.OutputTokens, r.ElapsedSecs, boolTag(r.TimedOut, " (timed out)"))
 	for _, e := range events {
