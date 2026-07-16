@@ -89,6 +89,15 @@ func cmdBridge(ctx context.Context, args []string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/chat/completions", br.serve)
 	mux.HandleFunc("/chat/completions", br.serve)
+	// Real codex speaks the Responses wire natively and leans on the codex backend
+	// to inject its shell and apply_patch tools server-side, so its request carries
+	// no tools of its own. Round-tripping that through chat and back would strip the
+	// tools it never sent, leaving the model with nothing to run. The passthrough
+	// route forwards codex's own Responses request to /codex/responses verbatim, so
+	// the backend still injects the tools and codex behaves exactly as it would on
+	// its own subscription; only the model and effort are pinned for a fair column.
+	mux.HandleFunc("/v1/responses", br.servePassthrough)
+	mux.HandleFunc("/responses", br.servePassthrough)
 	mux.HandleFunc("/v1/models", br.models)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "ok\n") })
 
@@ -231,6 +240,93 @@ func (b *bridge) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	responsesStreamToChat(w, flush, resp.Body, seq, b.o.model)
+}
+
+// servePassthrough forwards a native Responses request (real codex speaks this
+// wire) to the codex backend without translating it to chat and back. Codex's
+// request already carries its developer instructions and relies on the backend
+// to inject its tools, so the only edits are pinning the model and reasoning
+// effort when the bridge was started with them; everything else rides through
+// byte for byte. The backend's Responses SSE is streamed straight back, since
+// codex consumes that wire natively.
+func (b *bridge) servePassthrough(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	b.mu.Lock()
+	b.seq++
+	seq := b.seq
+	b.mu.Unlock()
+
+	// Pin the model and effort so the codex column runs on the chosen gpt-5.x
+	// variant at a controlled effort, leaving the rest of codex's request intact.
+	// The reasoning effort is merged into codex's own reasoning block rather than
+	// replacing it, so fields like context survive.
+	out := body
+	if b.o.model != "" || b.o.effort != "" {
+		var m map[string]any
+		if json.Unmarshal(body, &m) == nil {
+			if b.o.model != "" {
+				m["model"] = b.o.model
+			}
+			if b.o.effort != "" {
+				rz, _ := m["reasoning"].(map[string]any)
+				if rz == nil {
+					rz = map[string]any{}
+				}
+				rz["effort"] = b.o.effort
+				m["reasoning"] = rz
+			}
+			if nb, err := json.Marshal(m); err == nil {
+				out = nb
+			}
+		}
+	}
+	if b.o.traceDir != "" {
+		b.dump(seq, "req", out)
+	}
+
+	resp, err := b.forward(r.Context(), out, true)
+	if err != nil {
+		http.Error(w, "backend: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(resp.Body)
+		if b.o.traceDir != "" {
+			b.dump(seq, "err", msg)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		w.Write(msg)
+		return
+	}
+
+	// Relay the Responses SSE unchanged, flushing on each frame boundary (the blank
+	// line between events) so codex sees tokens as they arrive rather than in one
+	// lump at the end.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	flush := func() {
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		line := sc.Bytes()
+		w.Write(line)
+		w.Write([]byte("\n"))
+		if len(bytes.TrimSpace(line)) == 0 {
+			flush()
+		}
+	}
+	flush()
 }
 
 // forward posts a Responses request to the codex backend with the subscription

@@ -420,13 +420,20 @@ func (l *Lab) startProxy(ctx context.Context, trace string, sl slot) error {
 	if l.cfg.Isolate {
 		extra = []string{l.cfg.Network}
 	}
+	proxyEnv := []string{
+		"UPSTREAM=" + l.cfg.Upstream,
+		"TRACE_DIR=/trace",
+	}
+	// A tool running on its own wire and its own backend (real codex through the
+	// bridge) needs the tap to forward its request verbatim, not rewrite it to
+	// chat. Passthrough mode does that and captures headers too.
+	if l.cfg.Passthrough {
+		proxyEnv = append(proxyEnv, "PASSTHROUGH=1")
+	}
 	return l.rt.Run(ctx, container.RunSpec{
 		Name: sl.proxy, Image: proxyImage, Network: l.toolNetwork(), ExtraNetworks: extra, Detach: true,
-		Mounts: []container.Mount{{Host: trace, Container: "/trace"}},
-		Env: []string{
-			"UPSTREAM=" + l.cfg.Upstream,
-			"TRACE_DIR=/trace",
-		},
+		Mounts:  []container.Mount{{Host: trace, Container: "/trace"}},
+		Env:     proxyEnv,
 		Publish: fmt.Sprintf("127.0.0.1:%d:8080", sl.port),
 	})
 }
