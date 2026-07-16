@@ -2,7 +2,7 @@ module github.com/tamnd/tomo-labs
 
 go 1.26.5
 
-require github.com/tamnd/tomo v0.2.5-0.20260716112051-a67e73c5c283
+require github.com/tamnd/tomo v0.2.5-0.20260716124033-b0154e409fd1
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
