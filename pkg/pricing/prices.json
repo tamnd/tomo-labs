@@ -98,6 +98,42 @@
     "cache_read_input_token_cost": 2.8e-08,
     "output_cost_per_token": 4.2e-07
   },
+  "mimo-v2.5-free": {
+    "litellm_provider": "opencode",
+    "mode": "chat",
+    "max_input_tokens": 131072,
+    "max_output_tokens": 8192,
+    "input_cost_per_token": 0,
+    "cache_read_input_token_cost": 0,
+    "output_cost_per_token": 0
+  },
+  "hy3-free": {
+    "litellm_provider": "opencode",
+    "mode": "chat",
+    "max_input_tokens": 131072,
+    "max_output_tokens": 8192,
+    "input_cost_per_token": 0,
+    "cache_read_input_token_cost": 0,
+    "output_cost_per_token": 0
+  },
+  "nemotron-3-ultra-free": {
+    "litellm_provider": "opencode",
+    "mode": "chat",
+    "max_input_tokens": 131072,
+    "max_output_tokens": 8192,
+    "input_cost_per_token": 0,
+    "cache_read_input_token_cost": 0,
+    "output_cost_per_token": 0
+  },
+  "north-mini-code-free": {
+    "litellm_provider": "opencode",
+    "mode": "chat",
+    "max_input_tokens": 131072,
+    "max_output_tokens": 8192,
+    "input_cost_per_token": 0,
+    "cache_read_input_token_cost": 0,
+    "output_cost_per_token": 0
+  },
   "claude-opus-4-8": {
     "litellm_provider": "anthropic",
     "mode": "chat",

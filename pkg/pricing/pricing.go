@@ -9,6 +9,13 @@
 //	OpenAI    https://platform.openai.com/docs/pricing
 //	DeepSeek  https://api-docs.deepseek.com/quick_start/pricing
 //
+// A model served on a free tier is recorded at its actual billed rate. A free
+// variant with a paid twin carries that twin's published rate as a list-price
+// reference (deepseek-v4-flash-free mirrors deepseek-v4-flash); a free model
+// with no paid twin is billed nothing, so its rates are zero and it reports an
+// explicit $0.00 rather than an unpriced gap. Either way the token breakdown is
+// what carries the leaner-run comparison across the free roster.
+//
 // The on-disk shape matches LiteLLM's model_prices_and_context_window.json field
 // names (input_cost_per_token, cache_read_input_token_cost, output_cost_per_token,
 // litellm_provider), so a fuller table can be dropped in or refreshed from that
