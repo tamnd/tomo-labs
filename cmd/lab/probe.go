@@ -26,7 +26,7 @@ import (
 //	lab probe analyze <out-dir>   read a prior run's trace and print the token curve
 //	lab probe project <out-dir>   re-cost a recorded run under caching and elision, no tokens spent
 //
-//	  --engine <agent|cx|cx-offline>  which engine to drive (default cx-offline)
+//	  --engine <agent|cx|cx-offline|oi>  which engine to drive (default cx-offline)
 //	  --model <provider/model>        default opencode/deepseek-v4-flash-free
 //	  --system-file <path>            prompt template to render instead of the embedded one
 //	  --message <text>                the user turn (default: the task's prompt.txt)
