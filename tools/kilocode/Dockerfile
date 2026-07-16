@@ -5,7 +5,7 @@
 # so the image is independent of any kilo checkout on the host. The base already
 # carries Node 22, which the installer needs.
 FROM tomolab-base
-ARG KILOCODE_VERSION=7.4.5
+ARG KILOCODE_VERSION=7.4.9
 RUN npm install -g @kilocode/cli@${KILOCODE_VERSION}
 COPY adapter.sh /usr/local/bin/adapter
 RUN chmod +x /usr/local/bin/adapter
