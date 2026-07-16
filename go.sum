@@ -2,8 +2,8 @@ github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/tamnd/hako v0.2.0 h1:9yH+5ToGa3VBeId19FHx7Q+gop/2HOPnNw9hAPIeN2I=
 github.com/tamnd/hako v0.2.0/go.mod h1:VTlRx1haePYVCnJ7Jti21f1txAYS4sBtS9imhCZNnQI=
-github.com/tamnd/tomo v0.2.5-0.20260715051206-4ca2ea463332 h1:MTaVd0G0O1r6Botl9WjZ5iR1vqIYHx/dL+8+nmqx2qU=
-github.com/tamnd/tomo v0.2.5-0.20260715051206-4ca2ea463332/go.mod h1:fVcOSC/2hK43eujC61Yfa3Oiq3veyrXEu5B1vALNVLw=
+github.com/tamnd/tomo v0.2.5-0.20260716102559-e07694d9b3ca h1:UnnEYNVmUhCW8k/LtichCRbJlJGMor0M/3nDVxDLgMc=
+github.com/tamnd/tomo v0.2.5-0.20260716102559-e07694d9b3ca/go.mod h1:fVcOSC/2hK43eujC61Yfa3Oiq3veyrXEu5B1vALNVLw=
 golang.org/x/net v0.56.0 h1:Rw8j/hFzGvJUZwNBXnAtf5sVDVt+65SK2C7IxCxZt5o=
 golang.org/x/net v0.56.0/go.mod h1:D3Ku6r+V6JROoZK144D2XfMHFcMq/0zSfLelVTCFKec=
 golang.org/x/sys v0.46.0 h1:noSf2Fq6F8DBgS+LysIkx7rIExoNHJsxOAtPp4rthXw=
