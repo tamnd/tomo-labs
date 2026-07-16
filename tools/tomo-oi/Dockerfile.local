@@ -1,0 +1,9 @@
+# Local override: inject a tomo binary built from the working tree (all
+# uncommitted engine/oi changes) instead of go install @ref. Used to benchmark
+# the improved oi engine before it is committed. adapter.sh is shared with the
+# published image.
+FROM tomolab-base
+COPY tomo-local /usr/local/bin/tomo
+COPY adapter.sh /usr/local/bin/adapter
+RUN chmod +x /usr/local/bin/tomo /usr/local/bin/adapter
+ENTRYPOINT ["/usr/local/bin/adapter"]

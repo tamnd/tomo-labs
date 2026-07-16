@@ -72,6 +72,30 @@ func TestChatRequestToResponses(t *testing.T) {
 	}
 }
 
+// The bridge must forward prompt_cache_key to the Responses backend, not drop it
+// in translation, or a tool's cache routing is invisible through the bridge and a
+// benchmark run measures a stripped request instead of the real one. Absent the
+// hint, the field must simply be absent.
+func TestChatRequestForwardsPromptCacheKey(t *testing.T) {
+	with := []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi"}],"prompt_cache_key":"tomo-abc123"}`)
+	req, err := chatRequestToResponses(with, "gpt-5.6-sol", "high")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req["prompt_cache_key"] != "tomo-abc123" {
+		t.Errorf("prompt_cache_key not forwarded: %v", req["prompt_cache_key"])
+	}
+
+	without := []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi"}]}`)
+	req2, err := chatRequestToResponses(without, "gpt-5.6-sol", "high")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := req2["prompt_cache_key"]; present {
+		t.Errorf("prompt_cache_key should be absent when unset, got %v", req2["prompt_cache_key"])
+	}
+}
+
 func TestResponsesStreamToChat(t *testing.T) {
 	// A minimal but representative Responses SSE stream: some text, one function
 	// call streamed in argument fragments, then completion with usage.
@@ -82,7 +106,7 @@ func TestResponsesStreamToChat(t *testing.T) {
 		`data: {"type":"response.output_item.added","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_9","name":"bash","arguments":""}}`,
 		`data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\"cmd\":"}`,
 		`data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"\"ls\"}"}`,
-		`data: {"type":"response.completed","response":{"usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120}}}`,
+		`data: {"type":"response.completed","response":{"usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120,"input_tokens_details":{"cached_tokens":80}}}}`,
 		`data: [DONE]`,
 	}, "\n") + "\n"
 
@@ -92,7 +116,7 @@ func TestResponsesStreamToChat(t *testing.T) {
 	// Replay the produced chat SSE the way tomo's parser would.
 	var text strings.Builder
 	var toolName, toolArgs, finish string
-	var prompt, completion int
+	var prompt, completion, cached int
 	for _, line := range strings.Split(out.String(), "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "data:") {
@@ -116,8 +140,11 @@ func TestResponsesStreamToChat(t *testing.T) {
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
 			Usage *struct {
-				PromptTokens     int `json:"prompt_tokens"`
-				CompletionTokens int `json:"completion_tokens"`
+				PromptTokens        int `json:"prompt_tokens"`
+				CompletionTokens    int `json:"completion_tokens"`
+				PromptTokensDetails *struct {
+					CachedTokens int `json:"cached_tokens"`
+				} `json:"prompt_tokens_details"`
 			} `json:"usage"`
 		}
 		if json.Unmarshal([]byte(p), &ch) != nil {
@@ -125,6 +152,9 @@ func TestResponsesStreamToChat(t *testing.T) {
 		}
 		if ch.Usage != nil {
 			prompt, completion = ch.Usage.PromptTokens, ch.Usage.CompletionTokens
+			if ch.Usage.PromptTokensDetails != nil {
+				cached = ch.Usage.PromptTokensDetails.CachedTokens
+			}
 		}
 		for _, c := range ch.Choices {
 			text.WriteString(c.Delta.Content)
@@ -150,5 +180,8 @@ func TestResponsesStreamToChat(t *testing.T) {
 	}
 	if prompt != 100 || completion != 20 {
 		t.Errorf("usage = %d/%d", prompt, completion)
+	}
+	if cached != 80 {
+		t.Errorf("cached prompt tokens = %d, want 80 (bridge must not drop the cache read)", cached)
 	}
 }
