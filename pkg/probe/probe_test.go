@@ -5,12 +5,13 @@ import (
 
 	"github.com/tamnd/tomo/pkg/agent"
 	"github.com/tamnd/tomo/pkg/engine/cx"
+	"github.com/tamnd/tomo/pkg/engine/oi"
 	"github.com/tamnd/tomo/pkg/provider"
 	"github.com/tamnd/tomo/pkg/tool"
 )
 
 func TestValidEngine(t *testing.T) {
-	for _, e := range []string{"agent", "cx", "cx-offline"} {
+	for _, e := range []string{"agent", "cx", "cx-offline", "oi"} {
 		if !validEngine(e) {
 			t.Errorf("validEngine(%q) = false, want true", e)
 		}
@@ -49,13 +50,16 @@ func TestBuildEngineSelectsConcreteType(t *testing.T) {
 	reg := tool.NewRegistry()
 	var prov provider.Provider
 
-	if e := buildEngine("agent", prov, "m", "sys", reg, "/w", 0); func() bool { _, ok := e.(*agent.Agent); return !ok }() {
+	if e := buildEngine("agent", prov, "m", "sys", reg, nil, "/w", 0); func() bool { _, ok := e.(*agent.Agent); return !ok }() {
 		t.Errorf("buildEngine(agent) = %T, want *agent.Agent", e)
 	}
 	for _, name := range []string{"cx", "cx-offline"} {
-		if e := buildEngine(name, prov, "m", "sys", reg, "/w", 0); func() bool { _, ok := e.(*cx.Engine); return !ok }() {
+		if e := buildEngine(name, prov, "m", "sys", reg, nil, "/w", 0); func() bool { _, ok := e.(*cx.Engine); return !ok }() {
 			t.Errorf("buildEngine(%q) = %T, want *cx.Engine", name, e)
 		}
+	}
+	if e := buildEngine("oi", prov, "m", "sys", reg, nil, "/w", 0); func() bool { _, ok := e.(*oi.Engine); return !ok }() {
+		t.Errorf("buildEngine(oi) = %T, want *oi.Engine", e)
 	}
 }
 

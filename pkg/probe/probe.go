@@ -33,6 +33,7 @@ import (
 	"github.com/tamnd/tomo/pkg/builtin"
 	"github.com/tamnd/tomo/pkg/config"
 	"github.com/tamnd/tomo/pkg/engine/cx"
+	"github.com/tamnd/tomo/pkg/engine/oi"
 	"github.com/tamnd/tomo/pkg/provider"
 	"github.com/tamnd/tomo/pkg/sandbox"
 	"github.com/tamnd/tomo/pkg/tool"
@@ -53,7 +54,7 @@ type Options struct {
 	Task        string        // task dir name, e.g. "dynaconf__dynaconf-1225"
 	Model       string        // provider/model, default "opencode/deepseek-v4-flash-free"
 	BaseURL     string        // openai base_url override (e.g. a local bridge); empty uses the provider default
-	Engine      string        // "cx-offline" (default), "cx", or "agent"
+	Engine      string        // "cx-offline" (default), "cx", "agent", or "oi"
 	SystemFile  string        // prompt template file to render as the system prompt; empty uses the engine's embedded one
 	HistoryFile string        // messages.json from a past run to resume the conversation from; empty starts fresh
 	Message     string        // the user turn to send; empty uses the task's prompt.txt (the natural first turn)
@@ -112,7 +113,7 @@ func (r Result) Converged() bool {
 func Run(ctx context.Context, o Options) (Result, error) {
 	o = withDefaults(o)
 	if !validEngine(o.Engine) {
-		return Result{}, fmt.Errorf("unknown engine %q: want agent, cx, or cx-offline", o.Engine)
+		return Result{}, fmt.Errorf("unknown engine %q: want agent, cx, cx-offline, or oi", o.Engine)
 	}
 	taskDir := filepath.Join(o.Root, "evals", o.Suite, "tasks", o.Task)
 	oracleDir := filepath.Join(o.Root, "evals", o.Suite, "oracle", o.Task)
@@ -215,7 +216,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 
 	sink := newMetricsSink(events)
 
-	e := buildEngine(o.Engine, cp, modelID, system, reg, work, o.MaxRounds)
+	e := buildEngine(o.Engine, cp, modelID, system, reg, box, work, o.MaxRounds)
 
 	runCtx := ctx
 	if o.Timeout > 0 {
@@ -338,8 +339,11 @@ func withDefaults(o Options) Options {
 // edit it and re-run.
 func systemPrompt(o Options, work string) (string, error) {
 	if o.SystemFile == "" {
-		if o.Engine == "agent" {
+		switch o.Engine {
+		case "agent":
 			return agent.SystemPrompt(time.Now(), work, "", "", ""), nil
+		case "oi":
+			return oi.SystemPrompt(time.Now(), work, "", "", ""), nil
 		}
 		return cx.SystemPrompt(time.Now(), work, "", "", "", o.Engine == "cx-offline"), nil
 	}
@@ -368,7 +372,7 @@ func systemPrompt(o Options, work string) (string, error) {
 // validEngine reports whether o.Engine names an engine the sim can drive.
 func validEngine(engine string) bool {
 	switch engine {
-	case "agent", "cx", "cx-offline":
+	case "agent", "cx", "cx-offline", "oi":
 		return true
 	}
 	return false
@@ -384,13 +388,18 @@ func engineTools(engine string, base []tool.Tool) []tool.Tool {
 	return base
 }
 
-// buildEngine constructs the engine the run drives. Both the default agent and the
-// cx engine expose the same Turn method, so the sim keeps either behind turnEngine
+// buildEngine constructs the engine the run drives. The agent, cx, and oi engines
+// all expose the same Turn method, so the sim keeps any of them behind turnEngine
 // and the rest of the run is identical. The gate is nil, which allows every tool:
-// the sim is the yolo equivalent, run against a throwaway tree.
-func buildEngine(engine string, prov provider.Provider, model, system string, reg *tool.Registry, work string, maxRounds int) turnEngine {
-	if engine == "agent" {
+// the sim is the yolo equivalent, run against a throwaway tree. The oi engine has
+// no structured tool registry; it acts by running one code block per turn, so it
+// takes the sandbox box directly instead of reg.
+func buildEngine(engine string, prov provider.Provider, model, system string, reg *tool.Registry, box sandbox.Sandbox, work string, maxRounds int) turnEngine {
+	switch engine {
+	case "agent":
 		return &agent.Agent{Provider: prov, Model: model, System: system, Tools: reg, Workspace: work, MaxRounds: maxRounds}
+	case "oi":
+		return &oi.Engine{Provider: prov, Model: model, System: system, Box: box, Workspace: work, MaxRounds: maxRounds}
 	}
 	return &cx.Engine{Provider: prov, Model: model, System: system, Tools: reg, Workspace: work, MaxRounds: maxRounds}
 }
