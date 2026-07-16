@@ -28,6 +28,15 @@ type Config struct {
 	Network    string // container network name
 	NamePrefix string // prefix for the proxy, web, and run container names
 	Isolate    bool   // run the tool on a no-egress internal network so it cannot fetch an answer; the proxy bridges to the model
+
+	// Passthrough runs the trace proxy as a raw tap that never rewrites a request,
+	// for a tool talking its own wire to its own backend (real codex on the ChatGPT
+	// subscription, reached through the bridge). The default translate mode rewrites
+	// a Responses request to chat, which strips the tools codex leaves the backend
+	// to inject; passthrough forwards codex's request verbatim so it behaves as it
+	// would on its own subscription, and the tap still records every request and
+	// response. Set by LAB_PASSTHROUGH.
+	Passthrough bool
 }
 
 const (
@@ -64,6 +73,7 @@ func DefaultConfig() Config {
 		Network:     env("LAB_NETWORK", "tomolab"),
 		NamePrefix:  env("LAB_NAME_PREFIX", "tomolab"),
 		Isolate:     envBool("LAB_ISOLATE", true),
+		Passthrough: envBool("LAB_PASSTHROUGH", false),
 	}
 }
 

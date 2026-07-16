@@ -10,7 +10,7 @@
 #
 #     --models "a b c"   space-separated model list (default: the five free ones)
 #     --engine <name>    engine to drive (default oi)
-#     --out <dir>        parent out-dir (default /tmp/campaign/<task>)
+#     --out <dir>        parent out-dir (default <LAB_DATA>/campaign/<engine>/<task>)
 #     --max-rounds <n>   per-run round cap (default 30)
 #     --timeout <dur>    per-run inner deadline (default 600s)
 #     --retries <n>      abort retries per model (default 2)
@@ -54,7 +54,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-out="${out:-/tmp/campaign/$task}"
+# Default to the durable lab store so a completed sweep survives and is not
+# rerun. LAB_DATA overrides the root, matching the container harness and every
+# task setup.sh; the layout is <root>/campaign/<engine>/<task>/<model_slug>/.
+out="${out:-${LAB_DATA:-$HOME/data/tomo-labs}/campaign/$engine/$task}"
 if [ -z "$lab" ]; then
   lab="/tmp/lab"
   echo "building lab -> $lab" >&2

@@ -467,9 +467,50 @@ func extractUsage(body []byte) *usageRecord {
 			last = rec
 		}
 	}
+	// The Responses wire (real codex, passed through untranslated) names its tokens
+	// differently and buries them one level deep under a response.completed event:
+	// {"response":{"usage":{"input_tokens","output_tokens","total_tokens",
+	// "input_tokens_details":{"cached_tokens"}}}}. Map it onto the same record so a
+	// passthrough codex run keeps its full token and cache breakdown in the trace.
+	tryResponses := func(chunk []byte) {
+		var v struct {
+			Response *struct {
+				Usage *struct {
+					InputTokens        int `json:"input_tokens"`
+					OutputTokens       int `json:"output_tokens"`
+					TotalTokens        int `json:"total_tokens"`
+					InputTokensDetails *struct {
+						CachedTokens int `json:"cached_tokens"`
+					} `json:"input_tokens_details"`
+					CachedInputTokens int `json:"cached_input_tokens"`
+				} `json:"usage"`
+			} `json:"response"`
+		}
+		if json.Unmarshal(chunk, &v) != nil || v.Response == nil || v.Response.Usage == nil {
+			return
+		}
+		u := v.Response.Usage
+		total := u.TotalTokens
+		if total == 0 {
+			total = u.InputTokens + u.OutputTokens
+		}
+		rec := &usageRecord{
+			PromptTokens:     u.InputTokens,
+			CompletionTokens: u.OutputTokens,
+			TotalTokens:      total,
+		}
+		if u.InputTokensDetails != nil {
+			rec.CachedTokens = u.InputTokensDetails.CachedTokens
+		}
+		if u.CachedInputTokens > 0 {
+			rec.CachedTokens = u.CachedInputTokens
+		}
+		last = rec
+	}
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) > 0 && trimmed[0] == '{' {
 		tryOne(trimmed)
+		tryResponses(trimmed)
 	}
 	for _, line := range bytes.Split(body, []byte("\n")) {
 		line = bytes.TrimSpace(line)
@@ -481,6 +522,7 @@ func extractUsage(body []byte) *usageRecord {
 			continue
 		}
 		tryOne(payload)
+		tryResponses(payload)
 	}
 	return last
 }
