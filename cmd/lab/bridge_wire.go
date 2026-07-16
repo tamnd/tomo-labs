@@ -30,8 +30,9 @@ func chatRequestToResponses(chat []byte, modelOverride, effort string) (map[stri
 				} `json:"function"`
 			} `json:"tool_calls"`
 		} `json:"messages"`
-		Tools      []json.RawMessage `json:"tools"`
-		ToolChoice json.RawMessage   `json:"tool_choice"`
+		Tools          []json.RawMessage `json:"tools"`
+		ToolChoice     json.RawMessage   `json:"tool_choice"`
+		PromptCacheKey string            `json:"prompt_cache_key"`
 	}
 	if err := json.Unmarshal(chat, &c); err != nil {
 		return nil, err
@@ -84,6 +85,13 @@ func chatRequestToResponses(chat []byte, modelOverride, effort string) (map[stri
 	}
 	if effort != "" {
 		req["reasoning"] = map[string]any{"effort": effort, "summary": "auto"}
+	}
+	// The Responses API keys its prompt cache on this hint, the same one tomo's
+	// OpenAI client sends. Forwarding it (instead of dropping it in translation)
+	// lets a benchmark run through the bridge exercise the caller's cache routing,
+	// so the harness measures the tool's real behavior rather than a stripped one.
+	if c.PromptCacheKey != "" {
+		req["prompt_cache_key"] = c.PromptCacheKey
 	}
 	return req, nil
 }
@@ -318,9 +326,15 @@ func responsesStreamToChat(w io.Writer, flush func(), r io.Reader, seq int, mode
 func usageFromResponse(resp json.RawMessage) map[string]any {
 	var r struct {
 		Usage struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
-			TotalTokens  int `json:"total_tokens"`
+			InputTokens        int `json:"input_tokens"`
+			OutputTokens       int `json:"output_tokens"`
+			TotalTokens        int `json:"total_tokens"`
+			InputTokensDetails struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"input_tokens_details"`
+			// Some rollout events flatten the cached count to the top level; accept
+			// either shape so the read rate is never silently dropped.
+			CachedInputTokens int `json:"cached_input_tokens"`
 		} `json:"usage"`
 	}
 	if json.Unmarshal(resp, &r) != nil {
@@ -330,9 +344,22 @@ func usageFromResponse(resp json.RawMessage) map[string]any {
 	if total == 0 {
 		total = r.Usage.InputTokens + r.Usage.OutputTokens
 	}
-	return map[string]any{
+	cached := r.Usage.InputTokensDetails.CachedTokens
+	if cached == 0 {
+		cached = r.Usage.CachedInputTokens
+	}
+	usage := map[string]any{
 		"prompt_tokens":     r.Usage.InputTokens,
 		"completion_tokens": r.Usage.OutputTokens,
 		"total_tokens":      total,
 	}
+	// The codex subscription caches the repeated transcript prefix, so on deep
+	// runs most of prompt_tokens is a cache read billed at a fraction of the
+	// fresh rate. Surface it the chat way (prompt_tokens_details.cached_tokens)
+	// so tomo's usage accounting can credit it instead of counting every round
+	// at the full input price.
+	if cached > 0 {
+		usage["prompt_tokens_details"] = map[string]any{"cached_tokens": cached}
+	}
+	return usage
 }
