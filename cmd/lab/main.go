@@ -285,7 +285,7 @@ func cmdScenarios(l *lab.Lab) error {
 }
 
 func cmdReport(ctx context.Context, l *lab.Lab, scenario string, asJSON bool) error {
-	sums, err := l.Report(ctx, scenario)
+	sums, cells, err := l.Report(ctx, scenario)
 	if err != nil {
 		return err
 	}
@@ -294,7 +294,10 @@ func cmdReport(ctx context.Context, l *lab.Lab, scenario string, asJSON bool) er
 		return nil
 	}
 	if asJSON {
-		b, err := json.MarshalIndent(sums, "", "  ")
+		b, err := json.MarshalIndent(struct {
+			Tools     []lab.ToolSummary   `json:"tools"`
+			Scenarios []lab.ScenarioStats `json:"scenarios"`
+		}{sums, cells}, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -302,6 +305,8 @@ func cmdReport(ctx context.Context, l *lab.Lab, scenario string, asJSON bool) er
 		return nil
 	}
 	lab.WriteTable(os.Stdout, sums)
+	fmt.Println()
+	lab.WriteScenarioTable(os.Stdout, cells)
 	return nil
 }
 
