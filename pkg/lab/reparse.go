@@ -48,6 +48,10 @@ func (l *Lab) Reparse(_ context.Context) (int, error) {
 		} else {
 			r.StreamFail = nil
 		}
+		// A recorded stop verdict is kept (the caps the run ran under are not in
+		// the trace); a run that predates the field gets the unambiguous halves
+		// derived from what the refreshed metrics show.
+		r.Stop = stopOf(r)
 		if writeErr := writeResult(path, r); writeErr != nil {
 			firstErr = writeErr
 			return

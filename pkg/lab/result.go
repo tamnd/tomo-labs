@@ -57,6 +57,15 @@ type Result struct {
 	// agent. It is omitted on a run whose streams all completed cleanly.
 	StreamFail *StreamFail `json:"stream_fail,omitempty"`
 
+	// Stop names the cap that ended a failed attempt when the tool did not stop
+	// on its own: "timeout" when the wall-clock ceiling killed the container,
+	// "turns" when the run burned its whole turn budget without passing, or
+	// "rate-limit" when the upstream starved the run (every call rejected, or a
+	// back-off longer than the attempt is allowed to live). Empty means the tool
+	// ended its own turn. A fail with a Stop is a capped fail, not a graded one,
+	// and the report keeps the two apart per the measurement law.
+	Stop string `json:"stop,omitempty"`
+
 	Check string `json:"check"`
 
 	// EditedTests names the hidden test files the tool changed in the work tree
