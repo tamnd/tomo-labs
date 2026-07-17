@@ -70,7 +70,7 @@ The user message is `Hi!`.
 The request also carries the nine tool schemas (`shell`, `read_file`, `write_file`, `fetch`, `time`, `plan`, `memory_write`, `memory_read`, `skill_read`), sent on the native chat wire.
 
 At the proxy the request lands as a POST to `/zen/v1/chat/completions` with model `deepseek-v4-flash-free`.
-The proxy forces greedy decoding, so the body shows `temperature=0`, `top_p=1`, `seed=7`, and `stream=true` with `stream_options.include_usage=true`.
+This trace predates a harness change, when the proxy still pinned greedy decoding, so the body shows `temperature=0`, `top_p=1`, `seed=7`, and `stream=true` with `stream_options.include_usage=true`; today the proxy passes each tool's own sampling through untouched.
 It is a plain chat-completions call with two messages, roles system and user, and no dialect translation.
 The full proxy tap for the run is two records, a `GET /zen/` health touch and the one `POST /zen/v1/chat/completions`.
 

@@ -8,7 +8,7 @@
 
 [Install](#install) • [Quick start](#quick-start) • [Results](#results) • [Scenarios](#the-scenarios) • [Adding a tool](#adding-a-tool) • [Docs](https://tomo-labs.tamnd.com/)
 
-Agent benchmarks usually compare one thing everybody actually cares about (did it get the task done) by changing three things at once: the model, the prompt scaffolding, and the tool's own overhead. That is not a comparison, it is three experiments wearing one number. tomo-labs holds the model fixed. A trace proxy sits in front of every agent and forwards every request to the same free model with the same deterministic decoding settings, whatever wire dialect the agent's SDK speaks, OpenAI chat, Anthropic Messages, OpenAI Responses, or Gemini's API. What is left to differ is the agent: how many turns it needs, how many tokens it burns getting there, how much memory it holds, how big its install is. Eleven agents run through the same harness today: tomo, codex, opencode, claude-code, openclaw, hermes, gemini-cli, pi, kilocode, aider, and copilot. Adding one more is a `Dockerfile` and a small adapter script, not a fork of the harness.
+Agent benchmarks usually compare one thing everybody actually cares about (did it get the task done) by changing three things at once: the model, the prompt scaffolding, and the tool's own overhead. That is not a comparison, it is three experiments wearing one number. tomo-labs holds the model fixed. A trace proxy sits in front of every agent and forwards every request to the same free model with each agent's own sampling settings passed through untouched and recorded, whatever wire dialect the agent's SDK speaks, OpenAI chat, Anthropic Messages, OpenAI Responses, or Gemini's API. What is left to differ is the agent: how many turns it needs, how many tokens it burns getting there, how much memory it holds, how big its install is. Eleven agents run through the same harness today: tomo, codex, opencode, claude-code, openclaw, hermes, gemini-cli, pi, kilocode, aider, and copilot. Adding one more is a `Dockerfile` and a small adapter script, not a fork of the harness.
 
 ## Install
 
@@ -51,7 +51,7 @@ go run ./cmd/lab tools                            # list wired tools
 go run ./cmd/lab scenarios                        # list scenarios
 ```
 
-A run is kept from swinging on the model's luck without any per-scenario tuning. The proxy forces greedy decoding (temperature 0, top_p 1, a fixed seed) onto every completion request, so a repeat run sees the same sampling. Each scenario is then scored on a single first-try attempt: pure pass@1, the metric the report ranks on. An upstream fault (a dropped stream or a rate-limit) is re-issued off the books, so a gateway hiccup is never scored as the model failing; raising `LAB_ATTEMPTS` above 1 turns on opt-in best-of-N for anyone who wants to measure recovery instead. `result.json` records how many tries a pass took, so any retry stays visible.
+A run is kept from swinging on the model's luck without any per-scenario tuning, and without touching the model's sampling. The proxy passes every tool's decoding knobs through untouched and records them; an earlier version pinned greedy decoding (temperature 0, top_p 1, a fixed seed), but forcing a tool's sampling risks lowering its quality to buy an illusion of determinism, so that lever is gone. Honesty comes from the statistics instead: each scenario is scored on a single first-try attempt (pure pass@1), and claims aggregate over repeats, with pass rates as raw fractions over n and token columns as medians with spreads. An upstream fault (a dropped stream or a rate-limit) is re-issued off the books, so a gateway hiccup is never scored as the model failing; raising `LAB_ATTEMPTS` above 1 turns on opt-in best-of-N for anyone who wants to measure recovery instead. `result.json` records how many tries a pass took, so any retry stays visible.
 
 Runs go through a worker pool, `LAB_CONCURRENCY` deep (default 3), each with its own proxy container and port, so a full sweep is bounded by the slowest few runs rather than the sum of all of them.
 
@@ -145,15 +145,15 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and the trace schema
 
 ```
 scenario prompt ─▶ tool container ─▶ trace proxy ─▶ upstream model
-   (/scenario)      (runs in /work)   (records +      (deterministic,
-                                        translates       same for
-                                        the wire)         every tool)
+   (/scenario)      (runs in /work)   (records +      (same model for
+                                        translates       every tool)
+                                        the wire)
                           │
                           ▼
                      work left in /work ─▶ checker ─▶ result.json
 ```
 
-The proxy is the one piece every tool shares. It records every request and response verbatim, forces deterministic decoding, and translates whatever wire the tool's SDK speaks into one chat-completions call upstream, using the translators in [`tamnd/tomo/pkg/wire`](https://github.com/tamnd/tomo/tree/main/pkg/wire). A tool never talks to the real model directly, and never knows the proxy is anything other than the API it expects.
+The proxy is the one piece every tool shares. It records every request and response verbatim, passes each tool's sampling settings through untouched, and translates whatever wire the tool's SDK speaks into one chat-completions call upstream, using the translators in [`tamnd/tomo/pkg/wire`](https://github.com/tamnd/tomo/tree/main/pkg/wire). A tool never talks to the real model directly, and never knows the proxy is anything other than the API it expects.
 
 ## Layout
 

@@ -122,10 +122,10 @@ Because the run is headless, pi's interactive plan-mode prompt is never reachabl
 pi assembles a chat-completions request: its small baked-in system prompt, the user message `Hi!`, and the four tool schemas (`read`, `bash`, `edit`, `write`).
 The user turn arrives as structured content, `[{"type":"text","text":"Hi!"}]`.
 
-### 4. The proxy forces greedy decoding
+### 4. The decoding on the wire
 
 At the proxy the call lands as `POST /zen/v1/chat/completions` with model `deepseek-v4-flash-free`.
-The proxy pins decoding so runs are reproducible.
+This trace predates a harness change: the proxy then pinned decoding, which is why the body carries a fixed seed. Today the proxy passes each tool's own sampling through untouched and records it; repeatability comes from aggregating repeats, not from forcing the sampler.
 
 | Parameter | Value |
 | --- | --- |

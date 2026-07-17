@@ -128,7 +128,7 @@ Then the real user message `Hi!`.
 The request also carries all fifteen tool schemas, sent on the Gemini wire.
 
 At the proxy the request lands as a `POST /v1/chat/completions`, tagged `(from gemini)` to mark that it arrived on the Gemini wire and was shimmed to chat, with model `deepseek-v4-flash-free`.
-The proxy forces greedy decoding, so the body shows `temperature=0`, `top_p=1`, `seed=7`, and `stream=true` with `stream_options.include_usage=true`.
+This trace predates a harness change, when the proxy still pinned greedy decoding, so the body shows `temperature=0`, `top_p=1`, `seed=7`, and `stream=true` with `stream_options.include_usage=true`; today the proxy passes each tool's own sampling through untouched.
 The full proxy tap for the run is two records, a `GET /zen/` health touch and the one `POST /v1/chat/completions (from gemini)`.
 
 That one request gets one upstream completion, and gemini-cli answers without calling a tool.

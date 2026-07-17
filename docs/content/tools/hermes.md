@@ -101,7 +101,7 @@ cd /work
 
 hermes builds a single chat completion around the prompt: a system message with the general agent prompt, then the user message `Hi!`, plus all 19 tool schemas, on the native chat wire.
 The wire body confirms it: `model=deepseek-v4-flash-free`, two messages (system 7526 chars, user 3 chars, which is `Hi!`), and 19 tools.
-At the proxy the decoding is forced greedy, so the body shows `temperature=0`, `top_p=1`, `seed=7`, and `stream=true`.
+This trace predates a harness change, when the proxy still pinned greedy decoding, so the body shows `temperature=0`, `top_p=1`, `seed=7`, and `stream=true`; today the proxy passes each tool's own sampling through untouched.
 
 The standout fact is that answering "Hi!" logged 26 requests while only one was a model completion.
 The other 25 are hermes' own scaffolding during the "Initializing agent..." phase: capability probes against the OpenAI-compatible endpoint plus the setup chatter the CLI prints.

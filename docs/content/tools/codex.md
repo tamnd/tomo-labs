@@ -125,11 +125,11 @@ Before the user's `Hi!`, codex injects its own user message, an `<environment_co
 
 Only after that context does the real `Hi!` arrive as the fourth message.
 
-**Step 5, the proxy translates and forces decoding.**
+**Step 5, the proxy translates.**
 The proxy records the Responses request, rewrites it into a `POST /v1/chat/completions`, and forwards it to the chat-only deepseek upstream.
 In the trace the record is tagged `POST /v1/chat/completions (from responses)`, the proxy's own marker that this started life as a Responses request.
-Every completion is forced onto greedy decoding, so the request went out with `temperature=0`, `top_p=1`, `seed=7`, and `stream=true`.
-That is the lab's determinism lever, applied identically to every tool, so a rerun means the same thing.
+At the time of this trace the proxy also pinned greedy decoding, so the request went out with `temperature=0`, `top_p=1`, `seed=7`, and `stream=true`.
+That lever has since been removed: the proxy now passes each tool's own sampling through untouched and records it, and repeatability comes from aggregating repeats instead.
 The `model` field on the wire is `deepseek-v4-flash-free`, the shared free model every agent in the sweep is judged on.
 
 **Step 6, one completion, zero tool calls.**
@@ -303,7 +303,7 @@ The proxy's job on each call:
 1. Receive codex's Responses request at `http://tomolab-proxy:8080/v1`.
 2. Record it to the trace (`requests.jsonl`), tagging the path `(from responses)`.
 3. Rewrite it into a `POST /v1/chat/completions`, mapping the Responses shape onto chat messages and tool schemas.
-4. Force greedy decoding: `temperature=0`, `top_p=1`, `seed=7`, `stream=true`.
+4. Pass the request's own sampling settings through untouched (at the time of this trace the proxy still pinned `temperature=0`, `top_p=1`, `seed=7`).
 5. Forward to the chat-only deepseek upstream with the key from `OPENCODE_API_KEY`.
 6. Tee the streamed chat reply into the trace (`resp-*.txt`, `usage.jsonl`, `latency.jsonl`) and fold it back into a Responses-shaped stream for codex.
 
