@@ -325,3 +325,98 @@ func TestAttachTags(t *testing.T) {
 		t.Errorf("deleted scenario should join as unaudited: %+v", cells[2])
 	}
 }
+
+// A cap is named at write time: the wall clock, an upstream that starved the
+// run, or a burned turn budget. A pass is never capped, whatever the clock did.
+func TestStopReason(t *testing.T) {
+	if got := stopReason(&Result{Passed: true, ExitCode: 124}, 12, 900); got != "" {
+		t.Errorf("a pass is never capped, got %q", got)
+	}
+	if got := stopReason(&Result{ExitCode: 124}, 12, 900); got != "timeout" {
+		t.Errorf("exit 124 = %q, want timeout", got)
+	}
+	starved := &Result{RateLimit: &RateLimit{Hits: 3}}
+	if got := stopReason(starved, 12, 900); got != "rate-limit" {
+		t.Errorf("429s with zero tokens = %q, want rate-limit", got)
+	}
+	backoff := &Result{
+		Tokens:    Tokens{Total: 500},
+		RateLimit: &RateLimit{Hits: 1, MaxRetryAfterS: 54000},
+	}
+	if got := stopReason(backoff, 12, 900); got != "rate-limit" {
+		t.Errorf("retry-after beyond the attempt ceiling = %q, want rate-limit", got)
+	}
+	turns := &Result{Orchestration: Orchestration{ModelCalls: 12}, Tokens: Tokens{Total: 9000}}
+	if got := stopReason(turns, 12, 900); got != "turns" {
+		t.Errorf("burned turn budget = %q, want turns", got)
+	}
+	if got := stopReason(&Result{Tokens: Tokens{Total: 100}}, 12, 900); got != "" {
+		t.Errorf("a plain graded fail = %q, want empty", got)
+	}
+}
+
+// The report reads the recorded verdict and, for rows that predate the field,
+// derives only the unambiguous halves.
+func TestStopOf(t *testing.T) {
+	if got := stopOf(&Result{Stop: "turns"}); got != "turns" {
+		t.Errorf("recorded stop = %q, want turns", got)
+	}
+	if got := stopOf(&Result{ExitCode: 124}); got != "timeout" {
+		t.Errorf("historical exit 124 = %q, want timeout", got)
+	}
+	if got := stopOf(&Result{RateLimit: &RateLimit{Hits: 2}}); got != "rate-limit" {
+		t.Errorf("historical starved run = %q, want rate-limit", got)
+	}
+	// A historical fail with tokens and no verdict stays a graded fail; the turn
+	// budget it ran under is unknown, so no turns verdict is invented.
+	if got := stopOf(&Result{Tokens: Tokens{Total: 900}, Orchestration: Orchestration{ModelCalls: 40}}); got != "" {
+		t.Errorf("historical fail with tokens = %q, want empty", got)
+	}
+}
+
+func TestCapCell(t *testing.T) {
+	if got := capCell(nil); got != "-" {
+		t.Errorf("no caps = %q, want -", got)
+	}
+	if got := capCell(map[string]int{"rate-limit": 2}); got != "2 (429)" {
+		t.Errorf("one kind = %q", got)
+	}
+	if got := capCell(map[string]int{"rate-limit": 2, "timeout": 1}); got != "3 (2 429, 1 timeout)" {
+		t.Errorf("mixed kinds = %q", got)
+	}
+}
+
+// A capped attempt stays out of the graded n and out of every median, and is
+// counted where the reader can see it; run health counts every run either way.
+func TestSummarizeCapped(t *testing.T) {
+	results := []*Result{
+		{Tool: "tomo", Scenario: "hard", Passed: true, Attempts: 1, Tokens: Tokens{Prompt: 100, Completion: 10}},
+		{Tool: "tomo", Scenario: "hard", ExitCode: 124, Tokens: Tokens{Prompt: 900000, Completion: 90000, Total: 990000}},
+		{Tool: "tomo", Scenario: "hard", Stop: "rate-limit", RateLimit: &RateLimit{Hits: 9}},
+	}
+	sums := summarize(results)
+	if len(sums) != 1 {
+		t.Fatalf("want one summary, got %d", len(sums))
+	}
+	s := sums[0]
+	if s.Runs != 1 || s.Passed != 1 {
+		t.Errorf("graded n = %d passed = %d, want 1/1", s.Runs, s.Passed)
+	}
+	if s.CapKinds["timeout"] != 1 || s.CapKinds["rate-limit"] != 1 {
+		t.Errorf("cap kinds = %v", s.CapKinds)
+	}
+	if s.RateLimitRuns != 1 {
+		t.Errorf("rate-limit health count = %d, want 1", s.RateLimitRuns)
+	}
+	if s.Fresh.Median != 110 {
+		t.Errorf("fresh median = %d, want 110: the runaway's tokens must not pollute the graded median", s.Fresh.Median)
+	}
+
+	cells := summarizeScenarios(results)
+	if len(cells) != 1 {
+		t.Fatalf("want one cell, got %d", len(cells))
+	}
+	if cells[0].Runs != 1 || cells[0].CapKinds["timeout"] != 1 {
+		t.Errorf("cell n = %d caps = %v", cells[0].Runs, cells[0].CapKinds)
+	}
+}

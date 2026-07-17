@@ -215,10 +215,22 @@ type ToolSummary struct {
 	// Scenarios is how many distinct scenarios the n runs cover, so a tool with
 	// ten reps of one task never reads as a tool graded across ten tasks.
 	Scenarios int `json:"scenarios"`
-	Runs      int `json:"runs"`
-	Passed    int `json:"passed"`
-	FirstTry  int `json:"first_try"`
-	Retried   int `json:"retried"`
+	// Runs counts the graded attempts, the honest denominator for every rate
+	// and median on the row. Capped attempts (the wall clock, the turn budget,
+	// or the upstream's rate limit ended them, per the run's stop field) are
+	// counted in CapKinds and shown beside n, never inside it, so quota weather
+	// degrades n rather than corrupting the rate.
+	Runs     int `json:"runs"`
+	Passed   int `json:"passed"`
+	FirstTry int `json:"first_try"`
+	Retried  int `json:"retried"`
+	// CapKinds counts the capped runs by the cap that ended them. RateLimitRuns
+	// counts every run the upstream throttled at all, capped or not; with
+	// StreamFailRuns it is the row's run-health record, because a comparison
+	// where one arm ate ten rate-limit stalls is not a tool comparison until
+	// those stalls are visible.
+	CapKinds      map[string]int `json:"cap_kinds,omitempty"`
+	RateLimitRuns int            `json:"rate_limit_runs,omitempty"`
 	// Per-run medians with spread where the column is long-tailed. Sums are gone
 	// on purpose: with aggregation over repeats, a sum scales with n and two tools
 	// at different n stop being comparable. Fresh is the effective token count
@@ -261,18 +273,22 @@ type ScenarioStats struct {
 	// in from its tags.json at render time so a reader can re-slice the table
 	// by tag without trusting any aggregate. Unaudited is explicit, never a
 	// blank, and unaudited tasks stay out of bar-claim denominators.
-	Reachability     string  `json:"reachability"`
-	Fairness         string  `json:"fairness"`
-	Tool             string  `json:"tool"`
-	Runs             int     `json:"runs"`
-	Passed           int     `json:"passed"`
-	FirstTry         int     `json:"first_try"`
-	Fresh            Dist    `json:"fresh_tokens"`
-	CostMedianUSD    float64 `json:"cost_median_usd,omitempty"`
-	CostRefRuns      int     `json:"cost_ref_runs,omitempty"`
-	CostUnpricedRuns int     `json:"cost_unpriced_runs,omitempty"`
-	ReqsMedian       int     `json:"reqs_median"`
-	WallMedianS      int     `json:"wall_median_s"`
+	Reachability string `json:"reachability"`
+	Fairness     string `json:"fairness"`
+	Tool         string `json:"tool"`
+	// Runs is the graded n, same rule as the tool row: capped attempts sit in
+	// CapKinds beside it, so a scenario the quota starved shows a small n and a
+	// visible cap count instead of a corrupted rate.
+	Runs             int            `json:"runs"`
+	CapKinds         map[string]int `json:"cap_kinds,omitempty"`
+	Passed           int            `json:"passed"`
+	FirstTry         int            `json:"first_try"`
+	Fresh            Dist           `json:"fresh_tokens"`
+	CostMedianUSD    float64        `json:"cost_median_usd,omitempty"`
+	CostRefRuns      int            `json:"cost_ref_runs,omitempty"`
+	CostUnpricedRuns int            `json:"cost_unpriced_runs,omitempty"`
+	ReqsMedian       int            `json:"reqs_median"`
+	WallMedianS      int            `json:"wall_median_s"`
 }
 
 // Report reads every result.json under the data dir and aggregates it, per tool
@@ -473,12 +489,32 @@ func summarize(results []*Result) []ToolSummary {
 	}
 	var out []ToolSummary
 	for tool, rs := range byTool {
-		s := ToolSummary{Tool: tool, Runs: len(rs)}
+		s := ToolSummary{Tool: tool}
 		scenarios := map[string]bool{}
 		var tokens, cached, reqs, rss, ttfb, wall, model, toolS []int
 		var cost []float64
 		for _, r := range rs {
 			scenarios[r.Scenario] = true
+			// Run health counts every run, capped or not: a stall the upstream
+			// caused belongs on the row whichever way the attempt ended.
+			if r.RateLimit != nil {
+				s.RateLimitRuns++
+			}
+			if r.StreamFail != nil {
+				s.StreamFailRuns++
+			}
+			// A capped attempt is not a solve attempt (the wall clock, the turn
+			// budget, or the rate limit ended it), so it stays out of the graded
+			// n and out of every median; it is counted where the reader can see
+			// it instead.
+			if stop := stopOf(r); stop != "" {
+				if s.CapKinds == nil {
+					s.CapKinds = map[string]int{}
+				}
+				s.CapKinds[stop]++
+				continue
+			}
+			s.Runs++
 			if r.Passed {
 				s.Passed++
 			}
@@ -510,9 +546,6 @@ func summarize(results []*Result) []ToolSummary {
 			m := r.Latency.SumTotal / 1000
 			model = append(model, m)
 			toolS = append(toolS, max(r.WallSeconds-m, 0))
-			if r.StreamFail != nil {
-				s.StreamFailRuns++
-			}
 			if r.Latency.Calls > 0 {
 				ttfb = append(ttfb, r.Latency.AvgTTFB)
 			}
@@ -572,10 +605,20 @@ func summarizeScenarios(results []*Result) []ScenarioStats {
 	}
 	var out []ScenarioStats
 	for _, rs := range byCell {
-		c := ScenarioStats{Scenario: rs[0].Scenario, Tool: rs[0].Tool, Runs: len(rs)}
+		c := ScenarioStats{Scenario: rs[0].Scenario, Tool: rs[0].Tool}
 		var tokens, reqs, wall []int
 		var cost []float64
 		for _, r := range rs {
+			// Same split as the tool rows: a capped attempt is counted beside
+			// the cell's n, never inside it.
+			if stop := stopOf(r); stop != "" {
+				if c.CapKinds == nil {
+					c.CapKinds = map[string]int{}
+				}
+				c.CapKinds[stop]++
+				continue
+			}
+			c.Runs++
 			if r.Passed {
 				c.Passed++
 			}
@@ -602,6 +645,9 @@ func summarizeScenarios(results []*Result) []ScenarioStats {
 		out = append(out, c)
 	}
 	rate := func(c ScenarioStats) float64 {
+		if c.Runs == 0 {
+			return 0
+		}
 		return float64(c.FirstTry) / float64(c.Runs)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -657,25 +703,27 @@ func WriteTable(w io.Writer, sums []ToolSummary) {
 func writeSummaryTable(w io.Writer, sums []ToolSummary, withPlan bool) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if withPlan {
-		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tPASS@1\tPASS\tDROPS\tREQS\tPLANNED\tSUBAG\tFRESH\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
+		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tCAPPED\tPASS@1\tPASS\tDROPS\t429S\tREQS\tPLANNED\tSUBAG\tFRESH\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
 	} else {
-		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tPASS@1\tPASS\tDROPS\tREQS\tFRESH\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
+		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tCAPPED\tPASS@1\tPASS\tDROPS\t429S\tREQS\tFRESH\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
 	}
 	for _, s := range sums {
 		if withPlan {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n",
 				s.Tool, blankDash(s.Version), blankDash(s.Released),
-				s.Scenarios, s.Runs, fraction(s.FirstTry, s.Runs), fraction(s.Passed, s.Runs),
-				blankZero(s.StreamFailRuns),
+				s.Scenarios, s.Runs, capCell(s.CapKinds),
+				fraction(s.FirstTry, s.Runs), fraction(s.Passed, s.Runs),
+				blankZero(s.StreamFailRuns), blankZero(s.RateLimitRuns),
 				s.ReqsMedian, s.PlannedRuns, s.Subagents,
 				distCell(s.Fresh, s.Runs), blankZero(s.CachedMedian),
 				costCell(s.CostMedianUSD, s.CostRefRuns, s.Runs-s.CostUnpricedRuns),
 				s.RSSMedianMB, s.TTFBMedianMS, s.WallMedianS, s.ModelMedianS, s.ToolMedianS, s.InstallMB)
 		} else {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%d\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n",
 				s.Tool, blankDash(s.Version), blankDash(s.Released),
-				s.Scenarios, s.Runs, fraction(s.FirstTry, s.Runs), fraction(s.Passed, s.Runs),
-				blankZero(s.StreamFailRuns),
+				s.Scenarios, s.Runs, capCell(s.CapKinds),
+				fraction(s.FirstTry, s.Runs), fraction(s.Passed, s.Runs),
+				blankZero(s.StreamFailRuns), blankZero(s.RateLimitRuns),
 				s.ReqsMedian,
 				distCell(s.Fresh, s.Runs), blankZero(s.CachedMedian),
 				costCell(s.CostMedianUSD, s.CostRefRuns, s.Runs-s.CostUnpricedRuns),
@@ -695,7 +743,7 @@ func WriteScenarioTable(w io.Writer, cells []ScenarioStats) {
 	}
 	fmt.Fprintln(w, "per scenario (all repeats)")
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SCENARIO\tREACH\tFAIRNESS\tTOOL\tN\tPASS@1\tPASS\tREQS\tFRESH\tCOST-USD\tWALL-S")
+	fmt.Fprintln(tw, "SCENARIO\tREACH\tFAIRNESS\tTOOL\tN\tCAPPED\tPASS@1\tPASS\tREQS\tFRESH\tCOST-USD\tWALL-S")
 	prev := ""
 	for _, c := range cells {
 		name, reach, fair := c.Scenario, c.Reachability, c.Fairness
@@ -707,13 +755,15 @@ func WriteScenarioTable(w io.Writer, cells []ScenarioStats) {
 		} else {
 			prev = name
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\t%s\t%d\t%s\t%s\t%d\n",
-			name, reach, fair, c.Tool, c.Runs, fraction(c.FirstTry, c.Runs), fraction(c.Passed, c.Runs),
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\t%d\t%s\t%s\t%d\n",
+			name, reach, fair, c.Tool, c.Runs, capCell(c.CapKinds),
+			fraction(c.FirstTry, c.Runs), fraction(c.Passed, c.Runs),
 			c.ReqsMedian, distCell(c.Fresh, c.Runs),
 			costCell(c.CostMedianUSD, c.CostRefRuns, c.Runs-c.CostUnpricedRuns), c.WallMedianS)
 	}
 	tw.Flush()
 	fmt.Fprintln(w, "\ntags: reach = gold-diff shape (substitution/invention), fairness = frontier-diagnostic verdict; unaudited tasks stay out of bar-claim denominators")
+	fmt.Fprintln(w, "n counts graded attempts; CAPPED counts attempts a cap ended (wall clock, turn budget, or 429 starvation), kept out of every rate and median")
 }
 
 // fraction renders a pass count over its n, the only shape a rate is quoted in:
