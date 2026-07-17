@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"text/tabwriter"
+
+	"github.com/tamnd/tomo-labs/pkg/pricing"
 )
 
 // writeResult writes a Result as pretty JSON. The file is the unit the report
@@ -219,11 +221,19 @@ type ToolSummary struct {
 	Retried   int `json:"retried"`
 	// Per-run medians with spread where the column is long-tailed. Sums are gone
 	// on purpose: with aggregation over repeats, a sum scales with n and two tools
-	// at different n stop being comparable.
-	Tokens        Dist    `json:"tokens"`
+	// at different n stop being comparable. Fresh is the effective token count
+	// (fresh input plus output); the headline prompt total has no field or column
+	// because it is a banned metric, not a secondary one.
+	Fresh         Dist    `json:"fresh_tokens"`
 	CachedMedian  int     `json:"cached_median,omitempty"`
 	CostMedianUSD float64 `json:"cost_median_usd,omitempty"`
-	ReqsMedian    int     `json:"reqs_median"`
+	// CostRefRuns counts runs priced at a paid twin's list rate because the free
+	// tier billed nothing; any such run flags the cost cell as a reference figure.
+	// CostUnpricedRuns counts runs with no bill and no table rate, which stay out
+	// of the median entirely so unknown never averages in as zero.
+	CostRefRuns      int `json:"cost_ref_runs,omitempty"`
+	CostUnpricedRuns int `json:"cost_unpriced_runs,omitempty"`
+	ReqsMedian       int `json:"reqs_median"`
 	PlannedRuns   int     `json:"planned_runs"`
 	Subagents     int     `json:"subagents"`
 	InstallMB     int     `json:"install_mb"`
@@ -246,15 +256,17 @@ type ToolSummary struct {
 // pass rate and where a runaway rep shows up as spread rather than vanishing
 // into a cross-scenario total.
 type ScenarioStats struct {
-	Scenario      string  `json:"scenario"`
-	Tool          string  `json:"tool"`
-	Runs          int     `json:"runs"`
-	Passed        int     `json:"passed"`
-	FirstTry      int     `json:"first_try"`
-	Tokens        Dist    `json:"tokens"`
-	CostMedianUSD float64 `json:"cost_median_usd,omitempty"`
-	ReqsMedian    int     `json:"reqs_median"`
-	WallMedianS   int     `json:"wall_median_s"`
+	Scenario         string  `json:"scenario"`
+	Tool             string  `json:"tool"`
+	Runs             int     `json:"runs"`
+	Passed           int     `json:"passed"`
+	FirstTry         int     `json:"first_try"`
+	Fresh            Dist    `json:"fresh_tokens"`
+	CostMedianUSD    float64 `json:"cost_median_usd,omitempty"`
+	CostRefRuns      int     `json:"cost_ref_runs,omitempty"`
+	CostUnpricedRuns int     `json:"cost_unpriced_runs,omitempty"`
+	ReqsMedian       int     `json:"reqs_median"`
+	WallMedianS      int     `json:"wall_median_s"`
 }
 
 // Report reads every result.json under the data dir and aggregates it, per tool
@@ -368,34 +380,58 @@ func medianFloat(vals []float64) float64 {
 	return (s[n/2-1] + s[n/2]) / 2
 }
 
-// DeepSeek's published standard-hours rates for the shared model, in USD per 1M
-// tokens: cache-miss input, cache-hit input, and output. The lab runs on the free
-// tier, which bills nothing, so the provider reports no cost. Pricing the tokens
-// at these reference rates turns the token gap between tools into the dollar gap
-// it would be on the paid tier, which is the number that decides which tool you
-// can afford to run at scale.
-const (
-	rateInputMissUSD = 0.27
-	rateInputHitUSD  = 0.07
-	rateOutputUSD    = 1.10
-)
+// prices is the vendored rate table, the single source of truth for what a
+// model's tokens cost. Loaded once; the table is embedded and tested.
+var prices = pricing.Default()
 
-// estimatedCostUSD prices one run's tokens at the reference rates above, used when
-// the provider billed nothing so the report still has a comparable cost column.
-func estimatedCostUSD(t Tokens) float64 {
-	miss := max(t.Prompt-t.Cached, 0)
-	return float64(miss)/1e6*rateInputMissUSD +
-		float64(t.Cached)/1e6*rateInputHitUSD +
-		float64(t.Completion)/1e6*rateOutputUSD
+// freshTokens is one run's effective token count: fresh input (prompt minus
+// cached, the tokens the provider actually processed anew) plus output. This is
+// the token metric the report renders; the headline prompt total (the triangular
+// re-send sum, which overstates a multi-turn run by up to 7x) gets no column at
+// all, because a column that exists gets quoted. A run whose provider never
+// reported a cached split counts all prompt tokens as fresh, which is the
+// conservative direction: opacity never reads as a discount.
+func freshTokens(t Tokens) int {
+	return max(t.Prompt-t.Cached, 0) + t.Completion
 }
 
-// runCostUSD is one run's cost: what the provider billed, or the reference-rate
-// estimate when it billed nothing, so the column stays comparable across tiers.
-func runCostUSD(r *Result) float64 {
+// How a run's cost figure came to be, from most to least authoritative. The
+// report renders reference-priced cells with a visible flag and unpriced cells
+// as unknown, so an estimate never impersonates a bill and a gap never reads
+// as free.
+type costKind int
+
+const (
+	costBilled    costKind = iota // the provider reported a real bill
+	costListed                    // priced at the model's own published rate (a zero-rate free tier prices as an honest $0)
+	costReference                 // free tier billed nothing; priced at the paid twin's list rate as a reference
+	costUnpriced                  // no bill and no table rate; unknown, not zero
+)
+
+// runCostUSD prices one run: a real bill wins outright; otherwise the tokens are
+// priced from the vendored table as fresh input plus cache-read at the cached
+// rate plus output, uniformly for every tool. A model whose published rate is
+// zero (a free tier with no paid twin) prices as an actual $0; a free variant
+// with a paid twin prices at that twin's list rate and is flagged as a
+// reference figure, since it estimates what the run would cost at scale rather
+// than what it cost today.
+func runCostUSD(r *Result) (float64, costKind) {
 	if r.CostUSD > 0 {
-		return r.CostUSD
+		return r.CostUSD, costBilled
 	}
-	return estimatedCostUSD(r.Tokens)
+	m, ok := prices.Lookup(r.Model)
+	if !ok {
+		return 0, costUnpriced
+	}
+	c := m.Cost(pricing.Usage{
+		InputTokens:       max(r.Tokens.Prompt-r.Tokens.Cached, 0),
+		CachedInputTokens: r.Tokens.Cached,
+		OutputTokens:      r.Tokens.Completion,
+	})
+	if m.InputCost == 0 && m.OutputCost == 0 {
+		return c.TotalUSD, costListed
+	}
+	return c.TotalUSD, costReference
 }
 
 func summarize(results []*Result) []ToolSummary {
@@ -425,10 +461,18 @@ func summarize(results []*Result) []ToolSummary {
 				s.PlannedRuns++
 			}
 			s.Subagents += r.Orchestration.Subagents
-			tokens = append(tokens, r.Tokens.Total)
+			tokens = append(tokens, freshTokens(r.Tokens))
 			cached = append(cached, r.Tokens.Cached)
 			reqs = append(reqs, r.Orchestration.ModelCalls)
-			cost = append(cost, runCostUSD(r))
+			switch usd, kind := runCostUSD(r); kind {
+			case costUnpriced:
+				s.CostUnpricedRuns++
+			case costReference:
+				s.CostRefRuns++
+				cost = append(cost, usd)
+			default:
+				cost = append(cost, usd)
+			}
 			rss = append(rss, r.MaxRSSKB)
 			wall = append(wall, r.WallSeconds)
 			m := r.Latency.SumTotal / 1000
@@ -445,7 +489,7 @@ func summarize(results []*Result) []ToolSummary {
 			s.InstallMB = r.InstallKB / 1024
 		}
 		s.Scenarios = len(scenarios)
-		s.Tokens = distOf(tokens)
+		s.Fresh = distOf(tokens)
 		s.CachedMedian = medianInt(cached)
 		s.CostMedianUSD = medianFloat(cost)
 		s.ReqsMedian = medianInt(reqs)
@@ -506,12 +550,20 @@ func summarizeScenarios(results []*Result) []ScenarioStats {
 			if max(r.Attempts, 1) == 1 && r.Passed {
 				c.FirstTry++
 			}
-			tokens = append(tokens, r.Tokens.Total)
+			tokens = append(tokens, freshTokens(r.Tokens))
 			reqs = append(reqs, r.Orchestration.ModelCalls)
 			wall = append(wall, r.WallSeconds)
-			cost = append(cost, runCostUSD(r))
+			switch usd, kind := runCostUSD(r); kind {
+			case costUnpriced:
+				c.CostUnpricedRuns++
+			case costReference:
+				c.CostRefRuns++
+				cost = append(cost, usd)
+			default:
+				cost = append(cost, usd)
+			}
 		}
-		c.Tokens = distOf(tokens)
+		c.Fresh = distOf(tokens)
 		c.ReqsMedian = medianInt(reqs)
 		c.WallMedianS = medianInt(wall)
 		c.CostMedianUSD = medianFloat(cost)
@@ -562,6 +614,7 @@ func WriteTable(w io.Writer, sums []ToolSummary) {
 		fmt.Fprintln(w, "no plan (single flat loop)")
 		writeSummaryTable(w, flat, false)
 	}
+	fmt.Fprintln(w, "\ncost: ~ = priced at the paid twin's list rate (free tier billed nothing); - = no bill and no published rate, unknown not free")
 }
 
 // writeSummaryTable renders one group of summaries. The planned group carries the
@@ -572,9 +625,9 @@ func WriteTable(w io.Writer, sums []ToolSummary) {
 func writeSummaryTable(w io.Writer, sums []ToolSummary, withPlan bool) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if withPlan {
-		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tPASS@1\tPASS\tDROPS\tREQS\tPLANNED\tSUBAG\tTOKENS\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
+		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tPASS@1\tPASS\tDROPS\tREQS\tPLANNED\tSUBAG\tFRESH\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
 	} else {
-		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tPASS@1\tPASS\tDROPS\tREQS\tTOKENS\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
+		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tPASS@1\tPASS\tDROPS\tREQS\tFRESH\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
 	}
 	for _, s := range sums {
 		if withPlan {
@@ -583,7 +636,8 @@ func writeSummaryTable(w io.Writer, sums []ToolSummary, withPlan bool) {
 				s.Scenarios, s.Runs, fraction(s.FirstTry, s.Runs), fraction(s.Passed, s.Runs),
 				blankZero(s.StreamFailRuns),
 				s.ReqsMedian, s.PlannedRuns, s.Subagents,
-				distCell(s.Tokens, s.Runs), blankZero(s.CachedMedian), blankCost(s.CostMedianUSD),
+				distCell(s.Fresh, s.Runs), blankZero(s.CachedMedian),
+				costCell(s.CostMedianUSD, s.CostRefRuns, s.Runs-s.CostUnpricedRuns),
 				s.RSSMedianMB, s.TTFBMedianMS, s.WallMedianS, s.ModelMedianS, s.ToolMedianS, s.InstallMB)
 		} else {
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%d\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n",
@@ -591,7 +645,8 @@ func writeSummaryTable(w io.Writer, sums []ToolSummary, withPlan bool) {
 				s.Scenarios, s.Runs, fraction(s.FirstTry, s.Runs), fraction(s.Passed, s.Runs),
 				blankZero(s.StreamFailRuns),
 				s.ReqsMedian,
-				distCell(s.Tokens, s.Runs), blankZero(s.CachedMedian), blankCost(s.CostMedianUSD),
+				distCell(s.Fresh, s.Runs), blankZero(s.CachedMedian),
+				costCell(s.CostMedianUSD, s.CostRefRuns, s.Runs-s.CostUnpricedRuns),
 				s.RSSMedianMB, s.TTFBMedianMS, s.WallMedianS, s.ModelMedianS, s.ToolMedianS, s.InstallMB)
 		}
 	}
@@ -608,7 +663,7 @@ func WriteScenarioTable(w io.Writer, cells []ScenarioStats) {
 	}
 	fmt.Fprintln(w, "per scenario (all repeats)")
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SCENARIO\tTOOL\tN\tPASS@1\tPASS\tREQS\tTOKENS\tCOST-USD\tWALL-S")
+	fmt.Fprintln(tw, "SCENARIO\tTOOL\tN\tPASS@1\tPASS\tREQS\tFRESH\tCOST-USD\tWALL-S")
 	prev := ""
 	for _, c := range cells {
 		name := c.Scenario
@@ -621,7 +676,8 @@ func WriteScenarioTable(w io.Writer, cells []ScenarioStats) {
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%d\t%s\t%s\t%d\n",
 			name, c.Tool, c.Runs, fraction(c.FirstTry, c.Runs), fraction(c.Passed, c.Runs),
-			c.ReqsMedian, distCell(c.Tokens, c.Runs), blankCost(c.CostMedianUSD), c.WallMedianS)
+			c.ReqsMedian, distCell(c.Fresh, c.Runs),
+			costCell(c.CostMedianUSD, c.CostRefRuns, c.Runs-c.CostUnpricedRuns), c.WallMedianS)
 	}
 	tw.Flush()
 }
@@ -650,10 +706,10 @@ func distCell(d Dist, n int) string {
 func WritePromptReport(w io.Writer, prompt string, results []*Result) {
 	fmt.Fprintf(w, "prompt: %s\n\n", firstLineOf(prompt))
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "TOOL\tTOKENS\tCACHED\tTTFB-MS\tRSS-MB\tWALL-S\tREQS\tEXIT")
+	fmt.Fprintln(tw, "TOOL\tFRESH\tCACHED\tTTFB-MS\tRSS-MB\tWALL-S\tREQS\tEXIT")
 	for _, r := range results {
 		fmt.Fprintf(tw, "%s\t%d\t%s\t%d\t%d\t%d\t%d\t%d\n",
-			r.Tool, r.Tokens.Total, blankZero(r.Tokens.Cached), r.Latency.AvgTTFB,
+			r.Tool, freshTokens(r.Tokens), blankZero(r.Tokens.Cached), r.Latency.AvgTTFB,
 			r.MaxRSSKB/1024, r.WallSeconds, r.Requests, r.ExitCode)
 	}
 	tw.Flush()
@@ -680,11 +736,18 @@ func blankZero(n int) string {
 	return fmt.Sprintf("%d", n)
 }
 
-// blankCost renders an unreported cost as a dash and otherwise a dollar figure
-// with enough precision to show a fraction of a cent.
-func blankCost(c float64) string {
-	if c == 0 {
+// costCell renders a cell's cost median. No priced run at all is a dash,
+// unknown rather than free. A cell holding any reference-priced run (a free
+// tier priced at its paid twin's list rate) carries a tilde so an estimate is
+// never quoted as a bill. A true zero renders as 0.0000: a free tier with a
+// zero published rate really billed nothing, and that is a price, not a gap.
+func costCell(median float64, refRuns, pricedRuns int) string {
+	if pricedRuns <= 0 {
 		return "-"
 	}
-	return fmt.Sprintf("%.4f", c)
+	cell := fmt.Sprintf("%.4f", median)
+	if refRuns > 0 {
+		cell = "~" + cell
+	}
+	return cell
 }

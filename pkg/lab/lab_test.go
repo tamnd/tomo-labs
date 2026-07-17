@@ -75,13 +75,14 @@ func TestDirSizeKB(t *testing.T) {
 
 // summarize aggregates every run, repeats included: n is the run count, pass
 // and pass@1 are counts over that n, and the token column is a median with its
-// interquartile range rather than a sum.
+// interquartile range rather than a sum. The token metric is fresh (prompt
+// minus cached, plus output); the headline prompt total has no column.
 func TestSummarize(t *testing.T) {
 	results := []*Result{
-		{Tool: "tomo", Scenario: "a", Passed: true, Attempts: 1, Tokens: Tokens{Total: 100, Cached: 20}, CostUSD: 0.01, MaxRSSKB: 1024 * 30, WallSeconds: 10, Latency: Latency{AvgTTFB: 200, Calls: 2}, InstallKB: 1024 * 40},
-		{Tool: "tomo", Scenario: "a", Passed: true, Attempts: 2, Tokens: Tokens{Total: 200, Cached: 30}, CostUSD: 0.02, MaxRSSKB: 1024 * 50, WallSeconds: 20, Latency: Latency{AvgTTFB: 400, Calls: 3}, InstallKB: 1024 * 40},
-		{Tool: "tomo", Scenario: "b", Passed: false, Attempts: 1, Tokens: Tokens{Total: 900, Cached: 10}, CostUSD: 0.09, MaxRSSKB: 1024 * 40, WallSeconds: 90, Latency: Latency{AvgTTFB: 300, Calls: 1}, InstallKB: 1024 * 40},
-		{Tool: "openclaw", Scenario: "a", Passed: false, Attempts: 3, Tokens: Tokens{Total: 300}, MaxRSSKB: 1024 * 200, WallSeconds: 30, Latency: Latency{}, InstallKB: 1024 * 300},
+		{Tool: "tomo", Scenario: "a", Passed: true, Attempts: 1, Tokens: Tokens{Prompt: 100, Cached: 20, Completion: 20}, CostUSD: 0.01, MaxRSSKB: 1024 * 30, WallSeconds: 10, Latency: Latency{AvgTTFB: 200, Calls: 2}, InstallKB: 1024 * 40},
+		{Tool: "tomo", Scenario: "a", Passed: true, Attempts: 2, Tokens: Tokens{Prompt: 200, Cached: 30, Completion: 30}, CostUSD: 0.02, MaxRSSKB: 1024 * 50, WallSeconds: 20, Latency: Latency{AvgTTFB: 400, Calls: 3}, InstallKB: 1024 * 40},
+		{Tool: "tomo", Scenario: "b", Passed: false, Attempts: 1, Tokens: Tokens{Prompt: 950, Cached: 100, Completion: 50}, CostUSD: 0.09, MaxRSSKB: 1024 * 40, WallSeconds: 90, Latency: Latency{AvgTTFB: 300, Calls: 1}, InstallKB: 1024 * 40},
+		{Tool: "openclaw", Scenario: "a", Passed: false, Attempts: 3, Tokens: Tokens{Prompt: 300}, MaxRSSKB: 1024 * 200, WallSeconds: 30, Latency: Latency{}, InstallKB: 1024 * 300},
 	}
 	sums := summarize(results)
 	if len(sums) != 2 {
@@ -101,13 +102,13 @@ func TestSummarize(t *testing.T) {
 	if tomo.FirstTry != 1 || tomo.Retried != 1 {
 		t.Errorf("tomo first_try/retried = %d/%d, want 1/1", tomo.FirstTry, tomo.Retried)
 	}
-	// Tokens are a median with IQR over 100/200/900: the 900 runaway widens the
-	// spread instead of dragging the headline number.
-	if tomo.Tokens != (Dist{Median: 200, P25: 150, P75: 550}) {
-		t.Errorf("tomo tokens = %+v, want median 200 IQR 150-550", tomo.Tokens)
+	// Fresh tokens per run are 100/200/900 (prompt minus cached, plus output);
+	// the 900 runaway widens the spread instead of dragging the headline number.
+	if tomo.Fresh != (Dist{Median: 200, P25: 150, P75: 550}) {
+		t.Errorf("tomo fresh = %+v, want median 200 IQR 150-550", tomo.Fresh)
 	}
-	if tomo.CachedMedian != 20 {
-		t.Errorf("tomo cached median = %d, want 20", tomo.CachedMedian)
+	if tomo.CachedMedian != 30 {
+		t.Errorf("tomo cached median = %d, want 30", tomo.CachedMedian)
 	}
 	if tomo.CostMedianUSD < 0.0199 || tomo.CostMedianUSD > 0.0201 {
 		t.Errorf("tomo cost median = %v, want ~0.02", tomo.CostMedianUSD)
@@ -132,6 +133,49 @@ func TestSummarize(t *testing.T) {
 	if oc.Passed != 0 || oc.Retried != 1 || oc.FirstTry != 0 {
 		t.Errorf("openclaw passed/retried/first = %d/%d/%d, want 0/1/0", oc.Passed, oc.Retried, oc.FirstTry)
 	}
+	// openclaw's run has no bill and no model in the rate table, so its cost is
+	// unknown and stays out of the median rather than averaging in as zero.
+	if oc.CostUnpricedRuns != 1 {
+		t.Errorf("openclaw unpriced runs = %d, want 1", oc.CostUnpricedRuns)
+	}
+}
+
+// runCostUSD prefers the real bill, then the vendored rate table: a free tier
+// with a paid twin prices at the twin's list rate and is flagged as a
+// reference figure, a zero-rate free tier prices as an honest $0, and a model
+// missing from the table is unpriced rather than free.
+func TestRunCost(t *testing.T) {
+	if usd, kind := runCostUSD(&Result{CostUSD: 0.5, Model: "deepseek-v4-flash-free"}); usd != 0.5 || kind != costBilled {
+		t.Errorf("billed = %v/%v, want 0.5/billed", usd, kind)
+	}
+	usd, kind := runCostUSD(&Result{Model: "deepseek-v4-flash-free", Tokens: Tokens{Prompt: 1_000_000}})
+	if kind != costReference || usd < 0.279 || usd > 0.281 {
+		t.Errorf("reference = %v/%v, want ~0.28/reference", usd, kind)
+	}
+	if usd, kind := runCostUSD(&Result{Model: "hy3-free", Tokens: Tokens{Prompt: 1_000_000, Completion: 5000}}); usd != 0 || kind != costListed {
+		t.Errorf("zero-rate = %v/%v, want 0/listed", usd, kind)
+	}
+	if _, kind := runCostUSD(&Result{Model: "some-unknown-model"}); kind != costUnpriced {
+		t.Errorf("unknown model kind = %v, want unpriced", kind)
+	}
+}
+
+// The cost cell distinguishes unknown from free from estimated: no priced run
+// is a dash, a reference-priced cell carries the tilde, and a true zero is a
+// price.
+func TestCostCell(t *testing.T) {
+	if got := costCell(0, 0, 0); got != "-" {
+		t.Errorf("unpriced cell = %q, want -", got)
+	}
+	if got := costCell(0.0012, 1, 3); got != "~0.0012" {
+		t.Errorf("reference cell = %q, want ~0.0012", got)
+	}
+	if got := costCell(0, 0, 2); got != "0.0000" {
+		t.Errorf("zero-rate cell = %q, want 0.0000", got)
+	}
+	if got := costCell(0.0300, 0, 2); got != "0.0300" {
+		t.Errorf("billed cell = %q", got)
+	}
 }
 
 // The ranking compares pass@1 as a fraction of n, not as a raw count, so a tool
@@ -140,10 +184,10 @@ func TestSummarize(t *testing.T) {
 func TestRankingByRate(t *testing.T) {
 	var results []*Result
 	for i := range 20 {
-		results = append(results, &Result{Tool: "big-n", Scenario: "a", Passed: i < 10, Attempts: 1, Tokens: Tokens{Total: 100}})
+		results = append(results, &Result{Tool: "big-n", Scenario: "a", Passed: i < 10, Attempts: 1, Tokens: Tokens{Prompt: 100}})
 	}
 	for i := range 5 {
-		results = append(results, &Result{Tool: "small-n", Scenario: "a", Passed: i < 4, Attempts: 1, Tokens: Tokens{Total: 100}})
+		results = append(results, &Result{Tool: "small-n", Scenario: "a", Passed: i < 4, Attempts: 1, Tokens: Tokens{Prompt: 100}})
 	}
 	sums := summarize(results)
 	if sums[0].Tool != "small-n" {
@@ -155,10 +199,10 @@ func TestRankingByRate(t *testing.T) {
 // scenario aggregate into one row with n and the pass fraction over it.
 func TestSummarizeScenarios(t *testing.T) {
 	results := []*Result{
-		{Tool: "tomo", Scenario: "flaky", Passed: true, Attempts: 1, Tokens: Tokens{Total: 100}, WallSeconds: 10},
-		{Tool: "tomo", Scenario: "flaky", Passed: false, Attempts: 1, Tokens: Tokens{Total: 300}, WallSeconds: 30},
-		{Tool: "tomo", Scenario: "flaky", Passed: true, Attempts: 1, Tokens: Tokens{Total: 200}, WallSeconds: 20},
-		{Tool: "tomo", Scenario: "easy", Passed: true, Attempts: 1, Tokens: Tokens{Total: 50}, WallSeconds: 5},
+		{Tool: "tomo", Scenario: "flaky", Passed: true, Attempts: 1, Tokens: Tokens{Prompt: 100}, WallSeconds: 10},
+		{Tool: "tomo", Scenario: "flaky", Passed: false, Attempts: 1, Tokens: Tokens{Prompt: 300}, WallSeconds: 30},
+		{Tool: "tomo", Scenario: "flaky", Passed: true, Attempts: 1, Tokens: Tokens{Prompt: 200}, WallSeconds: 20},
+		{Tool: "tomo", Scenario: "easy", Passed: true, Attempts: 1, Tokens: Tokens{Prompt: 50}, WallSeconds: 5},
 	}
 	cells := summarizeScenarios(results)
 	if len(cells) != 2 {
@@ -172,8 +216,8 @@ func TestSummarizeScenarios(t *testing.T) {
 	if flaky.Runs != 3 || flaky.Passed != 2 || flaky.FirstTry != 2 {
 		t.Errorf("flaky n/pass/first = %d/%d/%d, want 3/2/2", flaky.Runs, flaky.Passed, flaky.FirstTry)
 	}
-	if flaky.Tokens.Median != 200 || flaky.WallMedianS != 20 {
-		t.Errorf("flaky medians = %d tokens %ds wall, want 200/20", flaky.Tokens.Median, flaky.WallMedianS)
+	if flaky.Fresh.Median != 200 || flaky.WallMedianS != 20 {
+		t.Errorf("flaky medians = %d fresh %ds wall, want 200/20", flaky.Fresh.Median, flaky.WallMedianS)
 	}
 }
 
