@@ -234,11 +234,11 @@ type ToolSummary struct {
 	CostRefRuns      int `json:"cost_ref_runs,omitempty"`
 	CostUnpricedRuns int `json:"cost_unpriced_runs,omitempty"`
 	ReqsMedian       int `json:"reqs_median"`
-	PlannedRuns   int     `json:"planned_runs"`
-	Subagents     int     `json:"subagents"`
-	InstallMB     int     `json:"install_mb"`
-	RSSMedianMB   int     `json:"rss_median_mb"`
-	TTFBMedianMS  int     `json:"ttfb_median_ms"`
+	PlannedRuns      int `json:"planned_runs"`
+	Subagents        int `json:"subagents"`
+	InstallMB        int `json:"install_mb"`
+	RSSMedianMB      int `json:"rss_median_mb"`
+	TTFBMedianMS     int `json:"ttfb_median_ms"`
 	// The per-run time medians, in seconds: WallMedianS is the whole run,
 	// ModelMedianS the part spent waiting on the model, ToolMedianS the rest of
 	// that run (tool execution and agent glue), each medianed independently.
