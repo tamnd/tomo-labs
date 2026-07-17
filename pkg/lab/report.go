@@ -188,50 +188,85 @@ func jobsNeedWeb(jobs []job) bool {
 	return false
 }
 
-// ToolSummary is one tool's aggregate over the latest run of each scenario, the
-// row the comparison table is built from. Runs is therefore the number of distinct
-// scenarios the tool has a run for, and Passed is how many of those it passed.
+// Dist is a token or latency column's shape over a tool's runs: the median with
+// its interquartile range. Medians with spreads, never means, because agent-run
+// distributions are long-tailed and a single runaway rep would drag a mean into
+// fiction; the IQR is the spread statistic for the same reason, since a min-max
+// range would be dominated by exactly that runaway. The spread renders in the
+// same cell as the median so the median is never quoted alone.
+type Dist struct {
+	Median int `json:"median"`
+	P25    int `json:"p25"`
+	P75    int `json:"p75"`
+}
+
+// ToolSummary is one tool's aggregate over every graded run in the data dir, the
+// row the comparison table is built from. Runs is the honest n: every run counts,
+// repeats included, so a number quoted off this row always has its n attached.
+// Which runs are in the data dir is a curation question, not a report question:
+// a re-run campaign at new pins starts from a clean dir or prunes the stale runs
+// it no longer stands behind.
 type ToolSummary struct {
-	Tool          string  `json:"tool"`
-	Version       string  `json:"version,omitempty"`
-	Released      string  `json:"released,omitempty"`
-	Runs          int     `json:"runs"`
-	Passed        int     `json:"passed"`
-	FirstTry      int     `json:"first_try"`
-	Retried       int     `json:"retried"`
-	AvgModelCalls int     `json:"avg_model_calls"`
+	Tool     string `json:"tool"`
+	Version  string `json:"version,omitempty"`
+	Released string `json:"released,omitempty"`
+	// Scenarios is how many distinct scenarios the n runs cover, so a tool with
+	// ten reps of one task never reads as a tool graded across ten tasks.
+	Scenarios int `json:"scenarios"`
+	Runs      int `json:"runs"`
+	Passed    int `json:"passed"`
+	FirstTry  int `json:"first_try"`
+	Retried   int `json:"retried"`
+	// Per-run medians with spread where the column is long-tailed. Sums are gone
+	// on purpose: with aggregation over repeats, a sum scales with n and two tools
+	// at different n stop being comparable.
+	Tokens        Dist    `json:"tokens"`
+	CachedMedian  int     `json:"cached_median,omitempty"`
+	CostMedianUSD float64 `json:"cost_median_usd,omitempty"`
+	ReqsMedian    int     `json:"reqs_median"`
 	PlannedRuns   int     `json:"planned_runs"`
 	Subagents     int     `json:"subagents"`
 	InstallMB     int     `json:"install_mb"`
-	TotalTokens   int     `json:"total_tokens"`
-	CachedTokens  int     `json:"cached_tokens,omitempty"`
-	TotalCostUSD  float64 `json:"total_cost_usd,omitempty"`
-	AvgRSSMB      int     `json:"avg_rss_mb"`
-	AvgTTFBMS     int     `json:"avg_ttfb_ms"`
-	// The three time totals over the tool's runs, in seconds: TotalS is the whole
-	// wall time, ModelS is the part spent waiting on the model, and ToolS is the
-	// rest (tool execution and agent glue), TotalS minus ModelS.
-	TotalS int `json:"total_s"`
-	ModelS int `json:"model_s"`
-	ToolS  int `json:"tool_s"`
+	RSSMedianMB   int     `json:"rss_median_mb"`
+	TTFBMedianMS  int     `json:"ttfb_median_ms"`
+	// The per-run time medians, in seconds: WallMedianS is the whole run,
+	// ModelMedianS the part spent waiting on the model, ToolMedianS the rest of
+	// that run (tool execution and agent glue), each medianed independently.
+	WallMedianS  int `json:"wall_median_s"`
+	ModelMedianS int `json:"model_median_s"`
+	ToolMedianS  int `json:"tool_median_s"`
 	// StreamFailRuns is how many of the tool's runs hit an upstream stream drop,
 	// whether it was retried away or left in the recorded attempt. It is the honest
 	// count of gateway faults the tool ran into, kept apart from real failures.
 	StreamFailRuns int `json:"stream_fail_runs,omitempty"`
 }
 
-// Report reads every result.json under the data dir and aggregates it per tool,
-// keeping only the latest run of each tool and scenario so the summary is the
-// tool's current state, not its whole history. A tool gets re-run as adapters
-// and scenarios change; an old failing run from before a fix should not drag its
-// pass rate down forever, and counting the same scenario several times would make
-// total tokens depend on how often it happened to be re-run rather than on the
-// work. The result is that every tool's row is over the same scenarios, so pass
-// reads as N of the scenarios and total tokens compares like for like. A
-// non-empty scenario filter narrows the summary to runs whose scenario name
-// contains it, which is how the report focuses on one scenario at a time
-// (report 11).
-func (l *Lab) Report(_ context.Context, scenario string) ([]ToolSummary, error) {
+// ScenarioStats is one tool's aggregate over its repeats of one scenario, the
+// per-task cell under the tool rows. This is where a flaky task shows its true
+// pass rate and where a runaway rep shows up as spread rather than vanishing
+// into a cross-scenario total.
+type ScenarioStats struct {
+	Scenario      string  `json:"scenario"`
+	Tool          string  `json:"tool"`
+	Runs          int     `json:"runs"`
+	Passed        int     `json:"passed"`
+	FirstTry      int     `json:"first_try"`
+	Tokens        Dist    `json:"tokens"`
+	CostMedianUSD float64 `json:"cost_median_usd,omitempty"`
+	ReqsMedian    int     `json:"reqs_median"`
+	WallMedianS   int     `json:"wall_median_s"`
+}
+
+// Report reads every result.json under the data dir and aggregates it, per tool
+// and per tool-and-scenario, over every graded run. Repeats are the point: the
+// campaign's measurement law says a pass rate is a raw fraction with its n
+// visible and a token claim is a median over repeats with the spread shown, so
+// the report keeps every run rather than the latest one and lets n say how much
+// the numbers mean. Staleness is handled by data-dir hygiene (prune or re-run),
+// not by the report silently discarding history. A non-empty scenario filter
+// narrows both aggregates to runs whose scenario name contains it, which is how
+// the report focuses on one scenario at a time.
+func (l *Lab) Report(_ context.Context, scenario string) ([]ToolSummary, []ScenarioStats, error) {
 	var results []*Result
 	err := l.walkResults(func(path string, r *Result) {
 		// Ungraded prompt runs (lab -p) have no pass or fail, so they never belong
@@ -241,9 +276,9 @@ func (l *Lab) Report(_ context.Context, scenario string) ([]ToolSummary, error) 
 		}
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	sums := summarize(latestPerScenario(results))
+	sums := summarize(results)
 	// Version and release date are properties of the tool image, captured at build
 	// time, so join them in here rather than reading them off every run.
 	for i := range sums {
@@ -251,7 +286,7 @@ func (l *Lab) Report(_ context.Context, scenario string) ([]ToolSummary, error) 
 		sums[i].Version = m.Version
 		sums[i].Released = m.Released
 	}
-	return sums, nil
+	return sums, summarizeScenarios(results), nil
 }
 
 // walkResults reads every result.json under the active suite's results dir and
@@ -287,22 +322,50 @@ func (l *Lab) walkResults(fn func(path string, r *Result)) error {
 	})
 }
 
-// latestPerScenario keeps only the most recent run of each tool and scenario.
-// Run timestamps are the compact UTC form (20260710T140140Z), which sorts the
-// same lexically as chronologically, so the largest string is the newest run.
-func latestPerScenario(results []*Result) []*Result {
-	best := map[string]*Result{}
-	for _, r := range results {
-		k := r.Tool + "\x00" + r.Scenario
-		if b, ok := best[k]; !ok || r.Time > b.Time {
-			best[k] = r
-		}
+// pctl returns the p-th quantile (0..1) of already-sorted values by linear
+// interpolation between the two nearest ranks, rounded to the nearest int.
+func pctl(sorted []int, p float64) int {
+	n := len(sorted)
+	if n == 0 {
+		return 0
 	}
-	out := make([]*Result, 0, len(best))
-	for _, r := range best {
-		out = append(out, r)
+	rank := p * float64(n-1)
+	lo := int(rank)
+	if lo >= n-1 {
+		return sorted[n-1]
 	}
-	return out
+	frac := rank - float64(lo)
+	return int(float64(sorted[lo])*(1-frac) + float64(sorted[lo+1])*frac + 0.5)
+}
+
+// distOf sorts a copy of the values and returns their median with the
+// interquartile range. At n=1 all three collapse to the one value, which the
+// renderer shows as the bare number rather than a fake spread.
+func distOf(vals []int) Dist {
+	s := make([]int, len(vals))
+	copy(s, vals)
+	sort.Ints(s)
+	return Dist{Median: pctl(s, 0.5), P25: pctl(s, 0.25), P75: pctl(s, 0.75)}
+}
+
+// medianInt is distOf for the columns that render without a spread.
+func medianInt(vals []int) int {
+	return distOf(vals).Median
+}
+
+// medianFloat is the median of a float column (cost), same convention as pctl.
+func medianFloat(vals []float64) float64 {
+	if len(vals) == 0 {
+		return 0
+	}
+	s := make([]float64, len(vals))
+	copy(s, vals)
+	sort.Float64s(s)
+	n := len(s)
+	if n%2 == 1 {
+		return s[n/2]
+	}
+	return (s[n/2-1] + s[n/2]) / 2
 }
 
 // DeepSeek's published standard-hours rates for the shared model, in USD per 1M
@@ -326,6 +389,15 @@ func estimatedCostUSD(t Tokens) float64 {
 		float64(t.Completion)/1e6*rateOutputUSD
 }
 
+// runCostUSD is one run's cost: what the provider billed, or the reference-rate
+// estimate when it billed nothing, so the column stays comparable across tiers.
+func runCostUSD(r *Result) float64 {
+	if r.CostUSD > 0 {
+		return r.CostUSD
+	}
+	return estimatedCostUSD(r.Tokens)
+}
+
 func summarize(results []*Result) []ToolSummary {
 	byTool := map[string][]*Result{}
 	for _, r := range results {
@@ -334,9 +406,11 @@ func summarize(results []*Result) []ToolSummary {
 	var out []ToolSummary
 	for tool, rs := range byTool {
 		s := ToolSummary{Tool: tool, Runs: len(rs)}
-		var tokens, cached, rss, ttfb, wall, model, timed, modelCalls int
-		var cost float64
+		scenarios := map[string]bool{}
+		var tokens, cached, reqs, rss, ttfb, wall, model, toolS []int
+		var cost []float64
 		for _, r := range rs {
+			scenarios[r.Scenario] = true
 			if r.Passed {
 				s.Passed++
 			}
@@ -347,63 +421,114 @@ func summarize(results []*Result) []ToolSummary {
 			if a > 1 {
 				s.Retried++
 			}
-			modelCalls += r.Orchestration.ModelCalls
 			if r.Orchestration.Planned {
 				s.PlannedRuns++
 			}
 			s.Subagents += r.Orchestration.Subagents
-			tokens += r.Tokens.Total
-			cached += r.Tokens.Cached
-			// A paid provider reports the real cost; the free tier reports none, so
-			// price its tokens at the reference rates to keep the column comparable.
-			if r.CostUSD > 0 {
-				cost += r.CostUSD
-			} else {
-				cost += estimatedCostUSD(r.Tokens)
-			}
-			rss += r.MaxRSSKB
-			wall += r.WallSeconds
-			model += r.Latency.SumTotal / 1000
+			tokens = append(tokens, r.Tokens.Total)
+			cached = append(cached, r.Tokens.Cached)
+			reqs = append(reqs, r.Orchestration.ModelCalls)
+			cost = append(cost, runCostUSD(r))
+			rss = append(rss, r.MaxRSSKB)
+			wall = append(wall, r.WallSeconds)
+			m := r.Latency.SumTotal / 1000
+			model = append(model, m)
+			toolS = append(toolS, max(r.WallSeconds-m, 0))
 			if r.StreamFail != nil {
 				s.StreamFailRuns++
 			}
 			if r.Latency.Calls > 0 {
-				ttfb += r.Latency.AvgTTFB
-				timed++
+				ttfb = append(ttfb, r.Latency.AvgTTFB)
 			}
 			// Install footprint is a property of the tool, not the run, so the
 			// last one seen wins; they are all the same.
 			s.InstallMB = r.InstallKB / 1024
 		}
-		n := len(rs)
-		s.TotalTokens = tokens
-		s.CachedTokens = cached
-		s.TotalCostUSD = cost
-		s.AvgRSSMB = rss / n / 1024
-		s.TotalS = wall
-		s.ModelS = model
-		s.ToolS = max(wall-model, 0)
-		s.AvgModelCalls = modelCalls / n
-		if timed > 0 {
-			s.AvgTTFBMS = ttfb / timed
-		}
+		s.Scenarios = len(scenarios)
+		s.Tokens = distOf(tokens)
+		s.CachedMedian = medianInt(cached)
+		s.CostMedianUSD = medianFloat(cost)
+		s.ReqsMedian = medianInt(reqs)
+		s.RSSMedianMB = medianInt(rss) / 1024
+		s.TTFBMedianMS = medianInt(ttfb)
+		s.WallMedianS = medianInt(wall)
+		s.ModelMedianS = medianInt(model)
+		s.ToolMedianS = medianInt(toolS)
 		out = append(out, s)
 	}
-	// Rank on pass@1 first, then cost. pass@1 (a task solved on the first attempt,
-	// no retry) is the capability metric every code benchmark headlines, so the tool
-	// that solves the most goes to the top. Cost breaks ties: among tools that solve
-	// the same number first-try, the cheapest wins, since cost is what the tokens
-	// actually buy. When a suite is saturated and every tool ties on pass@1 (as on
-	// LiveCodeBench), this degrades to a pure cheapest-first order. Cost weights a
-	// cached-input token far below a generated one, so a cache-heavy multi-turn tool
-	// reads as the bargain it is, not as a spendthrift on raw token count. The tool
-	// name is the final tie-break for a stable order.
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].FirstTry != out[j].FirstTry {
-			return out[i].FirstTry > out[j].FirstTry
+	sortSummaries(out)
+	return out
+}
+
+// sortSummaries ranks on aggregated pass@1 first, then median cost per run.
+// pass@1 as a fraction of n (a task solved on the first attempt, no retry) is
+// the capability metric every code benchmark headlines, and the fraction rather
+// than the raw count keeps tools at different n comparable. Median cost breaks
+// ties: among tools that solve the same fraction first-try, the cheapest run
+// wins, since cost is what the tokens actually buy, and cost weights a cached
+// token far below a generated one, so a cache-heavy multi-turn tool reads as
+// the bargain it is. The tool name is the final tie-break for a stable order.
+func sortSummaries(out []ToolSummary) {
+	rate := func(s ToolSummary) float64 {
+		if s.Runs == 0 {
+			return 0
 		}
-		if out[i].TotalCostUSD != out[j].TotalCostUSD {
-			return out[i].TotalCostUSD < out[j].TotalCostUSD
+		return float64(s.FirstTry) / float64(s.Runs)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if ri, rj := rate(out[i]), rate(out[j]); ri != rj {
+			return ri > rj
+		}
+		if out[i].CostMedianUSD != out[j].CostMedianUSD {
+			return out[i].CostMedianUSD < out[j].CostMedianUSD
+		}
+		return out[i].Tool < out[j].Tool
+	})
+}
+
+// summarizeScenarios builds the per-task cells: one row per tool and scenario
+// over that pair's repeats, ordered by scenario then by the same pass@1-then-
+// cost ranking as the tool table so the leader reads off the top of each block.
+func summarizeScenarios(results []*Result) []ScenarioStats {
+	byCell := map[string][]*Result{}
+	for _, r := range results {
+		byCell[r.Scenario+"\x00"+r.Tool] = append(byCell[r.Scenario+"\x00"+r.Tool], r)
+	}
+	var out []ScenarioStats
+	for _, rs := range byCell {
+		c := ScenarioStats{Scenario: rs[0].Scenario, Tool: rs[0].Tool, Runs: len(rs)}
+		var tokens, reqs, wall []int
+		var cost []float64
+		for _, r := range rs {
+			if r.Passed {
+				c.Passed++
+			}
+			if max(r.Attempts, 1) == 1 && r.Passed {
+				c.FirstTry++
+			}
+			tokens = append(tokens, r.Tokens.Total)
+			reqs = append(reqs, r.Orchestration.ModelCalls)
+			wall = append(wall, r.WallSeconds)
+			cost = append(cost, runCostUSD(r))
+		}
+		c.Tokens = distOf(tokens)
+		c.ReqsMedian = medianInt(reqs)
+		c.WallMedianS = medianInt(wall)
+		c.CostMedianUSD = medianFloat(cost)
+		out = append(out, c)
+	}
+	rate := func(c ScenarioStats) float64 {
+		return float64(c.FirstTry) / float64(c.Runs)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Scenario != out[j].Scenario {
+			return out[i].Scenario < out[j].Scenario
+		}
+		if ri, rj := rate(out[i]), rate(out[j]); ri != rj {
+			return ri > rj
+		}
+		if out[i].CostMedianUSD != out[j].CostMedianUSD {
+			return out[i].CostMedianUSD < out[j].CostMedianUSD
 		}
 		return out[i].Tool < out[j].Tool
 	})
@@ -441,32 +566,81 @@ func WriteTable(w io.Writer, sums []ToolSummary) {
 
 // writeSummaryTable renders one group of summaries. The planned group carries the
 // PLANNED and SUBAG columns; the flat group drops them, since both are zero there
-// by definition and a column of zeros is noise, not information.
+// by definition and a column of zeros is noise, not information. PASS@1 and PASS
+// render as raw fractions over n, never bare percentages, and the token cell
+// carries the median with its spread so neither is ever quoted without the other.
 func writeSummaryTable(w io.Writer, sums []ToolSummary, withPlan bool) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if withPlan {
-		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tRUNS\tPASS@1\tPASS\tDROPS\tREQS\tPLANNED\tSUBAG\tTOKENS\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tTOTAL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
+		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tPASS@1\tPASS\tDROPS\tREQS\tPLANNED\tSUBAG\tTOKENS\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
 	} else {
-		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tRUNS\tPASS@1\tPASS\tDROPS\tREQS\tTOKENS\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tTOTAL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
+		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tPASS@1\tPASS\tDROPS\tREQS\tTOKENS\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
 	}
 	for _, s := range sums {
 		if withPlan {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n",
 				s.Tool, blankDash(s.Version), blankDash(s.Released),
-				s.Runs, s.FirstTry, s.Passed, blankZero(s.StreamFailRuns),
-				s.AvgModelCalls, s.PlannedRuns, s.Subagents,
-				s.TotalTokens, blankZero(s.CachedTokens), blankCost(s.TotalCostUSD),
-				s.AvgRSSMB, s.AvgTTFBMS, s.TotalS, s.ModelS, s.ToolS, s.InstallMB)
+				s.Scenarios, s.Runs, fraction(s.FirstTry, s.Runs), fraction(s.Passed, s.Runs),
+				blankZero(s.StreamFailRuns),
+				s.ReqsMedian, s.PlannedRuns, s.Subagents,
+				distCell(s.Tokens, s.Runs), blankZero(s.CachedMedian), blankCost(s.CostMedianUSD),
+				s.RSSMedianMB, s.TTFBMedianMS, s.WallMedianS, s.ModelMedianS, s.ToolMedianS, s.InstallMB)
 		} else {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n",
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%d\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n",
 				s.Tool, blankDash(s.Version), blankDash(s.Released),
-				s.Runs, s.FirstTry, s.Passed, blankZero(s.StreamFailRuns),
-				s.AvgModelCalls,
-				s.TotalTokens, blankZero(s.CachedTokens), blankCost(s.TotalCostUSD),
-				s.AvgRSSMB, s.AvgTTFBMS, s.TotalS, s.ModelS, s.ToolS, s.InstallMB)
+				s.Scenarios, s.Runs, fraction(s.FirstTry, s.Runs), fraction(s.Passed, s.Runs),
+				blankZero(s.StreamFailRuns),
+				s.ReqsMedian,
+				distCell(s.Tokens, s.Runs), blankZero(s.CachedMedian), blankCost(s.CostMedianUSD),
+				s.RSSMedianMB, s.TTFBMedianMS, s.WallMedianS, s.ModelMedianS, s.ToolMedianS, s.InstallMB)
 		}
 	}
 	tw.Flush()
+}
+
+// WriteScenarioTable renders the per-task cells: one block per scenario, one row
+// per tool over that pair's repeats. This is where flakiness is visible: a task a
+// tool passes 3 of 5 reads as exactly that, not as whatever the latest coin flip
+// happened to land on.
+func WriteScenarioTable(w io.Writer, cells []ScenarioStats) {
+	if len(cells) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "per scenario (all repeats)")
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "SCENARIO\tTOOL\tN\tPASS@1\tPASS\tREQS\tTOKENS\tCOST-USD\tWALL-S")
+	prev := ""
+	for _, c := range cells {
+		name := c.Scenario
+		// Repeating the scenario name on every row of its block is noise; the
+		// first row labels the block.
+		if name == prev {
+			name = ""
+		} else {
+			prev = name
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%d\t%s\t%s\t%d\n",
+			name, c.Tool, c.Runs, fraction(c.FirstTry, c.Runs), fraction(c.Passed, c.Runs),
+			c.ReqsMedian, distCell(c.Tokens, c.Runs), blankCost(c.CostMedianUSD), c.WallMedianS)
+	}
+	tw.Flush()
+}
+
+// fraction renders a pass count over its n, the only shape a rate is quoted in:
+// 9/12 says both the rate and how much it means, where 75% alone says neither.
+func fraction(k, n int) string {
+	return fmt.Sprintf("%d/%d", k, n)
+}
+
+// distCell renders a median with its interquartile range in one cell, so the
+// median is never quoted without its spread. A single run renders as the bare
+// number: with n=1 there is no spread to show, and the N column already says
+// how little the number means.
+func distCell(d Dist, n int) string {
+	if n <= 1 {
+		return fmt.Sprintf("%d", d.Median)
+	}
+	return fmt.Sprintf("%d (%d-%d)", d.Median, d.P25, d.P75)
 }
 
 // WritePromptReport renders the results of an ad-hoc prompt run: a metrics table
