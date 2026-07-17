@@ -1,0 +1,6 @@
+{
+  "reachability": "invention",
+  "fairness": "fair",
+  "source": "frontier diagnostic clean; the earlier misses were a harness fence bug, fixed and the task passes (2080 journal, L28)",
+  "audited": "2026-07-17"
+}
