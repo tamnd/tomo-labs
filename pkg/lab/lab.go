@@ -79,6 +79,7 @@ func (l *Lab) suiteDir() string {
 type Scenario struct {
 	Name   string // directory name, e.g. 06-codegen-primes
 	Desc   string // first line of the desc file, if any
+	Tags   Tags   // adoption-time reachability and fairness tags, from tags.json
 	dir    string
 	graded bool // whether the scenario ships a check.sh to pass or fail against
 }
@@ -122,6 +123,7 @@ func (l *Lab) Scenarios() ([]Scenario, error) {
 		}
 		out = append(out, Scenario{
 			Name: e.Name(), Desc: firstLine(filepath.Join(dir, "desc")), dir: dir,
+			Tags:   readTags(dir),
 			graded: exists(filepath.Join(dir, "check.sh")),
 		})
 	}
@@ -137,6 +139,7 @@ func (l *Lab) scenario(name string) (Scenario, error) {
 	}
 	return Scenario{
 		Name: name, Desc: firstLine(filepath.Join(dir, "desc")), dir: dir,
+		Tags:   readTags(dir),
 		graded: exists(filepath.Join(dir, "check.sh")),
 	}, nil
 }

@@ -354,6 +354,9 @@ func (l *Lab) lcbMaterialize(row lcbRow) (task, oracle string, err error) {
 	if err = writeFile(filepath.Join(task, "desc"), []byte(desc), 0o644); err != nil {
 		return
 	}
+	if err = writeDefaultTags(task); err != nil {
+		return
+	}
 
 	setup := "#!/usr/bin/env bash\n" +
 		"# Lay the starting solution.py into the work tree.\n" +
