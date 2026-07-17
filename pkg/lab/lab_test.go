@@ -263,3 +263,65 @@ func write(t *testing.T, dir, name, content string) {
 		t.Fatal(err)
 	}
 }
+
+// A missing or blank tags file reads as explicit unaudited, never as a blank,
+// and a recorded audit reads back exactly as written.
+func TestReadTags(t *testing.T) {
+	dir := t.TempDir()
+	got := readTags(dir)
+	if got.Reachability != TagUnaudited || got.Fairness != TagUnaudited {
+		t.Errorf("missing tags.json = %+v, want unaudited/unaudited", got)
+	}
+
+	write(t, dir, "tags.json", `{"reachability":"substitution","fairness":"fair","source":"one-line gold","audited":"2026-07-17"}`)
+	got = readTags(dir)
+	if got.Reachability != "substitution" || got.Fairness != "fair" || got.Audited != "2026-07-17" {
+		t.Errorf("readTags = %+v", got)
+	}
+
+	// A file with empty fields still yields explicit unaudited values.
+	write(t, dir, "tags.json", `{"source":"placeholder"}`)
+	got = readTags(dir)
+	if got.Reachability != TagUnaudited || got.Fairness != TagUnaudited {
+		t.Errorf("blank-field tags.json = %+v, want unaudited defaults", got)
+	}
+}
+
+// A generator writes explicit unaudited tags into a fresh task dir but never
+// clobbers a recorded audit on re-generation.
+func TestWriteDefaultTags(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeDefaultTags(dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := readTags(dir); got.Fairness != TagUnaudited {
+		t.Errorf("fresh default tags = %+v", got)
+	}
+
+	write(t, dir, "tags.json", `{"reachability":"invention","fairness":"frontier-hard"}`)
+	if err := writeDefaultTags(dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := readTags(dir); got.Fairness != "frontier-hard" {
+		t.Errorf("re-generation clobbered a recorded audit: %+v", got)
+	}
+}
+
+// Tags join per-scenario cells by scenario identity; a run whose scenario is
+// gone from disk joins as unaudited rather than blank.
+func TestAttachTags(t *testing.T) {
+	cells := []ScenarioStats{
+		{Scenario: "easy", Tool: "tomo"},
+		{Scenario: "easy", Tool: "codex"},
+		{Scenario: "gone", Tool: "tomo"},
+	}
+	attachTags(cells, map[string]Tags{
+		"easy": {Reachability: "substitution", Fairness: "fair"},
+	})
+	if cells[0].Fairness != "fair" || cells[1].Fairness != "fair" {
+		t.Errorf("tagged scenario did not join: %+v %+v", cells[0], cells[1])
+	}
+	if cells[2].Reachability != TagUnaudited || cells[2].Fairness != TagUnaudited {
+		t.Errorf("deleted scenario should join as unaudited: %+v", cells[2])
+	}
+}

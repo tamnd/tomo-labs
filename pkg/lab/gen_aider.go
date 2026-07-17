@@ -233,6 +233,9 @@ func (l *Lab) aiderMaterialize(ex *aiderExercise) (task, ans string, err error) 
 	if err = writeFile(filepath.Join(task, "desc"), []byte(ex.lang+": "+blurb+"\n"), 0o644); err != nil {
 		return
 	}
+	if err = writeDefaultTags(task); err != nil {
+		return
+	}
 
 	setup := "#!/usr/bin/env bash\n" +
 		"# Lay the exercise stub and its tests into the work tree.\n" +

@@ -238,6 +238,9 @@ func (l *Lab) evalMaterialize(prob evalProblem) (task, oracle string, err error)
 	if err = writeFile(filepath.Join(task, "desc"), []byte(desc), 0o644); err != nil {
 		return
 	}
+	if err = writeDefaultTags(task); err != nil {
+		return
+	}
 
 	setup := "#!/usr/bin/env bash\n" +
 		"# Lay the function stub into the work tree.\n" +

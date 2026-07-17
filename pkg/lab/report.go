@@ -34,9 +34,9 @@ func writeResult(path string, r *Result) error {
 //
 // Up to cfg.Concurrency runs proceed at once, each on its own worker slot (its
 // own proxy container and published port), so the sweep is bounded by the
-// slowest few runs rather than the sum of all of them. Every run still forces
-// the same deterministic decoding and captures its own trace, so parallelism
-// changes only wall-clock scheduling, not what a run measures. The one shared
+// slowest few runs rather than the sum of all of them. Every run still routes
+// through the same proxy and captures its own trace, so parallelism changes
+// only wall-clock scheduling, not what a run measures. The one shared
 // resource is the upstream model: at higher concurrency a free-tier rate limit
 // can add queueing that shows up in TTFB, so a strict latency comparison is
 // best taken at LAB_CONCURRENCY=1, while pass rate and tokens are unaffected.
@@ -256,7 +256,13 @@ type ToolSummary struct {
 // pass rate and where a runaway rep shows up as spread rather than vanishing
 // into a cross-scenario total.
 type ScenarioStats struct {
-	Scenario         string  `json:"scenario"`
+	Scenario string `json:"scenario"`
+	// Reachability and Fairness are the scenario's adoption-time tags, joined
+	// in from its tags.json at render time so a reader can re-slice the table
+	// by tag without trusting any aggregate. Unaudited is explicit, never a
+	// blank, and unaudited tasks stay out of bar-claim denominators.
+	Reachability     string  `json:"reachability"`
+	Fairness         string  `json:"fairness"`
 	Tool             string  `json:"tool"`
 	Runs             int     `json:"runs"`
 	Passed           int     `json:"passed"`
@@ -298,7 +304,33 @@ func (l *Lab) Report(_ context.Context, scenario string) ([]ToolSummary, []Scena
 		sums[i].Version = m.Version
 		sums[i].Released = m.Released
 	}
-	return sums, summarizeScenarios(results), nil
+	cells := summarizeScenarios(results)
+	// Reachability and fairness are properties of the task, recorded beside it
+	// at adoption, so join them in from the suite's scenario dirs rather than
+	// carrying them through every run.
+	tags := map[string]Tags{}
+	if scens, err := l.Scenarios(); err == nil {
+		for _, s := range scens {
+			tags[s.Name] = s.Tags
+		}
+	}
+	attachTags(cells, tags)
+	return sums, cells, nil
+}
+
+// attachTags joins each per-scenario cell to its task's adoption-time tags. A
+// run whose scenario no longer exists on disk joins as unaudited, the same
+// explicit placeholder a missing tags file gets, so history never renders with
+// a silent blank.
+func attachTags(cells []ScenarioStats, tags map[string]Tags) {
+	for i := range cells {
+		t, ok := tags[cells[i].Scenario]
+		if !ok {
+			t = Tags{Reachability: TagUnaudited, Fairness: TagUnaudited}
+		}
+		cells[i].Reachability = t.Reachability
+		cells[i].Fairness = t.Fairness
+	}
 }
 
 // walkResults reads every result.json under the active suite's results dir and
@@ -663,23 +695,25 @@ func WriteScenarioTable(w io.Writer, cells []ScenarioStats) {
 	}
 	fmt.Fprintln(w, "per scenario (all repeats)")
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SCENARIO\tTOOL\tN\tPASS@1\tPASS\tREQS\tFRESH\tCOST-USD\tWALL-S")
+	fmt.Fprintln(tw, "SCENARIO\tREACH\tFAIRNESS\tTOOL\tN\tPASS@1\tPASS\tREQS\tFRESH\tCOST-USD\tWALL-S")
 	prev := ""
 	for _, c := range cells {
-		name := c.Scenario
-		// Repeating the scenario name on every row of its block is noise; the
-		// first row labels the block.
+		name, reach, fair := c.Scenario, c.Reachability, c.Fairness
+		// Repeating the scenario name and its tags on every row of the block is
+		// noise; the first row labels the block. The tags belong to the task,
+		// not the tool, so they ride with the name.
 		if name == prev {
-			name = ""
+			name, reach, fair = "", "", ""
 		} else {
 			prev = name
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%d\t%s\t%s\t%d\n",
-			name, c.Tool, c.Runs, fraction(c.FirstTry, c.Runs), fraction(c.Passed, c.Runs),
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\t%s\t%d\t%s\t%s\t%d\n",
+			name, reach, fair, c.Tool, c.Runs, fraction(c.FirstTry, c.Runs), fraction(c.Passed, c.Runs),
 			c.ReqsMedian, distCell(c.Fresh, c.Runs),
 			costCell(c.CostMedianUSD, c.CostRefRuns, c.Runs-c.CostUnpricedRuns), c.WallMedianS)
 	}
 	tw.Flush()
+	fmt.Fprintln(w, "\ntags: reach = gold-diff shape (substitution/invention), fairness = frontier-diagnostic verdict; unaudited tasks stay out of bar-claim denominators")
 }
 
 // fraction renders a pass count over its n, the only shape a rate is quoted in:

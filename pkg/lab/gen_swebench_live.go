@@ -337,6 +337,9 @@ func (l *Lab) sweLiveMaterialize(row sweLiveRow) (task, oracle string, err error
 	if err = writeFile(filepath.Join(task, "desc"), []byte(desc), 0o644); err != nil {
 		return
 	}
+	if err = writeDefaultTags(task); err != nil {
+		return
+	}
 	// setup.sh is the dataset-agnostic clone-at-base-commit step shared with the
 	// Lite tier; check.sh is the host-provisioning grader for recent projects.
 	if err = writeFile(filepath.Join(task, "setup.sh"), []byte(sweSetup), 0o755); err != nil {
