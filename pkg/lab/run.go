@@ -244,6 +244,7 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 		Ungraded:    !sc.graded,
 		Answer:      answer,
 	}
+	res.Stop = stopReason(res, l.cfg.MaxTurns, l.cfg.AttemptSecs)
 	if err := writeResult(filepath.Join(runDir, "result.json"), res); err != nil {
 		return nil, err
 	}
