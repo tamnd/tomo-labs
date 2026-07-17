@@ -3,7 +3,7 @@
 # @anthropic-ai/claude-code, binary claude), so this image is independent of any
 # checkout on the host. The base already carries Node 22, which the CLI needs.
 FROM tomolab-base
-ARG CLAUDE_CODE_VERSION=2.1.207
+ARG CLAUDE_CODE_VERSION=2.1.212
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 COPY adapter.sh /usr/local/bin/adapter
 RUN chmod +x /usr/local/bin/adapter

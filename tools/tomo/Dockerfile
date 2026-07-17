@@ -24,7 +24,7 @@ FROM golang:1.26-bookworm AS build
 # to the coding core (drops the empty-index readers, time, and the memory writer,
 # and gates the network tool on the sandbox), cutting the per-request tool schema
 # from 6,229 to 4,805 bytes on every turn.
-ARG TOMO_VERSION=92b5e82e7199c778bb959e67c55e423121120cbe
+ARG TOMO_VERSION=v0.2.5-0.20260716172542-402e0ddadddc
 RUN CGO_ENABLED=0 go install github.com/tamnd/tomo/cmd/tomo@${TOMO_VERSION}
 
 FROM tomolab-base
