@@ -11,7 +11,7 @@ FROM golang:1.26-bookworm AS build
 # Pinned to the merged commit that adds the kata engine (pkg/engine/kata) and
 # the kata value on the --engine flag. Bump to the tag once kata lands on a
 # release.
-ARG TOMO_VERSION=ec25e2d
+ARG TOMO_VERSION=v0.2.5-0.20260717122502-73d08e93b4ae
 RUN CGO_ENABLED=0 go install github.com/tamnd/tomo/cmd/tomo@${TOMO_VERSION}
 
 FROM tomolab-base
