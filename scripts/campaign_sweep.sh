@@ -16,6 +16,8 @@
 #     --retries <n>      abort retries per model (default 2)
 #     --no-grade         skip check.sh (default grades)
 #     --lab <path>       lab binary (default builds to /tmp/lab)
+#     --base-url <url>   OpenAI-compatible base (default zen); e.g. a local
+#                        gateway http://host:8888/v1. Bearer from OPENCODE_API_KEY.
 #
 # The runner resolves the task dir relative to the working directory's
 # swebench-live, so it MUST be run from the tomo-labs repo root. Source the
@@ -39,6 +41,7 @@ timeout="600s"
 retries="2"
 grade="--grade"
 lab=""
+base_url=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -50,6 +53,7 @@ while [ $# -gt 0 ]; do
     --retries) retries="$2"; shift 2;;
     --no-grade) grade=""; shift;;
     --lab) lab="$2"; shift 2;;
+    --base-url) base_url="$2"; shift 2;;
     *) echo "unknown flag: $1" >&2; exit 2;;
   esac
 done
@@ -75,6 +79,7 @@ for m in $models; do
     echo ">> $m (attempt $((attempt+1)))" >&2
     "$lab" probe "$task" --engine "$engine" --model "$m" \
       --max-rounds "$max_rounds" --timeout "$timeout" $grade \
+      ${base_url:+--base-url "$base_url"} \
       --out "$mdir" >/dev/null 2>>"$out/sweep.log"
     err="$(python3 -c "import json,sys;d=json.load(open('$mdir/summary.json'));print((d.get('error') or '').strip())" 2>/dev/null)"
     passed="$(python3 -c "import json,sys;d=json.load(open('$mdir/summary.json'));print(bool(d.get('passed')))" 2>/dev/null)"
