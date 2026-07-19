@@ -83,7 +83,12 @@ for m in $models; do
       --out "$mdir" >/dev/null 2>>"$out/sweep.log"
     err="$(python3 -c "import json,sys;d=json.load(open('$mdir/summary.json'));print((d.get('error') or '').strip())" 2>/dev/null)"
     passed="$(python3 -c "import json,sys;d=json.load(open('$mdir/summary.json'));print(bool(d.get('passed')))" 2>/dev/null)"
-    if [ -n "$err" ] && [ "$passed" != "True" ] && [ "$attempt" -lt "$retries" ]; then
+    timed_out="$(python3 -c "import json,sys;d=json.load(open('$mdir/summary.json'));print(bool(d.get('timed_out')))" 2>/dev/null)"
+    # A timeout (deadline exceeded) is a real run that ran out of wall clock, not
+    # a flaky-transport abort, so retrying it just burns another full timeout with
+    # no new information. Only retry genuine infra aborts (429/400/no-route/etc).
+    case "$err" in *"deadline exceeded"*|*"context canceled"*) timed_out="True";; esac
+    if [ -n "$err" ] && [ "$passed" != "True" ] && [ "$timed_out" != "True" ] && [ "$attempt" -lt "$retries" ]; then
       echo "   abort: ${err:0:70} -- retrying" >&2
       attempt=$((attempt+1))
       continue
