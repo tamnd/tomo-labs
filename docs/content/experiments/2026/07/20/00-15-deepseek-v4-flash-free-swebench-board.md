@@ -2,7 +2,7 @@
 title: "Three of fifteen, and the aborts were the story: a fair swebench-live board for deepseek-v4-flash-free"
 linkTitle: "deepseek-v4-flash-free, fair board"
 description: "The earlier read on the free zen models was that deepseek-v4-flash-free never produced a clean multi-task pass. That read was an artifact of the free tier, not the model. Rerun across all fifteen swebench-live tasks with the abort-aware harness, which retries a 429 or a gateway 400 instead of scoring it as a task failure, deepseek-v4-flash-free lands three clean passes: conan-17123, gitingest-94, and fonttools-3682, each with the edit dropped into the exact gold file. The whole fifteen-task board costs nine cents. This writes up the board, the three passes, the one near-miss where it found the right file and wrote the wrong fix, and the two failure shapes that account for the other eleven."
-date: 2026-07-20T01:30:00+07:00
+date: 2026-07-20T00:15:00+07:00
 ---
 
 Reproducibility header: tool=tomo, engine=oi (code-as-action), model=opencode/deepseek-v4-flash-free (free tier via the opencode.ai/zen upstream), suite=swebench-live, tasks=all fifteen.
