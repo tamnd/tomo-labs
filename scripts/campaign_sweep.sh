@@ -84,12 +84,17 @@ for m in $models; do
     err="$(python3 -c "import json,sys;d=json.load(open('$mdir/summary.json'));print((d.get('error') or '').strip())" 2>/dev/null)"
     passed="$(python3 -c "import json,sys;d=json.load(open('$mdir/summary.json'));print(bool(d.get('passed')))" 2>/dev/null)"
     timed_out="$(python3 -c "import json,sys;d=json.load(open('$mdir/summary.json'));print(bool(d.get('timed_out')))" 2>/dev/null)"
+    # A run that produced ZERO model tokens over a single round never actually
+    # talked to the model: the gateway returned an empty/errored completion the
+    # probe swallowed as a no-op (seen when a local model is evicted under memory
+    # pressure mid-board). That is an abort, not a real attempt, so retry it.
+    zero_tok="$(python3 -c "import json,sys;d=json.load(open('$mdir/summary.json'));print(bool((d.get('input_tokens') or 0)==0 and (d.get('output_tokens') or 0)==0 and not d.get('passed')))" 2>/dev/null)"
     # A timeout (deadline exceeded) is a real run that ran out of wall clock, not
     # a flaky-transport abort, so retrying it just burns another full timeout with
     # no new information. Only retry genuine infra aborts (429/400/no-route/etc).
     case "$err" in *"deadline exceeded"*|*"context canceled"*) timed_out="True";; esac
-    if [ -n "$err" ] && [ "$passed" != "True" ] && [ "$timed_out" != "True" ] && [ "$attempt" -lt "$retries" ]; then
-      echo "   abort: ${err:0:70} -- retrying" >&2
+    if { [ -n "$err" ] || [ "$zero_tok" = "True" ]; } && [ "$passed" != "True" ] && [ "$timed_out" != "True" ] && [ "$attempt" -lt "$retries" ]; then
+      echo "   abort: ${err:0:70}${err:+ }${zero_tok:+zero-token }-- retrying" >&2
       attempt=$((attempt+1))
       continue
     fi
