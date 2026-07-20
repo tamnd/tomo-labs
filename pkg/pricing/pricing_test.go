@@ -44,6 +44,21 @@ func TestLookupStripsProviderPrefix(t *testing.T) {
 	}
 }
 
+func TestHy3FreeCarriesPaidTwinListRate(t *testing.T) {
+	tbl := Default()
+	paid, ok := tbl.Lookup("hy3")
+	if !ok {
+		t.Fatal("hy3 paid twin is missing")
+	}
+	free, ok := tbl.Lookup("opencode/hy3-free")
+	if !ok {
+		t.Fatal("hy3-free is missing")
+	}
+	if free.InputCost != paid.InputCost || free.CacheReadCost != paid.CacheReadCost || free.OutputCost != paid.OutputCost {
+		t.Fatalf("hy3-free rates = %+v, want paid twin %+v", free, paid)
+	}
+}
+
 // Cost bills each disjoint input kind at its own rate and keeps output its own
 // line. The caller passes fresh input already split from cached, so there is no
 // subtraction inside.
