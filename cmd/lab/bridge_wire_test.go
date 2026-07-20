@@ -106,7 +106,7 @@ func TestResponsesStreamToChat(t *testing.T) {
 		`data: {"type":"response.output_item.added","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_9","name":"bash","arguments":""}}`,
 		`data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\"cmd\":"}`,
 		`data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"\"ls\"}"}`,
-		`data: {"type":"response.completed","response":{"usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120,"input_tokens_details":{"cached_tokens":80}}}}`,
+		`data: {"type":"response.completed","response":{"usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120,"input_tokens_details":{"cached_tokens":70,"cache_write_tokens":10},"output_tokens_details":{"reasoning_tokens":12}}}}`,
 		`data: [DONE]`,
 	}, "\n") + "\n"
 
@@ -116,7 +116,7 @@ func TestResponsesStreamToChat(t *testing.T) {
 	// Replay the produced chat SSE the way tomo's parser would.
 	var text strings.Builder
 	var toolName, toolArgs, finish string
-	var prompt, completion, cached int
+	var prompt, completion, cached, cacheWrite, reasoning int
 	for _, line := range strings.Split(out.String(), "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "data:") {
@@ -143,8 +143,12 @@ func TestResponsesStreamToChat(t *testing.T) {
 				PromptTokens        int `json:"prompt_tokens"`
 				CompletionTokens    int `json:"completion_tokens"`
 				PromptTokensDetails *struct {
-					CachedTokens int `json:"cached_tokens"`
+					CachedTokens     int `json:"cached_tokens"`
+					CacheWriteTokens int `json:"cache_write_tokens"`
 				} `json:"prompt_tokens_details"`
+				CompletionTokensDetails *struct {
+					ReasoningTokens int `json:"reasoning_tokens"`
+				} `json:"completion_tokens_details"`
 			} `json:"usage"`
 		}
 		if json.Unmarshal([]byte(p), &ch) != nil {
@@ -154,6 +158,10 @@ func TestResponsesStreamToChat(t *testing.T) {
 			prompt, completion = ch.Usage.PromptTokens, ch.Usage.CompletionTokens
 			if ch.Usage.PromptTokensDetails != nil {
 				cached = ch.Usage.PromptTokensDetails.CachedTokens
+				cacheWrite = ch.Usage.PromptTokensDetails.CacheWriteTokens
+			}
+			if ch.Usage.CompletionTokensDetails != nil {
+				reasoning = ch.Usage.CompletionTokensDetails.ReasoningTokens
 			}
 		}
 		for _, c := range ch.Choices {
@@ -181,7 +189,7 @@ func TestResponsesStreamToChat(t *testing.T) {
 	if prompt != 100 || completion != 20 {
 		t.Errorf("usage = %d/%d", prompt, completion)
 	}
-	if cached != 80 {
-		t.Errorf("cached prompt tokens = %d, want 80 (bridge must not drop the cache read)", cached)
+	if cached != 70 || cacheWrite != 10 || reasoning != 12 {
+		t.Errorf("usage details = cached %d, write %d, reasoning %d", cached, cacheWrite, reasoning)
 	}
 }

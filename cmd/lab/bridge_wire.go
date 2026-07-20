@@ -330,8 +330,12 @@ func usageFromResponse(resp json.RawMessage) map[string]any {
 			OutputTokens       int `json:"output_tokens"`
 			TotalTokens        int `json:"total_tokens"`
 			InputTokensDetails struct {
-				CachedTokens int `json:"cached_tokens"`
+				CachedTokens     int `json:"cached_tokens"`
+				CacheWriteTokens int `json:"cache_write_tokens"`
 			} `json:"input_tokens_details"`
+			OutputTokensDetails struct {
+				ReasoningTokens int `json:"reasoning_tokens"`
+			} `json:"output_tokens_details"`
 			// Some rollout events flatten the cached count to the top level; accept
 			// either shape so the read rate is never silently dropped.
 			CachedInputTokens int `json:"cached_input_tokens"`
@@ -358,8 +362,16 @@ func usageFromResponse(resp json.RawMessage) map[string]any {
 	// fresh rate. Surface it the chat way (prompt_tokens_details.cached_tokens)
 	// so tomo's usage accounting can credit it instead of counting every round
 	// at the full input price.
-	if cached > 0 {
-		usage["prompt_tokens_details"] = map[string]any{"cached_tokens": cached}
+	if cached > 0 || r.Usage.InputTokensDetails.CacheWriteTokens > 0 {
+		usage["prompt_tokens_details"] = map[string]any{
+			"cached_tokens":      cached,
+			"cache_write_tokens": r.Usage.InputTokensDetails.CacheWriteTokens,
+		}
+	}
+	if r.Usage.OutputTokensDetails.ReasoningTokens > 0 {
+		usage["completion_tokens_details"] = map[string]any{
+			"reasoning_tokens": r.Usage.OutputTokensDetails.ReasoningTokens,
+		}
 	}
 	return usage
 }
