@@ -544,7 +544,7 @@ func extractUsage(body []byte) *usageRecord {
 // place a mid-stream failure is meaningful. It matches the OpenAI chat path and
 // the Anthropic messages path, the two the upstream and the wire shims speak.
 func isModelPath(p string) bool {
-	return strings.Contains(p, "chat/completions") || strings.Contains(p, "/messages")
+	return strings.Contains(p, "chat/completions") || strings.Contains(p, "/messages") || strings.Contains(p, "/responses")
 }
 
 // streamFailed reports whether a model reply came back broken. A gateway that
