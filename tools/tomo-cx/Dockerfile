@@ -12,7 +12,7 @@ FROM golang:1.26-bookworm AS build
 # baseline (this commit does not touch pkg/agent), so the tomo image stays the
 # fair rival baseline and this image only adds the cx loop on top. Bump to the
 # tag once cx lands on a release.
-ARG TOMO_VERSION=ef3262a
+ARG TOMO_VERSION=v0.2.5-0.20260720041632-cf1d1af451c0
 RUN CGO_ENABLED=0 go install github.com/tamnd/tomo/cmd/tomo@${TOMO_VERSION}
 
 FROM tomolab-base
