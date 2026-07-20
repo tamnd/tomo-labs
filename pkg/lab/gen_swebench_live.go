@@ -366,10 +366,11 @@ func sweLivePrompt(row sweLiveRow) string {
 }
 
 // sweLiveCheck grades a recent instance on the host. It builds a venv on a modern
-// interpreter with uv, installs the checked-out project (trying the test extra
-// first, then a plain editable install, then a non-editable one, so a project's
-// layout does not decide the grade), applies the hidden test patch on top of the
-// agent's edits, and runs the bug's test files with pytest -rA. Grading matches the
+// interpreter with uv, installs the checked-out project (trying a plain editable
+// install first, then a non-editable one, with test extras only as fallbacks, so a
+// project's optional integration stack does not decide the grade), applies the
+// hidden test patch on top of the agent's edits, and runs the bug's test files with
+// pytest -rA. Grading matches the
 // dataset's node ids against the -rA outcome lines by prefix, because Live truncates
 // a parametrized id at its first space, so the stored id is a prefix of the real
 // one and only a log match can line them up. FAIL_TO_PASS must be green and the
@@ -397,7 +398,7 @@ PY="$VENV/bin/python"
 # the first recipe that succeeds, so a project without a test extra still installs.
 set -f
 installed=0
-for spec in "-e .[test]" "-e .[tests]" "-e .[dev]" "-e ." "."; do
+for spec in "-e ." "." "-e .[test]" "-e .[tests]" "-e .[dev]"; do
   if ( cd "$W" && uv pip install --python "$PY" -q $spec ) >/dev/null 2>&1; then
     installed=1; break
   fi

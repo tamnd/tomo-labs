@@ -123,12 +123,14 @@ func (l *Lab) taskPyDeps(sc Scenario) string {
 }
 
 // prepScript builds the venv under /opt/venv at the pinned interpreter and
-// installs the project into it, trying the same extra specs the grader tries so
-// a project without a test extra still installs, then makes sure pytest is
-// present. It always exits zero: prep is an optimization, not a gate, so a
-// failure leaves the agent exactly where it was before, free to bootstrap on its
-// own. The interpreter and wheels resolve from the shared /opt/uv the base image
-// pointed uv at, so a warm cache makes this fast and largely offline.
+// installs the project into it, preferring the normal dependency set before
+// falling back to optional test extras, then makes sure pytest is present. The
+// ordering matters for projects whose test extra pulls unrelated heavyweight
+// stacks: the selected hidden test normally needs the project plus pytest, not
+// every optional integration. It always exits zero: prep is an optimization, not
+// a gate, so a failure leaves the agent exactly where it was before, free to
+// bootstrap on its own. The interpreter and wheels resolve from the shared /opt/uv
+// the base image pointed uv at, so a warm cache makes this fast and largely offline.
 const prepScript = `set -uo pipefail
 PYVER="${LAB_PYTHON:-3}"
 LOG=/opt/venv/prep.log
@@ -138,7 +140,7 @@ if ! uv venv --clear --python "$PYVER" /opt/venv >"$LOG" 2>&1; then
 fi
 PY=/opt/venv/bin/python
 set -f
-for spec in "-e .[test]" "-e .[tests]" "-e .[dev]" "-e ." "."; do
+for spec in "-e ." "." "-e .[test]" "-e .[tests]" "-e .[dev]"; do
   if ( cd /work && uv pip install --python "$PY" -q $spec ) >>"$LOG" 2>&1; then
     break
   fi

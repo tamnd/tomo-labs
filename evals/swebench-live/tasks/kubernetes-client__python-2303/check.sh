@@ -20,7 +20,7 @@ PY="$VENV/bin/python"
 # the first recipe that succeeds, so a project without a test extra still installs.
 set -f
 installed=0
-for spec in "-e .[test]" "-e .[tests]" "-e .[dev]" "-e ." "."; do
+for spec in "-e ." "." "-e .[test]" "-e .[tests]" "-e .[dev]"; do
   if ( cd "$W" && uv pip install --python "$PY" -q $spec ) >/dev/null 2>&1; then
     installed=1; break
   fi
