@@ -39,6 +39,21 @@ func TestSweStrList(t *testing.T) {
 	}
 }
 
+func TestSweLiveEnvironmentPrefersBaseInstall(t *testing.T) {
+	plain := `for spec in "-e ." "."`
+	for name, script := range map[string]string{
+		"grader": sweLiveCheck,
+		"prep":   prepScript,
+	} {
+		if !strings.Contains(script, plain) {
+			t.Errorf("%s does not prefer the normal project install", name)
+		}
+		if strings.Index(script, `"-e .[test]"`) < strings.Index(script, `"-e ."`) {
+			t.Errorf("%s installs the heavyweight test extra before the base project", name)
+		}
+	}
+}
+
 func TestSweSlug(t *testing.T) {
 	if got := sweSlug("sympy__sympy-12345"); got != "sympy__sympy-12345" {
 		t.Errorf("clean id changed: %q", got)
