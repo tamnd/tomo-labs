@@ -99,6 +99,22 @@ This repricing changes the size, but not the direction, of the harness gap.
 Caching makes Codex's medium run relatively inexpensive and cuts the effective price of the context-heavy tools, while output-heavy hard solutions remain costly even when their input prefix is cached.
 The current Tomo baseline costs 5.19x, 2.85x, and 1.67x Pi on easy, medium, and hard respectively; those are the numbers the follow-up engine optimization must reverse without losing a hidden test.
 
+## Follow-up: Tomo reverses the Pi gap
+
+The [trace-led Tomo OI follow-up](/experiments/2026/07/21/00-35-tomo-oi-leetcode-cost-reversal/) keeps all 120 hidden cases green and cuts the three Tomo cells to 1,950, 2,359, and 6,816 tokens.
+At the same list rates, the passing traces cost $0.003790, $0.005534, and $0.028151—52.1 percent, 37.3 percent, and 52.5 percent of Pi.
+
+| Tomo result | Task | Hidden verdict | Calls | Tokens | Total cost | Related to Tomo | Related to Pi |
+|---|---|---:|---:|---:|---:|---:|---:|
+| baseline | leetcode-3773 | PASS 33/33 | 12 | 35,515 | $0.037756 | 1.00x | 5.19x |
+| OI after | leetcode-3773 | PASS 33/33 | 2 | 1,950 | $0.003790 | 0.10x | 0.52x |
+| baseline | leetcode-3793 | PASS 44/44 | 13 | 40,969 | $0.042324 | 1.00x | 2.85x |
+| OI after | leetcode-3793 | PASS 44/44 | 2 | 2,359 | $0.005534 | 0.13x | 0.37x |
+| baseline | leetcode-3777 | PASS 43/43 | 14 | 63,258 | $0.089476 | 1.00x | 1.67x |
+| OI after | leetcode-3777 | PASS 43/43 | 2 | 6,816 | $0.028151 | 0.31x | 0.53x |
+
+The detailed report includes the discarded failing arms, agent/CX/OI shootout, non-Git convergence bug, parser failure, general-harness validation, and the post-merge subscription rate-limit boundary.
+
 ## One call is enough when the task surface is narrow
 
 `leetcode-solver` is deliberately specialized.
