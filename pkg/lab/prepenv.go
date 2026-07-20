@@ -64,7 +64,11 @@ func (l *Lab) prepEnv(ctx context.Context, sc Scenario, work, envDir string, sl 
 	// writes them beside the task, the same allowlist the grader installs). Prep puts
 	// them in the venv up front so the agent never spends a turn pip-installing what
 	// the task needs, matching how the upstream benchmark ships a ready environment.
-	env := []string{"LAB_PYTHON=" + pyver}
+	// Cache and venv are separate bind mounts, so uv cannot hardlink between
+	// them. Symlinks keep heavyweight wheels in the shared cache instead of
+	// copying them into every throwaway attempt. Both mounts remain at these
+	// stable paths until the agent exits, and only then is the venv removed.
+	env := []string{"LAB_PYTHON=" + pyver, "UV_LINK_MODE=symlink"}
 	if deps := l.taskPyDeps(sc); deps != "" {
 		env = append(env, "LAB_PYDEPS="+deps)
 	}
