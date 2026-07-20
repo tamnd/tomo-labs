@@ -3,7 +3,7 @@
 # opencode), so this image is independent of any opencode checkout on the host.
 # The base already carries Node 22, which opencode needs.
 FROM tomolab-base
-ARG OPENCODE_VERSION=1.17.18
+ARG OPENCODE_VERSION=1.18.4
 RUN npm install -g opencode-ai@${OPENCODE_VERSION}
 COPY adapter.sh /usr/local/bin/adapter
 RUN chmod +x /usr/local/bin/adapter
