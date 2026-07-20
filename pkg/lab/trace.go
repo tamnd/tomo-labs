@@ -368,7 +368,7 @@ func latencyStats(path string) Latency {
 		if json.Unmarshal(b, &r) != nil || r.Status != 200 {
 			return
 		}
-		if !strings.Contains(r.Path, "chat/completions") && !strings.Contains(r.Path, "/messages") {
+		if !strings.Contains(r.Path, "chat/completions") && !strings.Contains(r.Path, "/messages") && !strings.Contains(r.Path, "/responses") {
 			return
 		}
 		ttfb += r.TTFBMS

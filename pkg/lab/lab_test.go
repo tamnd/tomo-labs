@@ -63,6 +63,16 @@ func TestReadTraceMissing(t *testing.T) {
 	}
 }
 
+func TestLatencyStatsIncludesNativeResponses(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "latency.jsonl")
+	if err := os.WriteFile(path, []byte("{\"status\":200,\"path\":\"/v1/responses\",\"ttfb_ms\":120,\"total_ms\":450}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := latencyStats(path); got != (Latency{AvgTTFB: 120, AvgTotal: 450, SumTotal: 450, Calls: 1}) {
+		t.Fatalf("latency = %+v", got)
+	}
+}
+
 // dirSizeKB sums the files under a tree.
 func TestDirSizeKB(t *testing.T) {
 	dir := t.TempDir()

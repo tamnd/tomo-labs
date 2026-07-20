@@ -36,6 +36,17 @@ func TestExtractUsageResponsesReasoning(t *testing.T) {
 	}
 }
 
+func TestResponsesIsModelPath(t *testing.T) {
+	for _, path := range []string{"/v1/chat/completions", "/v1/messages", "/v1/responses"} {
+		if !isModelPath(path) {
+			t.Errorf("%s should be a model path", path)
+		}
+	}
+	if isModelPath("/healthz") {
+		t.Error("health check should not be a model path")
+	}
+}
+
 // The Anthropic shape names cache read and write tokens flat, and extractUsage
 // maps them onto the same fields.
 func TestExtractUsageAnthropicCache(t *testing.T) {
