@@ -97,6 +97,9 @@ type Tokens struct {
 	Total      int `json:"total"`
 	Cached     int `json:"cached,omitempty"`
 	CacheWrite int `json:"cache_write,omitempty"`
+	// Reasoning is the subset of output tokens consumed by hidden reasoning.
+	// It remains included in Completion and Total, matching provider accounting.
+	Reasoning int `json:"reasoning,omitempty"`
 }
 
 // Latency is the model-call latency over a run, in milliseconds. AvgTTFB and

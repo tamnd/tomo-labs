@@ -15,8 +15,8 @@ func TestReadTrace(t *testing.T) {
 	write(t, dir, "requests.jsonl", `{"seq":1}
 {"seq":2}
 `)
-	write(t, dir, "usage.jsonl", `{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}
-{"prompt_tokens":20,"completion_tokens":7,"total_tokens":27}
+	write(t, dir, "usage.jsonl", `{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"reasoning_tokens":3}
+{"prompt_tokens":20,"completion_tokens":7,"total_tokens":27,"reasoning_tokens":4}
 `)
 	// One readiness GET (no completion path), one rejected 500, and two good
 	// completions the average should be taken over.
@@ -38,7 +38,7 @@ func TestReadTrace(t *testing.T) {
 	if m.Requests != 2 {
 		t.Errorf("requests = %d, want 2", m.Requests)
 	}
-	if m.Tokens != (Tokens{Prompt: 30, Completion: 12, Total: 42}) {
+	if m.Tokens != (Tokens{Prompt: 30, Completion: 12, Total: 42, Reasoning: 7}) {
 		t.Errorf("tokens = %+v, want 30/12/42", m.Tokens)
 	}
 	if m.Latency != (Latency{AvgTTFB: 150, AvgTotal: 400, SumTotal: 800, Calls: 2}) {
