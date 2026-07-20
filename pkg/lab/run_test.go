@@ -49,3 +49,22 @@ func TestSplitEditedTests(t *testing.T) {
 		})
 	}
 }
+
+func TestRetryableInfraFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		exitCode     int
+		streamFailed bool
+		want         bool
+	}{
+		{name: "dropped stream", exitCode: 1, streamFailed: true, want: true},
+		{name: "ordinary failure", exitCode: 1, streamFailed: false, want: false},
+		{name: "timeout truncates stream", exitCode: exitTimeout, streamFailed: true, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := retryableInfraFailure(tc.exitCode, tc.streamFailed); got != tc.want {
+				t.Fatalf("retryableInfraFailure(%d, %v) = %v, want %v", tc.exitCode, tc.streamFailed, got, tc.want)
+			}
+		})
+	}
+}
