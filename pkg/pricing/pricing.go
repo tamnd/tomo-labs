@@ -8,6 +8,7 @@
 //
 //	OpenAI    https://platform.openai.com/docs/pricing
 //	DeepSeek  https://api-docs.deepseek.com/quick_start/pricing
+//	OpenRouter https://openrouter.ai/api/v1/models
 //
 // A model served on a free tier is recorded at its actual billed rate. A free
 // variant with a paid twin carries that twin's published rate as a list-price

@@ -162,7 +162,10 @@ func TestRunCost(t *testing.T) {
 	if kind != costReference || usd < 0.279 || usd > 0.281 {
 		t.Errorf("reference = %v/%v, want ~0.28/reference", usd, kind)
 	}
-	if usd, kind := runCostUSD(&Result{Model: "hy3-free", Tokens: Tokens{Prompt: 1_000_000, Completion: 5000}}); usd != 0 || kind != costListed {
+	if usd, kind := runCostUSD(&Result{Model: "hy3-free", Tokens: Tokens{Prompt: 1_000_000, Completion: 5000}}); usd < 0.2039 || usd > 0.2041 || kind != costReference {
+		t.Errorf("hy3 reference = %v/%v, want ~0.204/reference", usd, kind)
+	}
+	if usd, kind := runCostUSD(&Result{Model: "mimo-v2.5-free", Tokens: Tokens{Prompt: 1_000_000}}); usd != 0 || kind != costListed {
 		t.Errorf("zero-rate = %v/%v, want 0/listed", usd, kind)
 	}
 	if _, kind := runCostUSD(&Result{Model: "some-unknown-model"}); kind != costUnpriced {
