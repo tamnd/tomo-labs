@@ -212,8 +212,8 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 		// A mid-run drop leaves a flagged latency row; a final-turn drop the pod tore
 		// down before the proxy could flush leaves only a truncated resp file, so both
 		// paths count as the infra fault they are.
-		if sc.graded && infraSkips < maxInfra &&
-			(streamErrorStats(filepath.Join(trace, "latency.jsonl")) != nil || droppedFinalStream(trace)) {
+		streamFailed := streamErrorStats(filepath.Join(trace, "latency.jsonl")) != nil || droppedFinalStream(trace)
+		if sc.graded && infraSkips < maxInfra && retryableInfraFailure(exitCode, streamFailed) {
 			infraSkips++
 			continue
 		}
@@ -257,6 +257,14 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 	pruneOldRuns(filepath.Join(l.resultsDir(), tool, sc.Name), l.cfg.KeepRuns)
 	l.printSummary(res)
 	return res, nil
+}
+
+// retryableInfraFailure keeps the two independent failure classes in their
+// proper order. Killing a live SSE connection at the wall-clock ceiling makes
+// the response look truncated, but the timeout—not the transport—ended that
+// attempt. Retrying it would turn pass@1 into an unreported best-of-N run.
+func retryableInfraFailure(exitCode int, streamFailed bool) bool {
+	return exitCode != exitTimeout && streamFailed
 }
 
 // runAttempt stands up the proxy and optional web sidecar, runs the tool in a
