@@ -25,6 +25,8 @@ The tiers today:
   exercises graded by their own test suites.
 - [`evalplus`](evalplus) rebuilds EvalPlus, the HumanEval+ and MBPP+ function
   completion problems with their expanded hidden tests.
+- [`terminal-bench`](terminal-bench) renders a validated, host-gradable cut of
+  Terminal-Bench file and shell tasks with hidden pytest graders.
 
 Each tier is materialized by `lab gen --suite <name>`, which fetches the upstream
 benchmark and writes the task dirs. The task dirs are committed, so running a suite
