@@ -67,6 +67,38 @@ Calls exclude the proxy's two readiness requests.
 Solved 18 of 18 at pass@1.
 That clean score is the beginning of the result, not the end: the harnesses spent dramatically different amounts of model work to get it.
 
+## Cost, including the cache discount
+
+The bridge runs against a Codex subscription, so no per-token invoice was charged for this campaign.
+The table prices the observed usage at the equivalent gpt-5.6-luna metered API list rate from the [shared pricing table](/guides/): $1.00 per million fresh input tokens, $0.10 per million cache-read tokens, and $6.00 per million output tokens.
+Reasoning is already included in output and is not charged twice.
+Fresh input is `input - cached`; each total is therefore `fresh input + cache read + output`.
+
+| Tool | Task | Fresh input | Cache read | Output | Total | Relative to Pi |
+|---|---|---:|---:|---:|---:|---:|
+| leetcode-solver | leetcode-3773 | $0.000428 | $0.000000 | $0.003468 | $0.003896 | 0.54x |
+| leetcode-solver | leetcode-3793 | $0.000474 | $0.000000 | $0.003720 | $0.004194 | 0.28x |
+| leetcode-solver | leetcode-3777 | $0.000719 | $0.000000 | $0.068322 | $0.069041 | 1.29x |
+| tomo | leetcode-3773 | $0.024192 | $0.000922 | $0.012642 | $0.037756 | 5.19x |
+| tomo | leetcode-3793 | $0.025594 | $0.001280 | $0.015450 | $0.042324 | 2.85x |
+| tomo | leetcode-3777 | $0.041400 | $0.001408 | $0.046668 | $0.089476 | 1.67x |
+| pi | leetcode-3773 | $0.004645 | $0.000000 | $0.002634 | $0.007279 | 1.00x |
+| pi | leetcode-3793 | $0.008751 | $0.000000 | $0.006090 | $0.014841 | 1.00x |
+| pi | leetcode-3777 | $0.020504 | $0.000461 | $0.032634 | $0.053599 | 1.00x |
+| opencode | leetcode-3773 | $0.064628 | $0.003046 | $0.012966 | $0.080640 | 11.08x |
+| opencode | leetcode-3793 | $0.025846 | $0.005504 | $0.016740 | $0.048090 | 3.24x |
+| opencode | leetcode-3777 | $0.032286 | $0.009472 | $0.049392 | $0.091150 | 1.70x |
+| codex | leetcode-3773 | $0.037088 | $0.003251 | $0.013098 | $0.053437 | 7.34x |
+| codex | leetcode-3793 | $0.008450 | $0.002458 | $0.008466 | $0.019374 | 1.31x |
+| codex | leetcode-3777 | $0.044545 | $0.006426 | $0.030540 | $0.081511 | 1.52x |
+| claude-code | leetcode-3773 | $0.106843 | $0.003226 | $0.006828 | $0.116897 | 16.06x |
+| claude-code | leetcode-3793 | $0.023794 | $0.009779 | $0.007008 | $0.040581 | 2.73x |
+| claude-code | leetcode-3777 | $0.150373 | $0.020096 | $0.047292 | $0.217761 | 4.06x |
+
+This repricing changes the size, but not the direction, of the harness gap.
+Caching makes Codex's medium run relatively inexpensive and cuts the effective price of the context-heavy tools, while output-heavy hard solutions remain costly even when their input prefix is cached.
+The current Tomo baseline costs 5.19x, 2.85x, and 1.67x Pi on easy, medium, and hard respectively; those are the numbers the follow-up engine optimization must reverse without losing a hidden test.
+
 ## One call is enough when the task surface is narrow
 
 `leetcode-solver` is deliberately specialized.
