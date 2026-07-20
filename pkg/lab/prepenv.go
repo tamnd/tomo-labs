@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/tamnd/tomo-labs/pkg/container"
 )
@@ -72,13 +73,24 @@ func (l *Lab) prepEnv(ctx context.Context, sc Scenario, work, envDir string, sl 
 	if deps := l.taskPyDeps(sc); deps != "" {
 		env = append(env, "LAB_PYDEPS="+deps)
 	}
-	err := l.rt.Run(ctx, container.RunSpec{
+	prepCtx := ctx
+	if l.cfg.PrepSecs > 0 {
+		var cancel context.CancelFunc
+		prepCtx, cancel = context.WithTimeout(ctx, time.Duration(l.cfg.PrepSecs)*time.Second)
+		defer cancel()
+	}
+	err := l.rt.Run(prepCtx, container.RunSpec{
 		Name: name, Image: baseImage, Network: l.cfg.Network, Remove: true,
 		Mounts: mounts,
 		Env:    env,
 		Cmd:    []string{"bash", "-c", prepScript},
 		Stdout: os.Stderr, Stderr: os.Stderr,
 	})
+	if prepCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+		l.rt.Remove(ctx, name)
+		fmt.Fprintf(os.Stderr, "[prep] %s: timed out after %ds, agent uses the partial environment\n", sc.Name, l.cfg.PrepSecs)
+		return
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[prep] %s: env prep failed, agent falls back to bootstrapping: %v\n", sc.Name, err)
 	}

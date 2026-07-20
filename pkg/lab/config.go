@@ -21,6 +21,7 @@ type Config struct {
 	MaxTurns    int // agent turn budget handed to the tool
 	Attempts    int // capability tries before a scenario is called failed; 1 is pure pass@1, higher is best-of-N
 	AttemptSecs int // per-attempt wall-clock ceiling; a tool that runs past it is killed and its partial work graded, 0 disables the bound
+	PrepSecs    int // task-environment preparation ceiling; a timeout falls back to the bare checkout, 0 disables the bound
 	ProxyPort   int // host port the proxy publishes for the readiness probe (worker 0); later workers take the next ports
 	KeepRuns    int // how many timestamped runs to keep per tool/scenario, 0 keeps all
 	Concurrency int // how many tool/scenario runs to keep in flight at once
@@ -67,6 +68,7 @@ func DefaultConfig() Config {
 		MaxTurns:    envInt("LAB_MAX_TURNS", 12),
 		Attempts:    envInt("LAB_ATTEMPTS", 1),
 		AttemptSecs: envInt("LAB_ATTEMPT_TIMEOUT", 900),
+		PrepSecs:    envInt("LAB_PREP_TIMEOUT", 300),
 		ProxyPort:   envInt("LAB_PROXY_PORT", 8899),
 		KeepRuns:    envInt("LAB_KEEP_RUNS", 5),
 		Concurrency: envInt("LAB_CONCURRENCY", 3),
