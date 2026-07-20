@@ -60,10 +60,18 @@ func (l *Lab) prepEnv(ctx context.Context, sc Scenario, work, envDir string, sl 
 	// so the editable install it builds bakes in a /work interpreter path that
 	// still resolves once the agent takes over the same tree.
 	mounts := append(l.envMounts(envDir), container.Mount{Host: work, Container: "/work"})
+	// A suite may declare the third-party libraries its tasks lean on (terminal-bench
+	// writes them beside the task, the same allowlist the grader installs). Prep puts
+	// them in the venv up front so the agent never spends a turn pip-installing what
+	// the task needs, matching how the upstream benchmark ships a ready environment.
+	env := []string{"LAB_PYTHON=" + pyver}
+	if deps := l.taskPyDeps(sc); deps != "" {
+		env = append(env, "LAB_PYDEPS="+deps)
+	}
 	err := l.rt.Run(ctx, container.RunSpec{
 		Name: name, Image: baseImage, Network: l.cfg.Network, Remove: true,
 		Mounts: mounts,
-		Env:    []string{"LAB_PYTHON=" + pyver},
+		Env:    env,
 		Cmd:    []string{"bash", "-c", prepScript},
 		Stdout: os.Stderr, Stderr: os.Stderr,
 	})
@@ -102,6 +110,18 @@ func (l *Lab) taskPython(sc Scenario) string {
 	return strings.TrimSpace(string(b))
 }
 
+// taskPyDeps reads the third-party packages a task's grader and reference solution
+// import, written beside the task by the generator (terminal-bench). Prep installs
+// them into the venv so the agent starts with them present. It is a space-joined
+// list for the shell; an absent or empty file means the task needs only stdlib.
+func (l *Lab) taskPyDeps(sc Scenario) string {
+	b, err := os.ReadFile(filepath.Join(l.suiteDir(), "oracle", sc.Name, "pydeps"))
+	if err != nil {
+		return ""
+	}
+	return strings.Join(strings.Fields(string(b)), " ")
+}
+
 // prepScript builds the venv under /opt/venv at the pinned interpreter and
 // installs the project into it, trying the same extra specs the grader tries so
 // a project without a test extra still installs, then makes sure pytest is
@@ -125,6 +145,11 @@ for spec in "-e .[test]" "-e .[tests]" "-e .[dev]" "-e ." "."; do
 done
 set +f
 "$PY" -c "import pytest" >/dev/null 2>&1 || uv pip install --python "$PY" -q pytest >>"$LOG" 2>&1
+# The suite's declared third-party libraries, installed up front so the agent finds
+# them already importable instead of discovering the closed network the hard way.
+if [ -n "${LAB_PYDEPS:-}" ]; then
+  uv pip install --python "$PY" -q $LAB_PYDEPS >>"$LOG" 2>&1 || echo "[prep] some pydeps did not install" >&2
+fi
 echo "[prep] python $PYVER env ready" >&2
 exit 0
 `

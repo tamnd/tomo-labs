@@ -181,6 +181,17 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 
 		var err error
 		wall, exitCode, err = l.runAttempt(ctx, tool, sc, work, trace, env, iter, attempts, sl)
+		// The per-attempt venv has done its job the moment the agent container exits:
+		// the grade below builds its own independent venv from the work tree and never
+		// reads this one. It is a few hundred megabytes of regenerable wheels that
+		// would otherwise sit under every kept run and fill the disk, so drop it now,
+		// on every path out of the attempt. Reclaiming it before the error check
+		// matters: a runAttempt error (a proxy that never came up, a container that
+		// failed to start) used to return with the venv still on disk, and because
+		// that error also skips pruneOldRuns below, the leaked venv was never
+		// reclaimed, so a campaign of flaky attempts could fill the disk one venv at a
+		// time.
+		os.RemoveAll(env)
 		if err != nil {
 			return nil, err
 		}
@@ -192,11 +203,6 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 		}
 		stripCaches(work)
 		diskAfter = dirSizeKB(work)
-		// The per-attempt venv has done its job once the agent has run and the grade,
-		// which builds its own independent venv, is in. It is a few hundred megabytes
-		// of regenerable wheels that would otherwise sit under every kept run and fill
-		// the disk, so drop it now rather than waiting for the run to age past KeepRuns.
-		os.RemoveAll(env)
 		if passed {
 			graded++
 			break

@@ -1,0 +1,16 @@
+You are working in a Unix shell. Your working directory holds the task's files, and any output path named below is relative to it. Complete the task by running commands and by creating or editing files in place.
+
+Environment notes:
+- You have no network access. Fetching a URL, installing a package, or reaching a remote will fail, so do not spend a step on it.
+
+Task:
+
+You are given an html file of an earnings report of a company. However, exactly one financial metric in the html file is incorrect. 
+
+Can you find that metric and output it in value.txt. 
+
+Output two numbers separated by a comma:
+1. The line number on which the incorrect metric is located
+2. The value of the incorrect metric (just output the number, do not include units)
+
+Example output: 1,17

@@ -1,0 +1,8 @@
+You are working in a Unix shell. Your working directory holds the task's files, and any output path named below is relative to it. Complete the task by running commands and by creating or editing files in place.
+
+Environment notes:
+- You have no network access. Fetching a URL, installing a package, or reaching a remote will fail, so do not spend a step on it.
+
+Task:
+
+I have a sqlite database in trunc.db that was corrupted through binary truncation. Recover as many of the rows as possible, and create a JSON file in recover.json. The output should have the format [{"word": "testwordXY", "value": M}, {"word": "testwordZZ","value": N}, ...]
