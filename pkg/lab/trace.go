@@ -337,6 +337,7 @@ func sumTokens(path string) (Tokens, float64) {
 			Total      int     `json:"total_tokens"`
 			Cached     int     `json:"cached_tokens"`
 			CacheWrite int     `json:"cache_write_tokens"`
+			Reasoning  int     `json:"reasoning_tokens"`
 			Cost       float64 `json:"cost_usd"`
 		}
 		if json.Unmarshal(b, &r) == nil {
@@ -345,6 +346,7 @@ func sumTokens(path string) (Tokens, float64) {
 			t.Total += r.Total
 			t.Cached += r.Cached
 			t.CacheWrite += r.CacheWrite
+			t.Reasoning += r.Reasoning
 			cost += r.Cost
 		}
 	})

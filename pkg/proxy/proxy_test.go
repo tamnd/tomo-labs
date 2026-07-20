@@ -9,7 +9,7 @@ import (
 // A plain OpenAI usage block yields the token counts, the nested cached-prompt
 // count, and the reported cost.
 func TestExtractUsageOpenAI(t *testing.T) {
-	body := []byte(`{"usage":{"prompt_tokens":100,"completion_tokens":40,"total_tokens":140,"prompt_tokens_details":{"cached_tokens":64},"cost":0.0123}}`)
+	body := []byte(`{"usage":{"prompt_tokens":100,"completion_tokens":40,"total_tokens":140,"prompt_tokens_details":{"cached_tokens":64},"completion_tokens_details":{"reasoning_tokens":24},"cost":0.0123}}`)
 	u := extractUsage(body)
 	if u == nil {
 		t.Fatal("no usage extracted")
@@ -20,8 +20,19 @@ func TestExtractUsageOpenAI(t *testing.T) {
 	if u.CachedTokens != 64 {
 		t.Errorf("cached = %d, want 64", u.CachedTokens)
 	}
+	if u.ReasoningTokens != 24 {
+		t.Errorf("reasoning = %d, want 24", u.ReasoningTokens)
+	}
 	if u.CostUSD != 0.0123 {
 		t.Errorf("cost = %v, want 0.0123", u.CostUSD)
+	}
+}
+
+func TestExtractUsageResponsesReasoning(t *testing.T) {
+	body := []byte("data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":90,\"output_tokens\":30,\"total_tokens\":120,\"input_tokens_details\":{\"cached_tokens\":50},\"output_tokens_details\":{\"reasoning_tokens\":20}}}}\n\n")
+	u := extractUsage(body)
+	if u == nil || u.ReasoningTokens != 20 || u.CachedTokens != 50 || u.TotalTokens != 120 {
+		t.Fatalf("usage = %+v, want reasoning/cache/total 20/50/120", u)
 	}
 }
 

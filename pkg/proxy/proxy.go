@@ -409,6 +409,7 @@ type usageRecord struct {
 	TotalTokens      int     `json:"total_tokens"`
 	CachedTokens     int     `json:"cached_tokens,omitempty"`
 	CacheWriteTokens int     `json:"cache_write_tokens,omitempty"`
+	ReasoningTokens  int     `json:"reasoning_tokens,omitempty"`
 	CostUSD          float64 `json:"cost_usd,omitempty"`
 }
 
@@ -439,6 +440,9 @@ func extractUsage(body []byte) *usageRecord {
 				PromptTokensDetails *struct {
 					CachedTokens int `json:"cached_tokens"`
 				} `json:"prompt_tokens_details"`
+				CompletionTokensDetails *struct {
+					ReasoningTokens int `json:"reasoning_tokens"`
+				} `json:"completion_tokens_details"`
 			} `json:"usage"`
 		}
 		if json.Unmarshal(chunk, &v) == nil && v.Usage != nil {
@@ -457,6 +461,9 @@ func extractUsage(body []byte) *usageRecord {
 			// DeepSeek reports the hit count under its own name.
 			if u.PromptTokensDetails != nil {
 				rec.CachedTokens = u.PromptTokensDetails.CachedTokens
+			}
+			if u.CompletionTokensDetails != nil {
+				rec.ReasoningTokens = u.CompletionTokensDetails.ReasoningTokens
 			}
 			if u.CacheReadInputToks > 0 {
 				rec.CachedTokens = u.CacheReadInputToks
@@ -482,6 +489,9 @@ func extractUsage(body []byte) *usageRecord {
 					InputTokensDetails *struct {
 						CachedTokens int `json:"cached_tokens"`
 					} `json:"input_tokens_details"`
+					OutputTokensDetails *struct {
+						ReasoningTokens int `json:"reasoning_tokens"`
+					} `json:"output_tokens_details"`
 					CachedInputTokens int `json:"cached_input_tokens"`
 				} `json:"usage"`
 			} `json:"response"`
@@ -501,6 +511,9 @@ func extractUsage(body []byte) *usageRecord {
 		}
 		if u.InputTokensDetails != nil {
 			rec.CachedTokens = u.InputTokensDetails.CachedTokens
+		}
+		if u.OutputTokensDetails != nil {
+			rec.ReasoningTokens = u.OutputTokensDetails.ReasoningTokens
 		}
 		if u.CachedInputTokens > 0 {
 			rec.CachedTokens = u.CachedInputTokens
