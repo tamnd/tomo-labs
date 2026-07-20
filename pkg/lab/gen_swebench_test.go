@@ -40,7 +40,7 @@ func TestSweStrList(t *testing.T) {
 }
 
 func TestSweLiveEnvironmentPrefersBaseInstall(t *testing.T) {
-	plain := `for spec in "-e ." "."`
+	plain := `for spec in "-e ."`
 	for name, script := range map[string]string{
 		"grader": sweLiveCheck,
 		"prep":   prepScript,
@@ -51,6 +51,11 @@ func TestSweLiveEnvironmentPrefersBaseInstall(t *testing.T) {
 		if strings.Index(script, `"-e .[test]"`) < strings.Index(script, `"-e ."`) {
 			t.Errorf("%s installs the heavyweight test extra before the base project", name)
 		}
+	}
+	noDeps := strings.Index(prepScript, `"-e . --no-deps"`)
+	extra := strings.Index(prepScript, `"-e .[test]"`)
+	if noDeps < 0 || extra < 0 || noDeps > extra {
+		t.Error("prep broadens to optional integrations before trying a source-only environment")
 	}
 }
 
