@@ -131,10 +131,14 @@ func Narrative(t *Transcript) []string {
 	// the last word: a run the upstream cut short is a floor on what the tool would
 	// have done, not a ceiling, and a reader should weigh the verdict with that.
 	if t.Throttle != nil && t.Throttle.Hits > 0 {
-		line := fmt.Sprintf("The upstream rate-limited it %s and the run was cut short, so read the verdict as a floor, not the tool's best.", countNoun(t.Throttle.Hits, "time", "times"))
-		if t.Throttle.MaxRetryAfterS > 0 {
+		line := ""
+		if t.Throttle.QuotaHits > 0 {
+			line = fmt.Sprintf("The upstream rejected it for exhausted model quota %s, so this is infrastructure, not a capability verdict.", countNoun(t.Throttle.QuotaHits, "time", "times"))
+		} else if t.Throttle.MaxRetryAfterS > 0 {
 			line = fmt.Sprintf("The upstream rate-limited it %s (longest back-off %ds) and the run was cut short, so read the verdict as a floor, not the tool's best.",
 				countNoun(t.Throttle.Hits, "time", "times"), t.Throttle.MaxRetryAfterS)
+		} else {
+			line = fmt.Sprintf("The upstream rate-limited it %s and the run was cut short, so read the verdict as a floor, not the tool's best.", countNoun(t.Throttle.Hits, "time", "times"))
 		}
 		lines = append(lines, line)
 	}

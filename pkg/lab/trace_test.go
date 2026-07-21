@@ -56,6 +56,17 @@ func TestStreamErrorStats(t *testing.T) {
 	}
 }
 
+func TestRateLimitStatsSeparatesQuotaFromGeneric403(t *testing.T) {
+	got := rateLimitStats(writeLat(t,
+		`{"status":429,"path":"/zen/v1/chat/completions","retry_after_s":8}`,
+		`{"status":403,"path":"/zen/v1/chat/completions","quota_err":true}`,
+		`{"status":403,"path":"/zen/v1/chat/completions"}`,
+	))
+	if got == nil || *got != (RateLimit{Hits: 2, QuotaHits: 1, MaxRetryAfterS: 8}) {
+		t.Fatalf("capacity stats = %+v, want two hits with one explicit quota rejection", got)
+	}
+}
+
 // droppedFinalStream is the grade-time safety net for the proxy's blind spot: a
 // final turn the gateway cut off before its [DONE]/usage, torn down before the
 // proxy could write its latency row. It should fire when a resp file shows the

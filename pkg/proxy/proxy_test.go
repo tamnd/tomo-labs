@@ -1,10 +1,31 @@
 package proxy
 
 import (
+	"bytes"
+	"compress/gzip"
 	"net/http"
 	"testing"
 	"time"
 )
+
+func TestDecodeGzipQuotaRejection(t *testing.T) {
+	body := []byte(`{"code":30001,"message":"Sorry, your account balance is insufficient","data":null}`)
+	var compressed bytes.Buffer
+	zw := gzip.NewWriter(&compressed)
+	if _, err := zw.Write(body); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	decoded := decodeResponseBody(compressed.Bytes(), "gzip")
+	if bad, msg := quotaRejected(decoded); !bad || msg == "" {
+		t.Fatalf("quotaRejected = %v, %q, want explicit rejection", bad, msg)
+	}
+	if bad, _ := quotaRejected([]byte(`{"message":"forbidden"}`)); bad {
+		t.Fatal("a generic 403 body must not be labeled as quota")
+	}
+}
 
 // A plain OpenAI usage block yields the token counts, the nested cached-prompt
 // count, and the reported cost.

@@ -352,6 +352,10 @@ func TestStopReason(t *testing.T) {
 	if got := stopReason(starved, 12, 900); got != "rate-limit" {
 		t.Errorf("429s with zero tokens = %q, want rate-limit", got)
 	}
+	quota := &Result{RateLimit: &RateLimit{Hits: 1, QuotaHits: 1}}
+	if got := stopReason(quota, 12, 900); got != "quota" {
+		t.Errorf("exhausted model balance = %q, want quota", got)
+	}
 	backoff := &Result{
 		Tokens:    Tokens{Total: 500},
 		RateLimit: &RateLimit{Hits: 1, MaxRetryAfterS: 54000},

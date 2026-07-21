@@ -113,14 +113,14 @@ type Latency struct {
 	Calls    int `json:"calls"`
 }
 
-// RateLimit summarizes the upstream rate-limit (HTTP 429) responses a run hit,
-// recovered from the proxy's latency log. Hits is how many model calls the
-// upstream rejected for rate, and MaxRetryAfterS is the longest back-off it asked
-// for across them, in seconds, read from the Retry-After header the free tier
-// sends. A 429 leaves no tokens and no answer, so without this a throttled run
-// looks like a plain failure; recording it keeps the two apart.
+// RateLimit summarizes upstream capacity rejections recovered from the proxy's
+// latency log. Hits includes HTTP 429s and explicit model-account quota errors;
+// QuotaHits keeps the latter distinct. MaxRetryAfterS is the longest back-off a
+// 429 requested. These responses leave no answer, so without this a starved run
+// looks like a plain capability failure.
 type RateLimit struct {
 	Hits           int `json:"hits"`
+	QuotaHits      int `json:"quota_hits,omitempty"`
 	MaxRetryAfterS int `json:"max_retry_after_s,omitempty"`
 }
 
