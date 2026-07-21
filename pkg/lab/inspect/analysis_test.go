@@ -241,6 +241,19 @@ func TestNarrativeSurfacesThrottle(t *testing.T) {
 	}
 }
 
+func TestNarrativeSeparatesQuotaFromRateLimit(t *testing.T) {
+	no := false
+	tr := &Transcript{
+		Tool: "tomo", Scenario: "dynaconf", Passed: &no,
+		Throttle: &Throttle{Hits: 1, QuotaHits: 1},
+		Summary:  &RunSummary{},
+	}
+	joined := strings.Join(Narrative(tr), " ")
+	if !strings.Contains(joined, "exhausted model quota") || !strings.Contains(joined, "not a capability verdict") {
+		t.Errorf("quota rejection not surfaced: %q", joined)
+	}
+}
+
 // The walkthrough should group a fix into Investigate, Fix, and Verify phases and
 // clip long lines unless full is set.
 func TestWalkthroughPhasesAndClipping(t *testing.T) {

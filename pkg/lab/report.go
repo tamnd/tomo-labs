@@ -703,9 +703,9 @@ func WriteTable(w io.Writer, sums []ToolSummary) {
 func writeSummaryTable(w io.Writer, sums []ToolSummary, withPlan bool) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if withPlan {
-		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tCAPPED\tPASS@1\tPASS\tDROPS\t429S\tREQS\tPLANNED\tSUBAG\tFRESH\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
+		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tCAPPED\tPASS@1\tPASS\tDROPS\tTHRTL\tREQS\tPLANNED\tSUBAG\tFRESH\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
 	} else {
-		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tCAPPED\tPASS@1\tPASS\tDROPS\t429S\tREQS\tFRESH\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
+		fmt.Fprintln(tw, "TOOL\tVERSION\tRELEASED\tSCEN\tN\tCAPPED\tPASS@1\tPASS\tDROPS\tTHRTL\tREQS\tFRESH\tCACHED\tCOST-USD\tRSS-MB\tTTFB-MS\tWALL-S\tMODEL-S\tTOOL-S\tINSTALL-MB")
 	}
 	for _, s := range sums {
 		if withPlan {
@@ -763,7 +763,7 @@ func WriteScenarioTable(w io.Writer, cells []ScenarioStats) {
 	}
 	tw.Flush()
 	fmt.Fprintln(w, "\ntags: reach = gold-diff shape (substitution/invention), fairness = frontier-diagnostic verdict; unaudited tasks stay out of bar-claim denominators")
-	fmt.Fprintln(w, "n counts graded attempts; CAPPED counts attempts a cap ended (wall clock, turn budget, or 429 starvation), kept out of every rate and median")
+	fmt.Fprintln(w, "n counts graded attempts; CAPPED counts attempts a cap ended (wall clock, turn budget, rate limit, or quota starvation), kept out of every rate and median")
 }
 
 // fraction renders a pass count over its n, the only shape a rate is quoted in:

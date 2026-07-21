@@ -12,6 +12,7 @@ const (
 	stopTimeout   = "timeout"
 	stopTurns     = "turns"
 	stopRateLimit = "rate-limit"
+	stopQuota     = "quota"
 )
 
 // stopReason classifies a finished attempt at write time: which cap ended it,
@@ -28,6 +29,9 @@ func stopReason(r *Result, maxTurns, attemptSecs int) string {
 		return stopTimeout
 	}
 	if r.RateLimit != nil {
+		if r.RateLimit.QuotaHits > 0 && r.Tokens.Total == 0 {
+			return stopQuota
+		}
 		if r.Tokens.Total == 0 {
 			return stopRateLimit
 		}
@@ -56,6 +60,9 @@ func stopOf(r *Result) string {
 		return stopTimeout
 	}
 	if r.RateLimit != nil && r.Tokens.Total == 0 {
+		if r.RateLimit.QuotaHits > 0 {
+			return stopQuota
+		}
 		return stopRateLimit
 	}
 	return ""

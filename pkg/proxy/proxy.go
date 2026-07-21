@@ -14,6 +14,7 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -257,7 +258,8 @@ func (t *tap) onResponse(resp *http.Response) error {
 	}
 	tc := &teeCloser{src: resp.Body, sink: f}
 	tc.onClose = func(collected []byte) {
-		u := extractUsage(collected)
+		decoded := decodeResponseBody(collected, resp.Header.Get("Content-Encoding"))
+		u := extractUsage(decoded)
 		if u != nil {
 			u.Seq = seq
 			u.TS = nowStamp()
@@ -276,8 +278,13 @@ func (t *tap) onResponse(resp *http.Response) error {
 			// A 200 completion that broke mid-stream is an upstream fault, not the
 			// agent's; flag it so the harness does not score it as a real failure.
 			if status == http.StatusOK && isModelPath(path) {
-				if bad, msg := streamFailed(collected, u != nil); bad {
+				if bad, msg := streamFailed(decoded, u != nil); bad {
 					rec.StreamErr, rec.StreamErrMsg = true, msg
+				}
+			}
+			if status == http.StatusForbidden && isModelPath(path) {
+				if bad, msg := quotaRejected(decoded); bad {
+					rec.QuotaErr, rec.QuotaErrMsg = true, msg
 				}
 			}
 			t.writeJSON(t.lat, rec)
@@ -347,6 +354,51 @@ type latRecord struct {
 	// the upstream error text when it sent one.
 	StreamErr    bool   `json:"stream_err,omitempty"`
 	StreamErrMsg string `json:"stream_err_msg,omitempty"`
+	// QuotaErr is narrower than an HTTP 403: it is set only when the decoded
+	// upstream payload explicitly says the model account has exhausted balance.
+	// Authentication and policy 403s remain configuration errors.
+	QuotaErr    bool   `json:"quota_err,omitempty"`
+	QuotaErrMsg string `json:"quota_err_msg,omitempty"`
+}
+
+// decodeResponseBody unwraps gzip only for metric extraction. The raw response
+// file and bytes forwarded to the client remain untouched, keeping the proxy a
+// transparent tap while allowing usage and structured errors to be observed on
+// clients that explicitly requested compression.
+func decodeResponseBody(body []byte, encoding string) []byte {
+	if !strings.Contains(strings.ToLower(encoding), "gzip") {
+		return body
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		return body
+	}
+	defer zr.Close()
+	decoded, err := io.ReadAll(zr)
+	if err != nil {
+		return body
+	}
+	return decoded
+}
+
+// quotaRejected recognizes Zen's explicit free-account exhaustion response.
+// Status alone is insufficient: 403 also covers bad credentials and policy
+// denial, which must not be mislabeled as a transient quota condition.
+func quotaRejected(body []byte) (bool, string) {
+	var v struct {
+		Code    json.RawMessage `json:"code"`
+		Message string          `json:"message"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(body), &v) != nil {
+		return false, ""
+	}
+	code := strings.Trim(string(v.Code), `"`)
+	msg := strings.TrimSpace(v.Message)
+	lower := strings.ToLower(msg)
+	if code != "30001" && !strings.Contains(lower, "balance is insufficient") {
+		return false, ""
+	}
+	return true, msg
 }
 
 // recordLatency writes one latency row for a call the wire translators forwarded

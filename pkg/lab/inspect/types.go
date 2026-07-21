@@ -33,6 +33,7 @@ type Transcript struct {
 // stays free of any lab dependency.
 type Throttle struct {
 	Hits           int `json:"hits"`
+	QuotaHits      int `json:"quota_hits,omitempty"`
 	MaxRetryAfterS int `json:"max_retry_after_s,omitempty"`
 }
 

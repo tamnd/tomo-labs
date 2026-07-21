@@ -147,22 +147,25 @@ func truncatedStream(path string) bool {
 	return sawData && !sawDone && !hasUsage
 }
 
-// rateLimitStats scans the latency log for upstream rate-limit rejections. The
-// proxy writes one row per call with its status and, on a 429, the Retry-After it
-// carried, so this counts the 429s and keeps the longest back-off asked for. It
-// returns nil when the run hit no rate limit, so the result omits the field
-// entirely rather than recording a zero.
+// rateLimitStats scans the latency log for upstream capacity rejections. It
+// counts ordinary 429s and the narrower quota_err marker the proxy writes only
+// after decoding an explicit balance-exhausted response. A generic 403 is not a
+// quota event. The longest 429 Retry-After is retained.
 func rateLimitStats(path string) *RateLimit {
-	var hits, maxRA int
+	var hits, quota, maxRA int
 	forEachJSON(path, func(b []byte) {
 		var r struct {
-			Status     int `json:"status"`
-			RetryAfter int `json:"retry_after_s"`
+			Status     int  `json:"status"`
+			RetryAfter int  `json:"retry_after_s"`
+			QuotaErr   bool `json:"quota_err"`
 		}
-		if json.Unmarshal(b, &r) != nil || r.Status != 429 {
+		if json.Unmarshal(b, &r) != nil || (r.Status != 429 && !r.QuotaErr) {
 			return
 		}
 		hits++
+		if r.QuotaErr {
+			quota++
+		}
 		if r.RetryAfter > maxRA {
 			maxRA = r.RetryAfter
 		}
@@ -170,7 +173,7 @@ func rateLimitStats(path string) *RateLimit {
 	if hits == 0 {
 		return nil
 	}
-	return &RateLimit{Hits: hits, MaxRetryAfterS: maxRA}
+	return &RateLimit{Hits: hits, QuotaHits: quota, MaxRetryAfterS: maxRA}
 }
 
 // planTools are the names a tool calls to write down a plan: a todo or plan

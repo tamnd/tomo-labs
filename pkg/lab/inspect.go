@@ -107,7 +107,7 @@ func readVerdict(t *inspect.Transcript, path string) {
 	t.Wall = r.WallSeconds
 	t.Check = r.Check
 	if r.RateLimit != nil {
-		t.Throttle = &inspect.Throttle{Hits: r.RateLimit.Hits, MaxRetryAfterS: r.RateLimit.MaxRetryAfterS}
+		t.Throttle = &inspect.Throttle{Hits: r.RateLimit.Hits, QuotaHits: r.RateLimit.QuotaHits, MaxRetryAfterS: r.RateLimit.MaxRetryAfterS}
 	}
 }
 
