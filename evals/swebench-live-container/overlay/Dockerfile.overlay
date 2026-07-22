@@ -1,0 +1,20 @@
+# syntax=docker/dockerfile:1
+ARG BASE
+FROM golang:1.26-bookworm AS gobuild
+RUN CGO_ENABLED=0 go install github.com/tamnd/tomo/cmd/tomo@ef3262a
+
+FROM ${BASE}
+USER root
+# node 22 for opencode/pi/codex; git already present in the instance image
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates gnupg git \
+ && (curl -fsSL https://deb.nodesource.com/setup_22.x | bash -) \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/*
+RUN npm install -g opencode-ai@1.18.4 \
+ && npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.80.10
+RUN npm install -g @openai/codex@0.145.0-alpha.4
+RUN apt-get update && apt-get install -y --no-install-recommends time && rm -rf /var/lib/apt/lists/*
+COPY --from=gobuild /go/bin/tomo /usr/local/bin/tomo
+COPY run_agent.sh /usr/local/bin/run_agent
+RUN chmod +x /usr/local/bin/run_agent
+ENTRYPOINT ["/usr/local/bin/run_agent"]
