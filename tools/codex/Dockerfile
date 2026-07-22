@@ -3,7 +3,7 @@
 # binary), so this image is independent of any codex checkout on the host. The
 # base already carries Node 22, which the npm launcher needs.
 FROM tomolab-base
-ARG CODEX_VERSION=0.145.0-alpha.4
+ARG CODEX_VERSION=0.146.0-alpha.2
 RUN npm install -g @openai/codex@${CODEX_VERSION}
 COPY adapter.sh /usr/local/bin/adapter
 RUN chmod +x /usr/local/bin/adapter
