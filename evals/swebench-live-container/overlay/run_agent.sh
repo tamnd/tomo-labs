@@ -106,6 +106,11 @@ TOML
     export ANTHROPIC_AUTH_TOKEN="${OPENCODE_API_KEY}"
     export ANTHROPIC_MODEL="${LAB_MODEL}"
     export DISABLE_TELEMETRY=1 DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+    # The container runs as root, and claude-code refuses --dangerously-skip-
+    # permissions under root/sudo unless it is told it sits in a sandbox. The
+    # instance container has no egress except the gateway, so that is exactly true;
+    # IS_SANDBOX=1 is the CLI's own switch to allow the flag as root.
+    export IS_SANDBOX=1
     cat >/trace/config.json <<JSON
 { "base_url": "${LAB_BASE_URL%/v1}", "model": "${LAB_MODEL}" }
 JSON
