@@ -254,6 +254,7 @@ func (l *Lab) runScenario(ctx context.Context, tool string, sc Scenario, sl slot
 	if err := writeResult(filepath.Join(runDir, "result.json"), res); err != nil {
 		return nil, err
 	}
+	l.publishRun(ctx, runDir)
 	pruneOldRuns(filepath.Join(l.resultsDir(), tool, sc.Name), l.cfg.KeepRuns)
 	l.printSummary(res)
 	return res, nil

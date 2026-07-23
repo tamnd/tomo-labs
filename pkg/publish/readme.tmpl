@@ -1,0 +1,120 @@
+---
+configs:
+- config_name: default
+  data_files:
+  - split: train
+    path: "data/**/*.jsonl"
+license: apache-2.0
+language:
+- en
+tags:
+- agent-traces
+- agent
+- llm
+- coding-agent
+- evaluation
+- swe-bench
+- tomo
+pretty_name: Tomo Agent Traces
+size_categories:
+- n<1K
+task_categories:
+- text-generation
+---
+
+# Tomo Agent Traces
+
+> Every tomo-labs run, published as it happens: the full agent trace, plus the boards and cost analyses regenerated from every result on each commit.
+
+## Table of Contents
+
+- [What is it?](#what-is-it)
+- [The board](#the-board)
+- [Coverage](#coverage)
+- [How to read a trace](#how-to-read-a-trace)
+- [The reports](#the-reports)
+- [How the traces are made](#how-the-traces-are-made)
+- [Layout](#layout)
+- [About tomo](#about-tomo)
+
+## What is it?
+
+This dataset is the running record of [tomo-labs](https://github.com/tamnd/tomo-labs), the agent-evaluation harness for [tomo](https://github.com/tamnd/tomo) and the coding agents it is measured against.
+Every time the harness runs a tool on a scenario, it captures the whole conversation the agent had with the model, converts it to the Hub's agent-trace format, and commits it here alongside a regenerated set of boards and cost reports, so no run's evidence is ever lost.
+
+Right now the dataset holds **{{.Traces}} traces** across **{{.NEvals}} evals**, **{{.NScenarios}} scenarios**, **{{.NTools}} tools**, and **{{.NModels}} models**.
+The traces open in the Hub's trace viewer, and every number on this page is generated from the traces themselves, so the front page always matches what the dataset holds.
+
+Tools measured: {{.ToolsList}}.
+Models: {{.ModelsList}}.
+
+## The board
+
+The headline is solve rate and cost per tool, per eval.
+A tool's cheapest win is what the campaign leads with: the point is not only who solves a task but who solves it for the fewest tokens.
+
+{{.Board}}
+
+{{.CheapestNote}}
+
+## Coverage
+
+| Eval | Scenarios | Tools | Models | Traces |
+|------|----------:|------:|-------:|-------:|
+{{.CoverageRows}}
+
+## How to read a trace
+
+Each trace is one JSONL file under `data/`, in the Hub's native agent-session schema, the same shape the viewer renders for Pi and opencode sessions.
+The first line is a `session` record, the second a `model_change` record naming the model, and every line after is one `message` record: a role plus an array of typed content blocks (`text`, `thinking`, `toolCall`, `toolResult`).
+Each message carries a top-level `id`, `parentId`, and `timestamp`, so the records thread into an ordered timeline.
+The run's metadata (tool, model, scenario, pass or fail, tokens, cost) rides in a `meta` object on the session record and, canonically, in the `result.json` the reports are built from.
+
+Open any file in the [Data Studio viewer](https://huggingface.co/docs/hub/en/agent-traces) and it renders as a timeline: the system prompt, the user task, each assistant turn with its reasoning and tool calls, and each tool result stitched back to the call that made it.
+
+To find traces, use the `format:agent-traces` filter on the Hub, or load the whole corpus as one table:
+
+```python
+from datasets import load_dataset
+
+traces = load_dataset("open-index/tomo-traces", split="train")
+print(traces[0])  # the session record of the first trace
+```
+
+## The reports
+
+The `reports/` directory is the analysis, generated as code from every result on each publish so no run goes un-analyzed:
+
+- `reports/board.md`, the master board: every tool across every eval, solve rate, token and dollar cost, and wall time, with the cheapest solver flagged and the tasks no tool solved called out.
+- `reports/by-eval/<eval>.md`, one per eval: the tools on that eval's scenarios, per-scenario pass or fail, and the cost and orchestration metrics.
+- `reports/by-model/<model>.md`, one per model: how each tool did on that model, isolating a model's ceiling from a harness's.
+- `reports/cost.md`, the cost view: tokens and dollars per tool per eval, with cache-hit and reasoning-token shares broken out.
+
+A cost the provider did not report is shown as unknown with its token volume beside it, never as free.
+
+## How the traces are made
+
+The harness runs each tool in a container, routes its model traffic through a recording proxy, grades the resulting work against a hidden test, and writes a `result.json` plus the raw trace.
+The publisher reconstructs the conversation from the captured request history and the final response stream, transliterates it to the agent-trace format, and commits it here.
+Every file is scanned for credential shapes before the commit, and because the repository is public, a trace that carried a token is blocked rather than published: no commit here carries a key, a bearer token, or an authorization header.
+
+## Layout
+
+```
+data/
+  <eval>/<scenario>/<model>/<tool>-<runid>.jsonl   one agent trace per run
+reports/
+  board.md                                          the master board
+  cost.md                                           tokens and dollars, with cache detail
+  by-eval/<eval>.md                                 per-eval breakdown
+  by-model/<model>.md                               per-model breakdown
+README.md                                           this card, regenerated every commit
+```
+
+## About tomo
+
+[tomo](https://github.com/tamnd/tomo) is a personal AI coding agent shipped as a single Go binary.
+tomo-labs measures it honestly against the strong open agents on the same tasks, models, and containers, and publishes the traces so the comparison is reproducible rather than asserted.
+The tools measured here other than tomo are independent projects, run through their own official entry points; this dataset is an external evaluation, not affiliated with or endorsed by them.
+
+*Last updated: {{.GeneratedAt}}*

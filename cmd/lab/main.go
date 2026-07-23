@@ -138,6 +138,15 @@ func main() {
 		l.Clean(ctx)
 	case "bridge":
 		die(cmdBridge(ctx, args[1:]))
+	case "publish":
+		switch {
+		case hasFlag(args, "--dry-run"):
+			die(l.PublishDryRun(ctx))
+		case hasFlag(args, "--backfill"):
+			die(l.Backfill(ctx))
+		default:
+			die(l.PublishAll(ctx))
+		}
 	default:
 		usage()
 		os.Exit(2)
@@ -344,7 +353,8 @@ func takeFlagValue(args []string, flag string) (string, []string) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: lab {build|run|probe|-p|tools|scenarios|prompts|inspect|meta|gen|report|reparse|clean|codex|claude} [--suite <name>] [args]")
+	fmt.Fprintln(os.Stderr, "usage: lab {build|run|probe|-p|tools|scenarios|prompts|inspect|meta|gen|report|reparse|clean|publish|codex|claude} [--suite <name>] [args]")
+	fmt.Fprintln(os.Stderr, "  publish [--backfill]   regenerate and commit the HF dataset; --backfill commits every local trace")
 }
 
 func die(err error) {
