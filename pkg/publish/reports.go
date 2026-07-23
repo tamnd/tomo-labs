@@ -113,11 +113,11 @@ func reportCost(ag Aggregate, generatedAt string) string {
 	sort.Strings(order)
 	for _, key := range order {
 		a := byKey[key]
-		b.WriteString(fmt.Sprintf("| %s | %s | %s | %d | %s | %s | %s | %s | %s |\n",
+		fmt.Fprintf(&b, "| %s | %s | %s | %d | %s | %s | %s | %s | %s |\n",
 			a.eval, a.tool, orDash(a.model), a.runs,
 			fmtTokens(a.prompt), fmtTokens(a.completion),
 			fmtTokens(a.cache), fmtTokens(a.reason),
-			fmtCost(a.cost, a.known)))
+			fmtCost(a.cost, a.known))
 	}
 	b.WriteString("\n_Generated " + generatedAt + "._\n")
 	return b.String()
@@ -144,10 +144,10 @@ func reportByEval(ag Aggregate, eval, generatedAt string) string {
 	})
 	for _, r := range rows {
 		res := r.Result
-		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %d | %d | %s |\n",
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %d | %d | %s |\n",
 			res.Scenario, res.Tool, orDash(res.Model), outcome(res),
 			fmtTokens(res.Tokens.Total), fmtCost(res.CostUSD, res.CostUSD > 0),
-			res.Orchestration.ModelCalls, res.Orchestration.ToolCalls, fmtWall(res.WallSeconds)))
+			res.Orchestration.ModelCalls, res.Orchestration.ToolCalls, fmtWall(res.WallSeconds))
 	}
 	b.WriteString("\n_Generated " + generatedAt + "._\n")
 	return b.String()
@@ -177,9 +177,9 @@ func reportByModel(ag Aggregate, model, generatedAt string) string {
 	})
 	for _, r := range rows {
 		res := r.Result
-		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s |\n",
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s |\n",
 			r.Eval, res.Scenario, res.Tool, outcome(res),
-			fmtTokens(res.Tokens.Total), fmtCost(res.CostUSD, res.CostUSD > 0), fmtWall(res.WallSeconds)))
+			fmtTokens(res.Tokens.Total), fmtCost(res.CostUSD, res.CostUSD > 0), fmtWall(res.WallSeconds))
 	}
 	b.WriteString("\n_Generated " + generatedAt + "._\n")
 	return b.String()

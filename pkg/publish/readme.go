@@ -79,9 +79,9 @@ func renderBoard(ag Aggregate) string {
 	b.WriteString("| Eval | Tool | Model | Solved | Tokens | Cost | Wall |\n")
 	b.WriteString("|------|------|-------|-------:|-------:|-----:|-----:|\n")
 	for _, c := range ag.Cells {
-		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s |\n",
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s |\n",
 			c.Eval, c.Tool, orDash(c.Model),
-			solvedCell(c), fmtTokens(c.Tokens), fmtCost(c.CostUSD, c.CostKnown), fmtWall(c.WallSec)))
+			solvedCell(c), fmtTokens(c.Tokens), fmtCost(c.CostUSD, c.CostKnown), fmtWall(c.WallSec))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -140,8 +140,8 @@ func coverageRows(ag Aggregate) string {
 	var b strings.Builder
 	for _, ev := range ag.Evals {
 		c := byEval[ev]
-		b.WriteString(fmt.Sprintf("| %s | %d | %d | %d | %d |\n",
-			ev, len(c.scen), len(c.tools), len(c.models), traces[ev]))
+		fmt.Fprintf(&b, "| %s | %d | %d | %d | %d |\n",
+			ev, len(c.scen), len(c.tools), len(c.models), traces[ev])
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
