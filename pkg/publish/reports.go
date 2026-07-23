@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/tamnd/tomo-labs/pkg/trace"
 )
 
 // The reports are the analysis the campaign would otherwise write by hand,
@@ -19,10 +21,10 @@ func GenerateReports(ag Aggregate, generatedAt string) map[string][]byte {
 	out["reports/board.md"] = []byte(reportBoard(ag, generatedAt))
 	out["reports/cost.md"] = []byte(reportCost(ag, generatedAt))
 	for _, ev := range ag.Evals {
-		out["reports/by-eval/"+slug(ev)+".md"] = []byte(reportByEval(ag, ev, generatedAt))
+		out["reports/by-eval/"+trace.Slug(ev)+".md"] = []byte(reportByEval(ag, ev, generatedAt))
 	}
 	for _, m := range ag.Models {
-		out["reports/by-model/"+slug(m)+".md"] = []byte(reportByModel(ag, m, generatedAt))
+		out["reports/by-model/"+trace.Slug(m)+".md"] = []byte(reportByModel(ag, m, generatedAt))
 	}
 	return out
 }

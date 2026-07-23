@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -41,6 +42,8 @@ import (
 
 	"github.com/tamnd/tomo-labs/pkg/lab"
 	"github.com/tamnd/tomo-labs/pkg/lab/inspect"
+	"github.com/tamnd/tomo-labs/pkg/publish"
+	"github.com/tamnd/tomo-labs/pkg/trace"
 )
 
 func main() {
@@ -147,6 +150,10 @@ func main() {
 		default:
 			die(l.PublishAll(ctx))
 		}
+	case "ingest-swelive":
+		die(cmdIngestSwelive(ctx, l, args[1:]))
+	case "audit-swelive":
+		die(cmdAuditSwelive(l, args[1:]))
 	default:
 		usage()
 		os.Exit(2)
@@ -317,6 +324,69 @@ func cmdReport(ctx context.Context, l *lab.Lab, scenario string, asJSON bool) er
 	fmt.Println()
 	lab.WriteScenarioTable(os.Stdout, cells)
 	return nil
+}
+
+// cmdIngestSwelive folds a finished swelive container run into the labs data
+// layout and publishes it: it writes the run's result.json and the canonical
+// date-tree session file, then best-effort mirrors the run to the Hub. It is the
+// finish step the container wrapper calls, so every run self-publishes the
+// moment it ends rather than waiting for a manual backfill. The run dir holds
+// trace/ and grade/; the labels the files do not carry are passed as flags.
+func cmdIngestSwelive(ctx context.Context, l *lab.Lab, args []string) error {
+	src, args := takeFlagValue(args, "--src")
+	tool, args := takeFlagValue(args, "--tool")
+	scenario, args := takeFlagValue(args, "--scenario")
+	model, args := takeFlagValue(args, "--model")
+	runtime, _ := takeFlagValue(args, "--runtime")
+	if src == "" || tool == "" || scenario == "" {
+		return fmt.Errorf("ingest-swelive: --src, --tool, and --scenario are required")
+	}
+	return l.IngestSwelive(ctx, publish.SweliveRun{
+		Src:      src,
+		Tool:     tool,
+		Scenario: scenario,
+		Model:    model,
+		Runtime:  runtime,
+	})
+}
+
+// cmdAuditSwelive proves a run's capture lost nothing by comparing our
+// reconstructed session against the agent's own native session log, the ground
+// truth the harness copied out under trace/native/. It tallies both by block
+// type and reports any shortfall (a dropped tool call, a missing final reply).
+// It is read-only: it publishes nothing and changes nothing, so it is safe to
+// run over any finished run dir. It audits whichever native log the run captured
+// — codex's Responses rollout, a Claude Code transcript, or an opencode session
+// dump — picking the oracle automatically; a run without a native log is
+// reported as un-auditable rather than failed.
+func cmdAuditSwelive(l *lab.Lab, args []string) error {
+	src, args := takeFlagValue(args, "--src")
+	model, _ := takeFlagValue(args, "--model")
+	if src == "" {
+		return fmt.Errorf("audit-swelive: --src (the run dir with trace/) is required")
+	}
+	traceDir := filepath.Join(src, "trace")
+	tool, oracle, err := trace.NativeOracle(filepath.Join(traceDir, "native"))
+	if err != nil {
+		return fmt.Errorf("audit-swelive: read native session log: %w", err)
+	}
+	if tool == "" {
+		return fmt.Errorf("audit-swelive: no native session log under %s/native; nothing to audit against", traceDir)
+	}
+	ours := trace.Reconstruct(traceDir, model)
+
+	rep := trace.Compare(oracle, ours)
+	fmt.Printf("audit %s (oracle: %s native)\n", src, tool)
+	fmt.Printf("  oracle (%s native): %+v\n", tool, rep.Oracle)
+	fmt.Printf("  ours  (reconstructed): %+v\n", rep.Ours)
+	if rep.OK() {
+		fmt.Println("  OK: reconstruction carries every turn, tool call, and reply the agent made")
+		return nil
+	}
+	for _, m := range rep.Missing {
+		fmt.Printf("  MISSING: %s\n", m)
+	}
+	return fmt.Errorf("audit-swelive: reconstruction is missing %d thing(s) the native log recorded", len(rep.Missing))
 }
 
 func arg(args []string, i int) string {
