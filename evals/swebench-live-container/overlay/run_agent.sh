@@ -39,7 +39,7 @@ case "$TOOL" in
     case "$LAB_MODEL" in */*) m="$LAB_MODEL";; *) m="opencode/$LAB_MODEL";; esac
     cat >/trace/config.yaml <<YAML
 default_model: ${m}
-data_dir: /root/.tomodata
+data_dir: /root/.tomo
 workspace: /testbed
 providers:
   opencode:
@@ -97,10 +97,56 @@ TOML
     cp "$HOME/.codex/config.toml" /trace/config.toml 2>/dev/null || true
     run codex exec --sandbox danger-full-access --skip-git-repo-check "$prompt"
     ;;
+  claude)
+    # claude-code speaks the Anthropic Messages wire. Point it at the lab
+    # endpoint (LAB_BASE_URL, an Anthropic-compatible gateway) via the env vars
+    # the CLI honors; the key rides in ANTHROPIC_AUTH_TOKEN. --dangerously-skip-
+    # permissions runs it non-interactively, matching codex's danger-full-access.
+    export ANTHROPIC_BASE_URL="${LAB_BASE_URL%/v1}"
+    export ANTHROPIC_AUTH_TOKEN="${OPENCODE_API_KEY}"
+    export ANTHROPIC_MODEL="${LAB_MODEL}"
+    export DISABLE_TELEMETRY=1 DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+    cat >/trace/config.json <<JSON
+{ "base_url": "${LAB_BASE_URL%/v1}", "model": "${LAB_MODEL}" }
+JSON
+    run claude -p "$prompt" --model "$LAB_MODEL" --dangerously-skip-permissions
+    ;;
   *) echo "unknown tool $TOOL" >&2; exit 2;;
 esac
 
+# ---- capture the tool's OWN native session store, for audit ----
+# Each agent records its own complete session log under $HOME (codex writes a
+# rollout jsonl, pi/opencode keep their own history). We copy that native store
+# out under /trace/native/ so a downstream audit can diff our reconstructed
+# session.jsonl against the tool's ground truth and prove nothing is missing.
+# It is never published; only the reconstructed session.jsonl is. Best-effort,
+# so a tool that keeps no store simply yields an empty native/ dir.
+capture_native(){
+  local dst="/trace/native"; mkdir -p "$dst"
+  case "$TOOL" in
+    codex)    [ -d "$HOME/.codex/sessions" ] && cp -r "$HOME/.codex/sessions" "$dst/codex-sessions" 2>/dev/null || true ;;
+    pi)       [ -d "$HOME/.pi" ]      && cp -r "$HOME/.pi"      "$dst/pi" 2>/dev/null || true ;;
+    opencode)
+      # opencode persists the run to a SQLite database; dump its message+part
+      # tables to JSONL in creation order (one {role, part} object per line) so
+      # the audit reads plain JSON. The quoted heredoc keeps the shell out of the
+      # SQL's $.role json path.
+      db="$HOME/.local/share/opencode/opencode.db"
+      if [ -f "$db" ]; then
+        mkdir -p "$dst/opencode"
+        sqlite3 -readonly "$db" >"$dst/opencode/session.jsonl" 2>/dev/null <<'SQL' || true
+select json_object('role', json_extract(m.data,'$.role'), 'part', json(p.data))
+from part p join message m on p.message_id = m.id
+order by p.time_created, p.id;
+SQL
+      fi ;;
+    claude)   [ -d "$HOME/.claude/projects" ] && cp -r "$HOME/.claude/projects" "$dst/claude" 2>/dev/null || true ;;
+    tomo)     [ -d "$HOME/.tomo" ] && cp -r "$HOME/.tomo" "$dst/tomo" 2>/dev/null || true ;;
+  esac
+}
+capture_native
+
 # ---- capture model_patch: tracked edits vs base_commit, tool data dirs excluded ----
-git -C /testbed diff HEAD -- . ':(exclude).tomodata' ':(exclude).opencode' ':(exclude).pi' ':(exclude).codex' > /trace/model.patch 2>/dev/null || true
+git -C /testbed diff HEAD -- . ':(exclude).tomo' ':(exclude).opencode' ':(exclude).pi' ':(exclude).codex' ':(exclude).claude' > /trace/model.patch 2>/dev/null || true
 wc -l < /trace/model.patch > /trace/model.patch.lines 2>/dev/null || true
 exit 0
