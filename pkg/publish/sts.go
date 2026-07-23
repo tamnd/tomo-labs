@@ -169,6 +169,14 @@ type SessionMeta struct {
 // captured credential; tool-call arguments are redacted as strings and only
 // then parsed into objects.
 func EncodeTrace(traceDir string, meta SessionMeta) ([]byte, error) {
+	// A swelive container run records its conversation in a bridgetrace directory
+	// of Responses-API request captures, not a chat-completions requests.jsonl, so
+	// decode that shape when it is present and fall through to the chat shape
+	// otherwise. Both paths converge on the same message list and emitter.
+	if msgs, ok := bridgeHistory(traceDir, meta.Model); ok {
+		return encodeSession(meta, msgs)
+	}
+
 	history := richestHistory(filepath.Join(traceDir, "requests.jsonl"))
 	msgs := make([]stsMessage, 0, len(history)+1)
 	for _, m := range history {
@@ -177,6 +185,14 @@ func EncodeTrace(traceDir string, meta SessionMeta) ([]byte, error) {
 	if final, ok := finalAssistant(traceDir, meta.Model); ok {
 		msgs = append(msgs, final)
 	}
+	return encodeSession(meta, msgs)
+}
+
+// encodeSession redacts the reconstructed messages and serializes them into the
+// Hub's native session schema: a session record, a model_change record, then one
+// message record per turn. It is the shared tail of every trace encoder, so the
+// chat-completions and bridgetrace paths emit byte-identical structure.
+func encodeSession(meta SessionMeta, msgs []stsMessage) ([]byte, error) {
 	for i := range msgs {
 		redactMessage(&msgs[i])
 	}
