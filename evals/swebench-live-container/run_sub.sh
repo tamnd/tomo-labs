@@ -15,8 +15,8 @@ ROOT="$HOME/swelive"
 SLUG="$1"; IMAGE="$2"; TOOL="$3"; TEST_CMD="$4"
 MODEL="${LAB_MODEL:-gpt-5.6-sol}"; EFFORT="${LAB_EFFORT:-high}"
 ENGINE="${TOMO_ENGINE:-agent}"
-OVR="tomolab-inst-agents:$SLUG"
-LABEL="${TOOL}-${ENGINE}"
+OVR="${OVERLAY_IMAGE:-tomolab-inst-agents:$SLUG}"
+LABEL="${RUN_LABEL:-${TOOL}-${ENGINE}}"
 
 docker network inspect swelive-int    >/dev/null 2>&1 || docker network create --internal swelive-int >/dev/null
 docker network inspect swelive-egress >/dev/null 2>&1 || docker network create swelive-egress >/dev/null
@@ -58,6 +58,8 @@ timeout "${ATTEMPT_TIMEOUT:-2400}" docker run --rm --platform linux/amd64 \
   -e LAB_BASE_URL="http://swelive-proxy:8080/v1" \
   -e LAB_MODEL="$MODEL" \
   -e TOMO_ENGINE="$ENGINE" \
+  -e TOMO_LSP="${TOMO_LSP:-}" \
+  -e TOMO_MAX_ROUNDS="${TOMO_MAX_ROUNDS:-}" \
   -e OPENCODE_API_KEY="unused-bridge-injects-token" \
   -v "$ROOT/scenario":/scenario:ro \
   -v "$TDIR/trace":/trace \

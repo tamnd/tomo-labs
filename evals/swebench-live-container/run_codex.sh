@@ -11,7 +11,7 @@ set -uo pipefail
 ROOT="$HOME/swelive"
 SLUG="$1"; IMAGE="$2"; TEST_CMD="$3"
 MODEL="${LAB_MODEL:-gpt-5.6-sol}"; EFFORT="${LAB_EFFORT:-high}"
-OVR="tomolab-inst-agents:$SLUG"
+OVR="${OVERLAY_IMAGE:-tomolab-inst-agents:$SLUG}"
 TOOL="codex"
 
 # --- networks: internal (no egress) + egress ---

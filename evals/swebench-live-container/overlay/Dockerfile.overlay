@@ -1,7 +1,17 @@
 # syntax=docker/dockerfile:1
 ARG BASE
 FROM golang:1.26-bookworm AS gobuild
-RUN CGO_ENABLED=0 go install github.com/tamnd/tomo/cmd/tomo@ef3262a
+# TOMO_REF pins the tomo commit baked into the agent image. Default is the
+# original pin; override with --build-arg TOMO_REF=<sha> to A/B an engine change
+# (e.g. the context-pack commit) against it.
+ARG TOMO_REF=ef3262a
+# BuildKit cache mounts persist the Go module + build cache across builds, so
+# bumping TOMO_REF only recompiles tomo's own changed packages instead of
+# re-downloading every module and rebuilding the whole dep tree. Needs BuildKit
+# (DOCKER_BUILDKIT=1, on by default with the buildx builder).
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go install github.com/tamnd/tomo/cmd/tomo@${TOMO_REF}
 
 FROM ${BASE}
 USER root
@@ -12,6 +22,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
  && rm -rf /var/lib/apt/lists/*
 RUN npm install -g opencode-ai@1.18.4 \
  && npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.80.10
+# pyright-langserver is the Python LSP the oi context pack resolves symbols
+# through when TOMO_LSP is set. Baked in for every arm; only the arms that set
+# TOMO_LSP actually launch it, so the non-LSP arms are unaffected.
+RUN npm install -g pyright@1.1.400
 RUN npm install -g @openai/codex@0.145.0-alpha.4
 RUN apt-get update && apt-get install -y --no-install-recommends time && rm -rf /var/lib/apt/lists/*
 COPY --from=gobuild /go/bin/tomo /usr/local/bin/tomo
