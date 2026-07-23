@@ -76,6 +76,20 @@ result.json        the scored summary: passed, attempts, tokens, rss,
 
 Nothing is summarized away. If a number in the report table looks wrong, the request that produced it is sitting right there in plain text.
 
+## Publishing
+
+Every run also mirrors itself to the public [open-index/tomo-traces](https://huggingface.co/datasets/open-index/tomo-traces) dataset: it converts the run's trace to the Hub's agent-trace format, regenerates the README and the reports from every result on disk, and commits the lot in one push, so no run's evidence is ever lost.
+
+Publishing is on by default when `HF_TOKEN` is set and off otherwise, and `TOMO_LABS_PUBLISH=0` turns it off for a local experiment that should not touch the public dataset. It is best-effort and always the last step of a run: the run is already graded and recorded locally before the publish speaks to the network, so a publish failure never sinks the run, and the next publish picks the run back up from disk.
+
+Because the dataset is public, every assembled file passes a secret gate before any byte is uploaded: the `HF_TOKEN`, the `OPENCODE_API_KEY` value, and bearer tokens are read from the environment only and never written to a trace, a log, or a commit, and a file that carried one blocks the whole commit.
+
+```
+lab publish --dry-run     assemble the commit and run the gate, upload nothing
+lab publish --backfill    reconstruct and commit every local trace in one pass
+lab publish               regenerate and commit the README and reports
+```
+
 ## Results
 
 Eight tools against the same free deepseek model through the same trace proxy, so what differs below is the tool, not the model. `lab report` splits them by how they work, the tools that lay out a plan or spawn a subagent apart from the ones that run a single flat loop, and keeps only the latest run of each scenario, so a tool's row is its current state over the same 14 scenarios, not a history that still counts runs it failed before an adapter bug got fixed. That is what makes the columns comparable: pass reads as N of the 14 scenarios, `plans` is how many of those it chose to plan on, and `tokens` is the total across all 14, so a bigger number means more work spent, not more runs recorded. Both tables are ordered by tokens. Cost prices those tokens at DeepSeek's published paid rates (the runs themselves were free), which is the dollar figure the token gap becomes once you leave the free tier.
