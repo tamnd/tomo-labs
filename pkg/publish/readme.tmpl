@@ -65,7 +65,11 @@ A tool's cheapest win is what the campaign leads with: the point is not only who
 
 ## How to read a trace
 
-Each trace is one JSONL file under `data/`, in the Hub's Session Trace Simple Format: the first line is a session header carrying the run's metadata (tool, model, scenario, pass or fail, tokens, cost), and every following line is one message in the conversation, in order.
+Each trace is one JSONL file under `data/`, in the Hub's native agent-session schema, the same shape the viewer renders for Pi and opencode sessions.
+The first line is a `session` record, the second a `model_change` record naming the model, and every line after is one `message` record: a role plus an array of typed content blocks (`text`, `thinking`, `toolCall`, `toolResult`).
+Each message carries a top-level `id`, `parentId`, and `timestamp`, so the records thread into an ordered timeline.
+The run's metadata (tool, model, scenario, pass or fail, tokens, cost) rides in a `meta` object on the session record and, canonically, in the `result.json` the reports are built from.
+
 Open any file in the [Data Studio viewer](https://huggingface.co/docs/hub/en/agent-traces) and it renders as a timeline: the system prompt, the user task, each assistant turn with its reasoning and tool calls, and each tool result stitched back to the call that made it.
 
 To find traces, use the `format:agent-traces` filter on the Hub, or load the whole corpus as one table:
@@ -74,7 +78,7 @@ To find traces, use the `format:agent-traces` filter on the Hub, or load the who
 from datasets import load_dataset
 
 traces = load_dataset("open-index/tomo-traces", split="train")
-print(traces[0])  # the session header of the first trace
+print(traces[0])  # the session record of the first trace
 ```
 
 ## The reports

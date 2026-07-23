@@ -12,43 +12,101 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
-// Session Trace Simple Format (STS-Format) is the Hub's native agent-trace
-// shape: a JSONL file whose first line is a session header and whose every
-// following line is one message in an envelope. The viewer in Data Studio reads
-// this directly and renders the timeline of prompts, assistant turns, tool
-// calls, and results. tomo is a custom harness, so it emits the format itself
-// rather than relying on the Hub's built-in support for Claude Code, Codex, and
-// Pi. See spec 2110/01.
+// A trace is a JSONL file in the Hub's native agent-session schema, the same
+// shape the Data Studio viewer renders for Pi and opencode sessions: a session
+// record, a model_change record, then one message record per turn. Each message
+// carries a top-level id, parentId, and timestamp, and its content is an array
+// of typed blocks (text, thinking, toolCall, toolResult). tomo is a custom
+// harness, so it emits this schema itself rather than relying on the Hub's
+// built-in importers. See spec 2110/01. The result metadata the reports need
+// lives in result.json, not here, so the trace stays a clean conversation
+// record the viewer recognizes without bespoke fields to trip its inference.
 
-// stsHeader is the first line of an STS file. type and harness and id are the
-// required fields; name is the optional title; the rest are extra metadata the
-// viewer ignores and the reports generator reads, so one file is both a
-// renderable trace and a queryable result row.
-type stsHeader struct {
-	Type    string `json:"type"` // always "session"
-	Harness string `json:"harness"`
-	ID      string `json:"id"`
-	Name    string `json:"name,omitempty"`
+// piSession is the first line of a trace: the session envelope the viewer keys
+// on. version 3 is the schema the Hub's native session importer expects. The
+// meta object carries run provenance for anyone querying the raw JSONL; the
+// viewer ignores it and the reports read result.json instead.
+type piSession struct {
+	Type      string       `json:"type"` // always "session"
+	Version   int          `json:"version"`
+	ID        string       `json:"id"`
+	Timestamp string       `json:"timestamp"`
+	Cwd       string       `json:"cwd"`
+	Meta      *sessionMeta `json:"meta,omitempty"`
+}
 
-	// Result metadata carried as extra header fields.
+// sessionMeta is the run provenance carried on the session record. It mirrors
+// the fields result.json holds so the raw trace is self-describing, but nothing
+// downstream depends on it: the reports read result.json directly.
+type sessionMeta struct {
+	Harness     string  `json:"harness,omitempty"`
 	Eval        string  `json:"eval,omitempty"`
 	Scenario    string  `json:"scenario,omitempty"`
 	Model       string  `json:"model,omitempty"`
 	Passed      bool    `json:"passed"`
 	Ungraded    bool    `json:"ungraded,omitempty"`
-	ExitCode    int     `json:"exit_code"`
+	ExitCode    int     `json:"exitCode"`
 	Attempts    int     `json:"attempts,omitempty"`
-	WallSeconds int     `json:"wall_seconds,omitempty"`
+	WallSeconds int     `json:"wallSeconds,omitempty"`
 	Tokens      *Tokens `json:"tokens,omitempty"`
-	CostUSD     float64 `json:"cost_usd,omitempty"`
+	CostUSD     float64 `json:"costUsd,omitempty"`
 	Stop        string  `json:"stop,omitempty"`
-	Timestamp   string  `json:"timestamp,omitempty"`
 }
 
-// Tokens mirrors the labs token accounting so a header can carry it verbatim
-// without importing pkg/lab (which would be a cycle once lab calls publish).
+// piModelChange records which model produced the turns that follow, the same
+// record the native importer reads to label the session's model.
+type piModelChange struct {
+	Type      string  `json:"type"` // always "model_change"
+	ID        string  `json:"id"`
+	ParentID  *string `json:"parentId"`
+	Timestamp string  `json:"timestamp"`
+	ModelID   string  `json:"modelId"`
+}
+
+// piMessageRec is one turn: a message with a top-level id, its parent in the
+// record chain, a timestamp, and the message body. The parent chain is what
+// lets the viewer thread the timeline in order.
+type piMessageRec struct {
+	Type      string    `json:"type"` // always "message"
+	ID        string    `json:"id"`
+	ParentID  string    `json:"parentId"`
+	Timestamp string    `json:"timestamp"`
+	Message   piMessage `json:"message"`
+}
+
+// piMessage is a role plus an array of typed content blocks, the shape the
+// viewer renders block by block.
+type piMessage struct {
+	Role    string    `json:"role"`
+	Content []piBlock `json:"content"`
+}
+
+// piBlock is one content block. The type field selects which of the payload
+// fields is meaningful: text carries Text, thinking carries Thinking, toolCall
+// carries ID/Name/Arguments, toolResult carries ToolCallID/Output.
+type piBlock struct {
+	Type string `json:"type"`
+
+	Text     string `json:"text,omitempty"`
+	Thinking string `json:"thinking,omitempty"`
+
+	// toolCall fields. Arguments is a parsed JSON object so the viewer can render
+	// each argument as a field rather than a re-escaped string.
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+
+	// toolResult fields.
+	ToolCallID string `json:"toolCallId,omitempty"`
+	Output     string `json:"output,omitempty"`
+}
+
+// Tokens mirrors the labs token accounting so a session's meta can carry it
+// verbatim without importing pkg/lab (which would be a cycle once lab calls
+// publish).
 type Tokens struct {
 	Prompt     int `json:"prompt"`
 	Completion int `json:"completion"`
@@ -58,32 +116,27 @@ type Tokens struct {
 	Reasoning  int `json:"reasoning,omitempty"`
 }
 
-// stsEnvelope wraps one message line.
-type stsEnvelope struct {
-	Type    string     `json:"type"` // always "message"
-	Message stsMessage `json:"message"`
-}
-
-// stsMessage is the message shape the Hub interprets. Only these fields are
-// read by the viewer; toolCalls and toolCallId are what let it stitch a tool
-// result next to the call that produced it.
+// stsMessage is the intermediate shape a captured turn parses into before it is
+// redacted and emitted as a piMessageRec. It keeps tool-call arguments as the
+// raw JSON string the wire carried, so redaction (which is string-based) runs
+// before the string is parsed into an object.
 type stsMessage struct {
-	Role             string        `json:"role"`
-	Content          string        `json:"content"`
-	ReasoningContent string        `json:"reasoningContent,omitempty"`
-	ToolCalls        []stsToolCall `json:"toolCalls,omitempty"`
-	ToolCallID       string        `json:"toolCallId,omitempty"`
-	Model            string        `json:"model,omitempty"`
+	Role             string
+	Content          string
+	ReasoningContent string
+	ToolCalls        []stsToolCall
+	ToolCallID       string
+	Model            string
 }
 
 type stsToolCall struct {
-	ID       string      `json:"id"`
-	Function stsToolFunc `json:"function"`
+	ID       string
+	Function stsToolFunc
 }
 
 type stsToolFunc struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"` // a JSON string, per the STS spec
+	Name      string
+	Arguments string // a JSON string as the wire carried it
 }
 
 // SessionMeta is the header metadata the caller supplies for a trace, taken
@@ -107,12 +160,14 @@ type SessionMeta struct {
 }
 
 // EncodeTrace reconstructs a run's conversation from its trace directory and
-// returns one STS-Format JSONL file. The conversation is built from the richest
-// request's message history (which the agent rebuilds verbatim each turn, so it
-// holds every assistant turn and tool result up to the last) plus the final
-// assistant reply decoded from the last response stream, which is the one turn
-// no request history carries yet. Redaction is applied to every message on the
-// way out, so a public trace never carries a captured credential.
+// returns one JSONL file in the Hub's native session schema. The conversation
+// is built from the richest request's message history (which the agent rebuilds
+// verbatim each turn, so it holds every assistant turn and tool result up to the
+// last) plus the final assistant reply decoded from the last response stream,
+// which is the one turn no request history carries yet. Redaction is applied to
+// every message before it is emitted, so a public trace never carries a
+// captured credential; tool-call arguments are redacted as strings and only
+// then parsed into objects.
 func EncodeTrace(traceDir string, meta SessionMeta) ([]byte, error) {
 	history := richestHistory(filepath.Join(traceDir, "requests.jsonl"))
 	msgs := make([]stsMessage, 0, len(history)+1)
@@ -122,16 +177,113 @@ func EncodeTrace(traceDir string, meta SessionMeta) ([]byte, error) {
 	if final, ok := finalAssistant(traceDir, meta.Model); ok {
 		msgs = append(msgs, final)
 	}
+	for i := range msgs {
+		redactMessage(&msgs[i])
+	}
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 
-	hdr := stsHeader{
-		Type:        "session",
+	base := baseTime(meta.Timestamp)
+	sessionID := orUnknown(meta.ID)
+
+	if err := enc.Encode(piSession{
+		Type:      "session",
+		Version:   3,
+		ID:        sessionID,
+		Timestamp: stamp(base, 0),
+		Cwd:       "/workspace",
+		Meta:      metaBlock(meta),
+	}); err != nil {
+		return nil, err
+	}
+
+	const modelID = "model-0"
+	if err := enc.Encode(piModelChange{
+		Type:      "model_change",
+		ID:        modelID,
+		ParentID:  nil,
+		Timestamp: stamp(base, 0),
+		ModelID:   orUnknown(meta.Model),
+	}); err != nil {
+		return nil, err
+	}
+
+	parent := modelID
+	for i, m := range msgs {
+		id := fmt.Sprintf("msg-%d", i)
+		if err := enc.Encode(piMessageRec{
+			Type:      "message",
+			ID:        id,
+			ParentID:  parent,
+			Timestamp: stamp(base, i+1),
+			Message:   piMessage{Role: m.Role, Content: blocksFor(m)},
+		}); err != nil {
+			return nil, err
+		}
+		parent = id
+	}
+	return buf.Bytes(), nil
+}
+
+// blocksFor turns one intermediate message into the viewer's content-block
+// array. A tool result is a single toolResult block. An assistant or user turn
+// is its reasoning (if any) as a thinking block, its text as a text block, then
+// one toolCall block per call. A turn with no content at all still emits one
+// empty text block so the message is never a contentless record.
+func blocksFor(m stsMessage) []piBlock {
+	if m.Role == "tool" {
+		return []piBlock{{Type: "toolResult", ToolCallID: m.ToolCallID, Output: m.Content}}
+	}
+	var blocks []piBlock
+	if m.ReasoningContent != "" {
+		blocks = append(blocks, piBlock{Type: "thinking", Thinking: m.ReasoningContent})
+	}
+	if m.Content != "" {
+		blocks = append(blocks, piBlock{Type: "text", Text: m.Content})
+	}
+	for _, tc := range m.ToolCalls {
+		blocks = append(blocks, piBlock{
+			Type:      "toolCall",
+			ID:        tc.ID,
+			Name:      tc.Function.Name,
+			Arguments: argObject(tc.Function.Arguments),
+		})
+	}
+	if len(blocks) == 0 {
+		blocks = append(blocks, piBlock{Type: "text", Text: ""})
+	}
+	return blocks
+}
+
+// argObject renders a tool call's argument string as a JSON object for the
+// viewer. The wire carries arguments as a JSON string; when that string is a
+// JSON object it is passed through verbatim, and when it is anything else (an
+// empty string, malformed JSON, a bare scalar) it is wrapped as {"raw": ...} so
+// the emitted value is always a valid JSON object the viewer can render.
+func argObject(s string) json.RawMessage {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return json.RawMessage(`{}`)
+	}
+	if json.Valid([]byte(s)) {
+		var v any
+		if json.Unmarshal([]byte(s), &v) == nil {
+			if _, ok := v.(map[string]any); ok {
+				return json.RawMessage(s)
+			}
+		}
+	}
+	b, _ := json.Marshal(map[string]string{"raw": s})
+	return json.RawMessage(b)
+}
+
+// metaBlock builds the session's provenance object, or nil when the run carried
+// nothing worth recording.
+func metaBlock(meta SessionMeta) *sessionMeta {
+	sm := sessionMeta{
 		Harness:     meta.Harness,
-		ID:          meta.ID,
-		Name:        meta.Name,
 		Eval:        meta.Eval,
 		Scenario:    meta.Scenario,
 		Model:       meta.Model,
@@ -143,18 +295,35 @@ func EncodeTrace(traceDir string, meta SessionMeta) ([]byte, error) {
 		Tokens:      meta.Tokens,
 		CostUSD:     meta.CostUSD,
 		Stop:        meta.Stop,
-		Timestamp:   meta.Timestamp,
 	}
-	if err := enc.Encode(hdr); err != nil {
-		return nil, err
-	}
-	for _, m := range msgs {
-		redactMessage(&m)
-		if err := enc.Encode(stsEnvelope{Type: "message", Message: m}); err != nil {
-			return nil, err
+	return &sm
+}
+
+// baseTime parses the run's recorded timestamp into a base the message
+// timestamps count from. It accepts the labs stamp (20060102T150405Z) and
+// RFC3339, and falls back to the epoch so a missing stamp still yields a valid,
+// deterministic sequence rather than the forbidden wall clock.
+func baseTime(ts string) time.Time {
+	for _, layout := range []string{"20060102T150405Z", time.RFC3339, "2006-01-02T15:04:05.000Z"} {
+		if t, err := time.Parse(layout, ts); err == nil {
+			return t.UTC()
 		}
 	}
-	return buf.Bytes(), nil
+	return time.Unix(0, 0).UTC()
+}
+
+// stamp renders the timestamp for the nth record, one second per record so the
+// timeline is monotonic and ordered without inventing a real per-turn clock the
+// trace never captured.
+func stamp(base time.Time, n int) string {
+	return base.Add(time.Duration(n) * time.Second).Format("2006-01-02T15:04:05.000Z")
+}
+
+func orUnknown(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "unknown"
+	}
+	return s
 }
 
 // oaiMessage is an OpenAI chat message as it appears in a captured request body.
