@@ -96,6 +96,35 @@ func TestUploadFilesCommit(t *testing.T) {
 	}
 }
 
+// TestUploadFilesSingleCommit asserts that a publish of many small files lands
+// as one commit, not one commit per fixed-size batch. This is the regression the
+// byte-cap packing fixed: the old batch-of-ten split an 82-file backfill into
+// nine identical-summary commits that spammed the dataset history.
+func TestUploadFilesSingleCommit(t *testing.T) {
+	var commits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/commit/main") {
+			commits++
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	c := &HFClient{Token: "t", Repo: "open-index/tomo-traces", HTTP: rewriteClient(srv.URL)}
+	c.Message = "backfill: 77 traces across 1 evals"
+	ops := make([]HFOp, 82)
+	for i := range ops {
+		ops[i] = HFOp{PathInRepo: "data/f-" + strings.Repeat("x", i%5) + ".jsonl", Content: []byte(`{"type":"session"}`)}
+	}
+	if err := c.UploadFiles(context.Background(), ops); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	if commits != 1 {
+		t.Fatalf("want 1 commit for 82 small files, got %d", commits)
+	}
+}
+
 // rewriteClient returns an http.Client whose transport rewrites the fixed
 // hfEndpoint host to the test server, so the ported client can keep its absolute
 // URLs unchanged.

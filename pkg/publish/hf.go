@@ -167,17 +167,37 @@ func (c *HFClient) CreateDatasetRepo(ctx context.Context, private bool) error {
 	return classifyHTTP(resp.StatusCode, string(body))
 }
 
-// UploadFiles commits ops to the dataset's main branch in batches of ten, with
-// three retries per batch. Files above lfsThreshold go through LFS; smaller
-// files are inlined in the commit.
+// commitByteCap bounds how many bytes of file content one commit carries before
+// UploadFiles flushes it and starts another. It exists so a single publish is a
+// single commit at normal scale (a run's trace plus the regenerated front matter
+// is a handful of small files, well under the cap, so it commits once), while a
+// pathologically large backfill still gets split rather than posting one huge
+// NDJSON body. The cap is on content bytes, not the larger base64 the commit
+// actually sends, which is a deliberate slack so the real body stays a few times
+// under any hub request limit.
+const commitByteCap = 32 * 1024 * 1024
+
+// UploadFiles commits ops to the dataset's main branch. It packs as many ops as
+// fit under commitByteCap into each commit so a normal publish lands as one
+// atomic commit rather than one commit per fixed-size batch, which used to spam
+// the dataset history with a run of identical-summary commits. Each commit is
+// retried three times. Files above lfsThreshold go through LFS; smaller files
+// are inlined in the commit.
 func (c *HFClient) UploadFiles(ctx context.Context, ops []HFOp) error {
-	const batchSize = 10
-	for i := 0; i < len(ops); i += batchSize {
-		end := i + batchSize
-		if end > len(ops) {
-			end = len(ops)
+	for i := 0; i < len(ops); {
+		// Grow the batch until the next op would push it past the byte cap, always
+		// taking at least one op so a single file larger than the cap still commits.
+		end, size := i, 0
+		for end < len(ops) {
+			n := len(ops[end].Content)
+			if end > i && size+n > commitByteCap {
+				break
+			}
+			size += n
+			end++
 		}
 		batch := ops[i:end]
+		i = end
 		var lastErr error
 		for attempt := 0; attempt < 3; attempt++ {
 			if ctx.Err() != nil {
