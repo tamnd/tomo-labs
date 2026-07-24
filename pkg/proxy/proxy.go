@@ -373,7 +373,7 @@ func decodeResponseBody(body []byte, encoding string) []byte {
 	if err != nil {
 		return body
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	decoded, err := io.ReadAll(zr)
 	if err != nil {
 		return body

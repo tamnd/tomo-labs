@@ -121,7 +121,7 @@ type anthropicBlock struct {
 // Responses one. modelOverride and effort are pinned the same way.
 func anthropicRequestToResponses(body []byte, modelOverride, effort string) (map[string]any, error) {
 	var a struct {
-		Model    string `json:"model"`
+		Model    string          `json:"model"`
 		System   json.RawMessage `json:"system"`
 		Messages []struct {
 			Role    string          `json:"role"`
