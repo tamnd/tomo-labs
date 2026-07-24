@@ -3,7 +3,7 @@
 # binary copilot), so this image is independent of any copilot checkout on the
 # host. The base already carries Node 22, which the CLI needs.
 FROM tomolab-base
-ARG COPILOT_VERSION=1.0.70
+ARG COPILOT_VERSION=1.0.74
 RUN npm install -g @github/copilot@${COPILOT_VERSION}
 COPY adapter.sh /usr/local/bin/adapter
 RUN chmod +x /usr/local/bin/adapter

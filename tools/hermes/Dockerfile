@@ -7,7 +7,7 @@ FROM tomolab-base
 # Debian bookworm marks its system Python as externally managed (PEP 668), so the
 # bridge's `pip install hermes-agent` needs this to be allowed at image build.
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
-ARG HERMES_VERSION=0.18.2
+ARG HERMES_VERSION=0.19.0
 RUN npm install -g hermes-agent@${HERMES_VERSION}
 COPY adapter.sh /usr/local/bin/adapter
 RUN chmod +x /usr/local/bin/adapter
