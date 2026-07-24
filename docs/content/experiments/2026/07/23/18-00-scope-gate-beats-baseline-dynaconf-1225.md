@@ -1,7 +1,7 @@
 ---
 title: "The scope gate beats the baseline on dynaconf-1225, and the last three tests turn out to be a retrieval gap"
 linkTitle: "Scope gate beats baseline on dynaconf-1225"
-description: "The first lever in this arc to beat the one-of-five baseline on dynaconf__dynaconf-1225. After two rounds proving the reproduction gate is a regression, the reading was that the failure is sprawl and scope, not verification. A scope gate that holds the model to the smallest correct diff and forbids regressing previously-passing tests lifts gpt-5.6-sol to two of five with zero regressions, matching the ceiling two strong native harnesses hit independently. The three still-failing tests are the py-module-path loader cluster, and the run never edited py_loader.py at all: the context pack surfaces py_loader by name but never its body, so the model cannot fix code it does not see. The next lever is a retrieval refinement, not a stronger verifier. Costs are token volumes over the unmetered subscription bridge, dollar cost unknown, never zero."
+description: "The first lever in this arc to beat the one-of-five baseline on dynaconf__dynaconf-1225. After two rounds proving the reproduction gate is a regression, the reading was that the failure is sprawl and scope, not verification. A scope gate that holds the model to the smallest correct diff and forbids regressing previously-passing tests lifts gpt-5.6-sol to two of five with zero regressions, matching the ceiling two strong native harnesses hit independently. A first reading blamed retrieval, but the trace refutes it: both graded functions and the py_loader dotted-path handler were in the context pack and the model edited the graded functions, so the last three are a reasoning ceiling on multi-env loader semantics, not a retrieval gap. Costs are token volumes over the unmetered subscription bridge, dollar cost unknown, never zero."
 date: 2026-07-23T18:00:00+07:00
 ---
 
@@ -34,31 +34,36 @@ It matches the ceiling two strong native harnesses hit independently, codex and 
 Against the same model's reproduction-gate run, which broke three passing tests, the scope gate held the diff clean: nothing that passed before broke.
 The raw line count is still high, but the churn no longer costs correctness.
 
-## Why the last three fail: the model never opens the file that matters
+## Why the last three fail: a retrieval story I had to retract
 
 The three still-failing tests are the exact cluster codex and pi also stalled on: the multi-temporary-env case, the module-path case, and the module-path-under-multi-env case.
-All three are decided in `py_loader.py`, in `load` and `try_to_load_from_py_module_name`: comma-separated temporary envs that must not mutate the current env, env-named sibling files, dotted-module and slash-file path forms.
 
-The scope run edited twelve files.
-Six of them are format loaders, ini and json and redis and toml and vault and yaml, that have nothing to do with this bug.
-It never edited `py_loader.py`.
-The model cannot fix code it never opens.
+My first reading of this run blamed retrieval.
+The patch edits twelve files, six of them irrelevant format loaders, and never touches `py_loader.py`, so I concluded the model never saw the loader and could not fix code it could not read.
+Reading the actual context pack from the trace refutes that.
+The pack's body sections include both functions the gold patch changes, `settings_loader` in loaders/__init__.py and `build_env_list` in utils/__init__.py, and it includes the py_loader dotted-module-path handler `try_to_load_from_py_module_name`.
+The only py_loader body missing was `load` itself, whose more specific sibling was present.
 
-This is not the flat capability wall the previous note framed.
-It is a retrieval gap.
-The call-edge expansion shipped earlier does surface py_loader in the first request's context pack, marked "reached from settings_loader", so the model sees the name.
-But the probe budget fills with call sites inside the large `settings_loader` body before it reaches `py_loader.load`'s own body, so the pack shows where py_loader is called and not what it does.
-The model sees a referenced symbol with no body, reads it as out of scope, and spends its edits on the loaders it can actually read.
+And the model did edit the graded functions: the patch rewrites `settings_loader`, a forty-one-line span expanded to sixty-eight, and edits build_env_list's file.
+It had the right functions, opened them, changed them, and still wrote the multi-env and module-path semantics wrong on three of five.
+This is not a retrieval gap.
+It is a correctness gap in what the model can write.
+
+## Reading: the ceiling here is reasoning, not retrieval
+
+Two independent strong harnesses and now the scope gate converge on the same two of five and the same three failures.
+Codex and pi can open any file in the repository, are not bound by a context pack, and burn far larger budgets, and they stall at exactly the same three tests.
+The scope gate, with both graded functions and the py_loader helper in its pack, edits the graded functions and stalls at the same three.
+When an unrestricted harness and a pack-restricted harness fail identically on the same cases, the shared cause cannot be that one of them could not see the code.
+The multi-env `settings_loader` these tests demand is semantically precise, a comma-separated temporary env that loads three envs in order without mutating the current env, env-named sibling files, both dotted and slash path forms, and the model writes that logic wrong regardless of how much of it is in front of it.
 
 ## What comes next, and the line it must not cross
 
-The direction is a retrieval refinement, not a prompt.
-Order the context pack so a callee reached across a call edge gets its own body section, not only its call sites, when the budget allows, and prefer a not-yet-shown callee body over another call site inside a function already in the pack.
-That is general: it names no file from the issue, it changes how the pack is built for any task, and it would surface the decisive callee in any bug whose fix sits one hop out from the named entry point.
-It stays on the right side of the no-tailoring line because it is a budget-ordering rule over the call graph, not a rule about dynaconf.
-
-The issue-example-derived required-test lever remains the other open direction, but this run says retrieval comes first.
-A required test the model cannot make pass because it never sees the loader is no more use than the reproduction gate was.
+With retrieval ruled out by the trace, the remaining non-tailored direction is the issue-example-derived required test: turn each concrete case the issue itself describes into an executable target the model must make pass, from the problem statement and never from the hidden suite.
+That is different from asking the model to verify harder, which the reproduction gate already proved is a regression here: it supplies the specific cases as concrete red-to-green targets the model iterates against.
+It is also the closest to the tailoring line, so it is legal only if it reads the issue text and nothing else.
+The honest expectation is modest, though: two strong harnesses with full file access already fail these three, so the ceiling is likely the model's reasoning about multi-env semantics, and five of five may simply need a stronger reasoning step rather than any harness lever at all.
+A retrieval refinement, the direction I first proposed here, is not warranted, since the graded functions were already in the pack and the model edited them.
 
 Costs are token volumes; the model was served over the unmetered subscription bridge, so the dollar cost is unknown, never zero.
 The run is on the public trace index under `dynaconf__dynaconf-1225`.
