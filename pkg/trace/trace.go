@@ -142,6 +142,9 @@ func Encode(traceDir string, h Header) ([]byte, error) {
 // the audit can tally our reconstruction against the agent's native session log
 // without re-parsing the emitted JSONL.
 func Reconstruct(traceDir, model string) []Message {
+	if msgs, ok := tomoMessages(traceDir); ok {
+		return msgs
+	}
 	if msgs, ok := responsesMessages(traceDir, model); ok {
 		return msgs
 	}
