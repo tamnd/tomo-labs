@@ -70,7 +70,33 @@ cp -r "$ROOT/bridgetrace" "$TDIR/trace/bridgetrace" 2>/dev/null || true
 docker rm -f swelive-proxy swelive-bridge >/dev/null 2>&1 || true
 echo "[agent done] rc=$rc exit_code=$(cat "$TDIR/trace/exit_code" 2>/dev/null) patch_lines=$(cat "$TDIR/trace/model.patch.lines" 2>/dev/null)"
 
+# abort-is-not-fail: a provider/gateway failure (bridge/proxy 400/401/429/5xx) is
+# an infra abort, not a model result; classify and skip grading so it is pruned or
+# retried rather than scored resolved=False.
+if ! bash "$ROOT/classify_run.sh" "$TDIR/trace"; then
+  echo "[grade] skipped: run aborted on infra, not a model result (prune or retry)"
+  exit 0
+fi
 echo "[grade] offline, fresh instance container, upstream flow"
 bash "$ROOT/eval_instance.sh" "$IMAGE" "$TEST_CMD" \
   "$TDIR/trace/model.patch" "$ROOT/dyn/test.patch" "$ROOT/dyn/f2p.json" "$ROOT/dyn/p2p.json" \
   "$TDIR/grade" 2>&1 | tee "$TDIR/grade.log" | tail -14
+
+# --- self-publish: fold this run into the labs data layout (result.json + the
+#     canonical codex-style date-tree session.jsonl) and best-effort mirror it to
+#     the Hub, so the standard artifact exists the moment the run finishes and no
+#     manual backfill is needed. Skipped cleanly when no lab binary is present.
+#     INGEST_TOOL defaults to the run label (tomo-oi, tomo-agent), the dataset's
+#     tool name for this bridge path. ---
+LABBIN=""
+for cand in "$ROOT/_labbin" "$ROOT/net/_labbin" "$(command -v labbin 2>/dev/null)"; do
+  if [ -n "$cand" ] && [ -x "$cand" ]; then LABBIN="$cand"; break; fi
+done
+if [ -n "$LABBIN" ]; then
+  echo "[publish] ingest $LABEL/$SLUG via $LABBIN"
+  "$LABBIN" ingest-swelive --src "$TDIR" --tool "${INGEST_TOOL:-$LABEL}" \
+    --scenario "$SLUG" --model "$MODEL" --runtime docker \
+    || echo "[publish] ingest failed (non-fatal); $TDIR kept for backfill"
+else
+  echo "[publish] no lab binary found; skipping ingest ($TDIR kept for backfill)"
+fi

@@ -44,6 +44,13 @@ timeout "${ATTEMPT_TIMEOUT:-1800}" docker run --rm --platform linux/amd64 \
 rc=$?
 cp "$ROOT/proxytrace/usage.jsonl" "$TDIR/trace/usage.jsonl" 2>/dev/null || true
 echo "[agent done] rc=$rc exit_code=$(cat "$TDIR/trace/exit_code" 2>/dev/null) patch_lines=$(cat "$TDIR/trace/model.patch.lines" 2>/dev/null)"
+# abort-is-not-fail: if the run died on a provider/gateway error (zen 400/401/429,
+# 5xx), classify it as an ABORT and skip grading, so an infra failure never scores
+# as a resolved=False capability result. The A/B summary scripts skip trace/aborted.
+if ! bash "$ROOT/classify_run.sh" "$TDIR/trace"; then
+  echo "[grade] skipped: run aborted on infra, not a model result (prune or retry)"
+  exit 0
+fi
 echo "[grade] offline, fresh instance container, upstream flow"
 bash "$ROOT/eval_instance.sh" "$IMAGE" "$TEST_CMD" \
   "$TDIR/trace/model.patch" "$ROOT/dyn/test.patch" "$ROOT/dyn/f2p.json" "$ROOT/dyn/p2p.json" \

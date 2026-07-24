@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/tamnd/tomo-labs/pkg/result"
+	"github.com/tamnd/tomo-labs/pkg/trace"
 )
 
 // This file is the read side of the publisher: it loads every result.json under
@@ -16,49 +19,16 @@ import (
 // fields the dataset front matter needs. The contract is the result.json shape;
 // pkg/lab/result.go is its source of truth.
 
-// Result is the subset of a labs result.json the publisher reads. Its JSON tags
-// match pkg/lab.Result exactly, so it decodes the same files.
-type Result struct {
-	Tool     string `json:"tool"`
-	Scenario string `json:"scenario"`
-	Time     string `json:"timestamp"`
-	Model    string `json:"model"`
-	Runtime  string `json:"runtime"`
-
-	Passed      bool `json:"passed"`
-	ExitCode    int  `json:"exit_code"`
-	Attempts    int  `json:"attempts"`
-	AttemptsMax int  `json:"attempts_max"`
-
-	WallSeconds int `json:"wall_seconds"`
-	Requests    int `json:"requests"`
-
-	Tokens        Tokens        `json:"tokens"`
-	Latency       Latency       `json:"latency_ms"`
-	Orchestration Orchestration `json:"orchestration"`
-
-	CostUSD  float64 `json:"cost_usd,omitempty"`
-	Stop     string  `json:"stop,omitempty"`
-	Check    string  `json:"check"`
-	Ungraded bool    `json:"ungraded,omitempty"`
-}
-
-// Latency mirrors pkg/lab.Latency for the fields reports show.
-type Latency struct {
-	AvgTTFB  int `json:"avg_ttfb"`
-	AvgTotal int `json:"avg_total"`
-	SumTotal int `json:"sum_total"`
-	Calls    int `json:"calls"`
-}
-
-// Orchestration mirrors pkg/lab.Orchestration.
-type Orchestration struct {
-	ModelCalls int  `json:"model_calls"`
-	ToolCalls  int  `json:"tool_calls"`
-	PlanCalls  int  `json:"plan_calls"`
-	Subagents  int  `json:"subagents"`
-	Planned    bool `json:"planned"`
-}
+// The publisher reads back the same run-outcome model the run loop wrote, so it
+// aliases the single definition in pkg/result rather than keeping a hand-synced
+// copy that could drift from it. It reads the full model, not a subset: extra
+// fields it does not report simply decode and go unused, which is safer than a
+// narrower struct that silently stops matching when the writer's shape changes.
+type (
+	Result        = result.Result
+	Latency       = result.Latency
+	Orchestration = result.Orchestration
+)
 
 // Run is one loaded result with the on-disk locations the publisher needs: the
 // run directory that holds it, the trace directory to reconstruct from, and the
@@ -161,15 +131,15 @@ func attemptN(path string) int {
 	return n
 }
 
-// meta builds the STS session header metadata for a run from its result.
-func (r Run) meta() SessionMeta {
+// meta builds the trace session header for a run from its result.
+func (r Run) meta() trace.Header {
 	res := r.Result
 	tok := res.Tokens
 	name := res.Tool + " on " + res.Scenario
 	if res.Model != "" {
 		name += " (" + res.Model + ")"
 	}
-	return SessionMeta{
+	return trace.Header{
 		Harness:     res.Tool,
 		ID:          r.RunID,
 		Name:        name,

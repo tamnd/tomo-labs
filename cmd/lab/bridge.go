@@ -96,6 +96,13 @@ func cmdBridge(ctx context.Context, args []string) error {
 	// route forwards codex's own Responses request to /codex/responses verbatim, so
 	// the backend still injects the tools and codex behaves exactly as it would on
 	// its own subscription; only the model and effort are pinned for a fair column.
+	// claude-code speaks the Anthropic Messages wire; serveAnthropic translates it
+	// to the same Responses request every other tool produces, so a claude run
+	// audits and reconstructs identically. Its token-count probe is answered with a
+	// cheap estimate so the CLI's context accounting does not stall the run.
+	mux.HandleFunc("/v1/messages/count_tokens", br.serveAnthropicCountTokens)
+	mux.HandleFunc("/v1/messages", br.serveAnthropic)
+	mux.HandleFunc("/messages", br.serveAnthropic)
 	mux.HandleFunc("/v1/responses", br.servePassthrough)
 	mux.HandleFunc("/responses", br.servePassthrough)
 	mux.HandleFunc("/v1/models", br.models)
@@ -239,7 +246,46 @@ func (b *bridge) serve(w http.ResponseWriter, r *http.Request) {
 			f.Flush()
 		}
 	}
-	responsesStreamToChat(w, flush, resp.Body, seq, b.o.model)
+	// Tee the upstream Responses SSE to disk while it streams to the agent, so the
+	// assistant's reply for this turn, its text, its reasoning, and its tool calls,
+	// is captured. Without this only the request is dumped, and the assistant turn
+	// survives only as an echo in the next request's input, which loses the final
+	// turn entirely and any prose a tool-only agent never echoes back.
+	respBody := b.teeResponse(seq, resp.Body)
+	responsesStreamToChat(w, flush, respBody, seq, b.o.model)
+}
+
+// teeResponse wraps an upstream response body so every byte streamed to the agent
+// is also written to <seq>.resp in the trace dir. It is a no-op passthrough when
+// tracing is off. The file is closed when the returned reader is fully drained,
+// which the streamer does, so no handle leaks per turn.
+func (b *bridge) teeResponse(seq int, upstream io.ReadCloser) io.Reader {
+	if b.o.traceDir == "" {
+		return upstream
+	}
+	_ = os.MkdirAll(b.o.traceDir, 0o755)
+	f, err := os.Create(filepath.Join(b.o.traceDir, fmt.Sprintf("%04d.resp", seq)))
+	if err != nil {
+		return upstream
+	}
+	return &closingTeeReader{r: io.TeeReader(upstream, f), f: f}
+}
+
+// closingTeeReader closes its capture file once the underlying stream reports EOF,
+// so a per-turn tee needs no separate lifecycle from the read that drains it.
+type closingTeeReader struct {
+	r    io.Reader
+	f    *os.File
+	done bool
+}
+
+func (t *closingTeeReader) Read(p []byte) (int, error) {
+	n, err := t.r.Read(p)
+	if err != nil && !t.done {
+		t.done = true
+		_ = t.f.Close()
+	}
+	return n, err
 }
 
 // servePassthrough forwards a native Responses request (real codex speaks this
@@ -316,7 +362,7 @@ func (b *bridge) servePassthrough(w http.ResponseWriter, r *http.Request) {
 			f.Flush()
 		}
 	}
-	sc := bufio.NewScanner(resp.Body)
+	sc := bufio.NewScanner(b.teeResponse(seq, resp.Body))
 	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	for sc.Scan() {
 		line := sc.Bytes()

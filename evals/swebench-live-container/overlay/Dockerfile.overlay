@@ -27,7 +27,14 @@ RUN npm install -g opencode-ai@1.18.4 \
 # TOMO_LSP actually launch it, so the non-LSP arms are unaffected.
 RUN npm install -g pyright@1.1.400
 RUN npm install -g @openai/codex@0.145.0-alpha.4
-RUN apt-get update && apt-get install -y --no-install-recommends time && rm -rf /var/lib/apt/lists/*
+# claude-code speaks the Anthropic Messages wire; pointed at an Anthropic-
+# compatible endpoint it runs the same offline-graded flow as the others. Its
+# binary is `claude`.
+RUN npm install -g @anthropic-ai/claude-code@1.0.44
+# sqlite3 dumps opencode's session database (opencode persists a run to
+# ~/.local/share/opencode/opencode.db) to JSONL at capture time, so the audit
+# reads plain JSON rather than linking a SQLite driver; `time` measures each run.
+RUN apt-get update && apt-get install -y --no-install-recommends time sqlite3 && rm -rf /var/lib/apt/lists/*
 COPY --from=gobuild /go/bin/tomo /usr/local/bin/tomo
 COPY run_agent.sh /usr/local/bin/run_agent
 RUN chmod +x /usr/local/bin/run_agent

@@ -69,3 +69,24 @@ echo "[grade] offline, fresh instance container, upstream flow"
 bash "$ROOT/eval_instance.sh" "$IMAGE" "$TEST_CMD" \
   "$TDIR/trace/model.patch" "$ROOT/dyn/test.patch" "$ROOT/dyn/f2p.json" "$ROOT/dyn/p2p.json" \
   "$TDIR/grade" 2>&1 | tee "$TDIR/grade.log" | tail -14
+
+# --- self-publish: fold this run into the labs data layout (result.json + the
+#     canonical codex-style date-tree session.jsonl) and best-effort mirror it to
+#     the Hub. Skipped cleanly when no lab binary is present. ---
+LABBIN=""
+for cand in "$ROOT/_labbin" "$ROOT/net/_labbin" "$(command -v labbin 2>/dev/null)"; do
+  if [ -n "$cand" ] && [ -x "$cand" ]; then LABBIN="$cand"; break; fi
+done
+if [ -n "$LABBIN" ]; then
+  echo "[publish] ingest $TOOL/$SLUG via $LABBIN"
+  "$LABBIN" ingest-swelive --src "$TDIR" --tool "${INGEST_TOOL:-$TOOL}" \
+    --scenario "$SLUG" --model "$MODEL" --runtime docker \
+    || echo "[publish] ingest failed (non-fatal); $TDIR kept for backfill"
+  # Self-audit: compare our reconstructed session against codex's own native
+  # rollout (captured under trace/native/) to prove the capture dropped nothing.
+  echo "[audit] reconstructed vs codex native session"
+  "$LABBIN" audit-swelive --src "$TDIR" --model "$MODEL" \
+    || echo "[audit] shortfall or no native log (see above); non-fatal"
+else
+  echo "[publish] no lab binary found; skipping ingest ($TDIR kept for backfill)"
+fi

@@ -25,6 +25,25 @@ func (l *Lab) publishRun(ctx context.Context, runDir string) {
 	_ = p.PublishRun(ctx, runDir)
 }
 
+// IngestSwelive folds a finished swelive container run into the labs data layout
+// and publishes it, the durable replacement for the manual backfill that lost the
+// early luna runs. A swelive attempt records a bridgetrace and grades offline but
+// never writes the result.json the publisher indexes on, so its trace is invisible
+// until it is ingested; calling this as the last step of the container wrapper
+// means every run self-publishes the moment it finishes. Ingestion is required (a
+// bad run dir is an error the caller should see), but the publish that follows is
+// best-effort, exactly like the normal run loop's, so a network hiccup never
+// undoes the on-disk ingest.
+func (l *Lab) IngestSwelive(ctx context.Context, r publish.SweliveRun) error {
+	runDir, err := publish.IngestSwelive(l.cfg.Data, r)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("ingested %s/%s -> %s\n", r.Tool, r.Scenario, runDir)
+	l.publishRun(ctx, runDir)
+	return nil
+}
+
 // Backfill reconstructs and commits every trace in the local result history in
 // one commit, plus the regenerated README and reports, and does the first real
 // publish of the dataset. It is the on-demand path behind `lab publish

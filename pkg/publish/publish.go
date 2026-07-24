@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/tamnd/tomo-labs/pkg/trace"
 )
 
 // The Publisher assembles a run's commit (the trace plus the regenerated README
@@ -151,19 +153,37 @@ func (p *Publisher) DryRun() (DryRunReport, error) {
 	return rep, nil
 }
 
-// traceOp reconstructs a run's STS trace and returns it as a commit op. It
-// returns ok false when the run has no trace directory to reconstruct from.
+// traceOp returns a run's session trace as a commit op. It prefers the canonical
+// session file the run already wrote under the date tree (trace.DiskPath), so
+// publish uploads the same bytes downstream reads and never re-derives them; it
+// falls back to reconstructing from the raw captures for a legacy run that
+// predates the date tree. It returns ok false when neither source yields a
+// trace.
 func (p *Publisher) traceOp(r Run) (HFOp, bool) {
-	if r.TraceDir == "" {
-		return HFOp{}, false
-	}
-	data, err := EncodeTrace(r.TraceDir, r.meta())
-	if err != nil || len(data) == 0 {
-		return HFOp{}, false
+	meta := r.meta()
+	data := readSession(trace.DiskPath(p.root, meta))
+	if len(data) == 0 {
+		if r.TraceDir == "" {
+			return HFOp{}, false
+		}
+		var err error
+		if data, err = trace.Encode(r.TraceDir, meta); err != nil || len(data) == 0 {
+			return HFOp{}, false
+		}
 	}
 	res := r.Result
 	path := TracePath(r.Eval, res.Scenario, res.Model, res.Tool, r.RunID)
 	return HFOp{PathInRepo: path, Content: data}, true
+}
+
+// readSession reads a pre-written session file, returning nil when it is absent
+// so the caller falls back to reconstruction.
+func readSession(path string) []byte {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 // frontmatter builds the ops for the regenerated README and every report, from
