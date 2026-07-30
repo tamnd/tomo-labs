@@ -85,10 +85,10 @@ The script only reads the network and rewrites `Dockerfile`s, so it never needs 
 
 ## The daily update
 
-A scheduled workflow, `.github/workflows/update-tools.yml`, runs the same script once a day and opens a pull request when anything moved.
-The pull request is a reviewable record of exactly which tool changed and from which version to which, so a bump is never silent.
+A scheduled workflow, `.github/workflows/update-tools.yml`, runs the same script once a day and commits directly to `main` when anything moved.
+The commit is a record of exactly which tool changed and from which version to which, so a bump is never silent and no generated bump branches accumulate.
 It does not rebuild the images or rerun the sweep, because that needs the container runtime and the model key, so the results are refreshed separately on a machine that can run them.
-After the bump merges, rebuild and rerun as below so the numbers catch up with the versions.
+After the bump lands, rebuild and rerun as below so the numbers catch up with the versions.
 
 ## A note on the free tier
 

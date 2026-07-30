@@ -1,10 +1,9 @@
 name: update-tools
 
 # Every day, resolve the newest upstream release of each wired tool, betas
-# included, and open a pull request that bumps the version pins. The images are
-# not rebuilt or rerun here, since that needs a container runtime and the model
-# key; the pull request is a reviewable record of what moved, and the results
-# are refreshed on a machine that can run the sweep.
+# included, and commit changed version pins directly to main. The images are not
+# rebuilt or rerun here, since that needs a container runtime and the model key;
+# the results are refreshed on a machine that can run the sweep.
 
 on:
   schedule:
@@ -13,7 +12,10 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
+
+concurrency:
+  group: update-tools
+  cancel-in-progress: false
 
 jobs:
   update:
@@ -27,33 +29,19 @@ jobs:
       - name: Resolve newest versions
         id: bump
         run: |
-          go run scripts/update_tools.go -summary "$RUNNER_TEMP/bumps.md"
+          go run scripts/update_tools.go
           if git diff --quiet -- tools/; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Open pull request
+      - name: Commit changes to main
         if: steps.bump.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          day=$(date -u +%Y%m%d)
-          branch="tools/bump-$day"
           git config user.name 'Tam Nguyen Duc'
           git config user.email '1218621+tamnd@users.noreply.github.com'
           git config commit.gpgsign false
-          git checkout -b "$branch"
           git add tools/
           git commit -m "Bump wired tools to their newest releases"
-          git push -f -u origin "$branch"
-          {
-            echo "Daily bump of the wired tools to their newest upstream releases, betas included."
-            echo
-            cat "$RUNNER_TEMP/bumps.md"
-            echo
-            echo "Rebuild the images and rerun the sweep to refresh the results after merging."
-          } > "$RUNNER_TEMP/body.md"
-          gh pr create --title "Bump wired tools ($day)" --body-file "$RUNNER_TEMP/body.md" \
-            --head "$branch" --base main || true
+          git push origin HEAD:main
