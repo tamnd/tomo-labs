@@ -3,7 +3,7 @@
 # independent of any openclaw checkout on the host. The base already carries
 # Node 22, which openclaw needs.
 FROM tomolab-base
-ARG OPENCLAW_VERSION=2026.9.1-beta.1
+ARG OPENCLAW_VERSION=2026.8.1
 RUN npm install -g openclaw@${OPENCLAW_VERSION}
 COPY adapter.sh /usr/local/bin/adapter
 RUN chmod +x /usr/local/bin/adapter
