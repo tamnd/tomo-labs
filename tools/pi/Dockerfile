@@ -4,7 +4,7 @@
 # pi's own docs prescribe, so this image is independent of any pi checkout on the
 # host. The base already carries Node 22, which pi needs.
 FROM tomolab-base
-ARG PI_VERSION=1.0.4
+ARG PI_VERSION=1.1.0
 RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent@${PI_VERSION}
 COPY adapter.sh /usr/local/bin/adapter
 RUN chmod +x /usr/local/bin/adapter
