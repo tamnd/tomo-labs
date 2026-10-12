@@ -3,7 +3,7 @@
 # @google/gemini-cli, a Node launcher), so this image is independent of any
 # checkout on the host. The base already carries Node 22, which the launcher needs.
 FROM tomolab-base
-ARG GEMINI_CLI_VERSION=0.65.0-nightly.20261010.g9b6e0265d
+ARG GEMINI_CLI_VERSION=0.65.0-nightly.20261012.g9b6e0265d
 RUN npm install -g @google/gemini-cli@${GEMINI_CLI_VERSION}
 COPY adapter.sh /usr/local/bin/adapter
 RUN chmod +x /usr/local/bin/adapter
